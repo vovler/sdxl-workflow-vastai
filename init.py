@@ -9,7 +9,7 @@ def get_public_ip_and_port():
 def main():
     while True:
         public_ip, port = get_public_ip_and_port()
-        print(f"My Public IP is: {public_ip} and my port is: {port}")
+        print(f"My Public IP is: {public_ip} and my port is: {port} version 2")
         time.sleep(5)
 
 if __name__ == "__main__":

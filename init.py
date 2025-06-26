@@ -11,6 +11,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 import uvicorn
+from run_prompt import generate_image, initialize_pipeline
 
 # Global variables
 worker_uuid: Optional[str] = None
@@ -146,22 +147,35 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
     """Process a task with the specified workflow"""
     print(f"Processing task {task_id} with data: {json.dumps(task_data)}")
     
-    # Send PROCESSING status after 2 seconds
-    await asyncio.sleep(2)
+    # Send PROCESSING status
     await send_task_status(task_id, "PROCESSING", "Worker is processing the request...")
     
-    # Send DONE status with image after another 2 seconds
-    await asyncio.sleep(2)
-    
-    # Load and send the test image
     try:
-        image_path = Path("test_image.png")
-        if image_path.exists():
-            image_data = image_path.read_bytes()
-            await send_task_status(task_id, "DONE", image_data=image_data)
-        else:
-            print("Warning: test_image.png not found")
-            await send_task_status(task_id, "DONE")
+        # Extract parameters from task_data or use defaults
+        prompt = task_data.get("prompt", "A majestic anime knight standing on a cliff, cinematic lighting, ultra-detailed")
+        negative_prompt = task_data.get("negative_prompt", "lowres, bad anatomy, watermark")
+        width = task_data.get("width", 1024)
+        height = task_data.get("height", 1024)
+        num_steps = task_data.get("num_inference_steps", 30)
+        guidance = task_data.get("guidance_scale", 5.0)
+        
+        # Generate image using run_prompt module
+        output_path = f"output_{task_id}.png"
+        image_data, img = generate_image(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            num_steps=num_steps,
+            guidance=guidance,
+            save_path=output_path
+        )
+        
+        print(f"Image generated and saved as {output_path}")
+        
+        # Send DONE status with generated image
+        await send_task_status(task_id, "DONE", "Image generated successfully!", image_data=image_data)
+        
     except Exception as e:
         print(f"Error processing task: {e}")
         await send_task_status(task_id, "ERROR", f"Task processing failed: {str(e)}")
@@ -173,6 +187,12 @@ async def lifespan(app: FastAPI):
     
     # Startup
     print("Worker starting up...")
+    
+    # Initialize SDXL pipeline
+    try:
+        initialize_pipeline()
+    except Exception as e:
+        print(f"Warning: Failed to initialize SDXL pipeline: {e}")
     
     # Check if UUID exists
     worker_uuid = load_uuid()

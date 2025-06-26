@@ -56,8 +56,8 @@ async def connect_to_parent() -> Optional[str]:
         return None
     
     payload = {
-        "PublicIP": public_ip,
-        "Port": port
+        "public_ip": public_ip,
+        "port": int(port)
     }
     
     try:
@@ -86,9 +86,9 @@ async def send_healthcheck():
     get_env_values()
     
     payload = {
-        "UUID": worker_uuid,
-        "PublicIP": public_ip,
-        "Port": port
+        "uuid": worker_uuid,
+        "public_ip": public_ip,
+        "port": int(port)
     }
     
     try:
@@ -111,13 +111,13 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
         return
     
     payload = {
-        "UUID": worker_uuid,
-        "TaskID": task_id,
-        "Status": status
+        "uuid": worker_uuid,
+        "task_id": task_id,
+        "status": status
     }
     
     if status_text:
-        payload["StatusText"] = status_text
+        payload["status_text"] = status_text
     
     try:
         if image_data:

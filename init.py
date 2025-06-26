@@ -119,10 +119,19 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
     
     try:
         if image_data:
-            # Send with image data
+            # Send with image data as multipart form data
             files = {"image": ("test_image.png", image_data, "image/png")}
+            # Convert payload to individual form fields
+            form_data = {
+                "uuid": worker_uuid,
+                "task_id": task_id,
+                "status": status
+            }
+            if status_text:
+                form_data["status_text"] = status_text
+            
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(f"{parent_host}/worker/task", data=payload, files=files)
+                response = await client.post(f"{parent_host}/worker/task", data=form_data, files=files)
         else:
             # Send JSON only
             async with httpx.AsyncClient(timeout=30.0) as client:

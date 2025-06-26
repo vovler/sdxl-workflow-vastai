@@ -19,3 +19,7 @@ onnx-graphsurgeon==0.5.2
 peft==0.13.0
 polygraphy==0.49.9
 sentencepiece
+tensorrt
+tensorrt-stubs
+safetensors
+onnxmltools==1.13.0

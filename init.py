@@ -5,14 +5,12 @@ import asyncio
 import uuid as uuid_lib
 from pathlib import Path
 from typing import Optional, Dict, Any
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 import uvicorn
-
-# Initialize FastAPI app
-app = FastAPI(title="Worker Service")
 
 # Global variables
 worker_uuid: Optional[str] = None
@@ -159,11 +157,12 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
         print(f"Error processing task: {e}")
         await send_task_status(task_id, "ERROR", f"Task processing failed: {str(e)}")
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize worker on startup"""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler for startup and shutdown"""
     global worker_uuid, healthcheck_task
     
+    # Startup
     print("Worker starting up...")
     
     # Check if UUID exists
@@ -175,6 +174,7 @@ async def startup_event():
         
         if not worker_uuid:
             print("Failed to get UUID from parent")
+            yield
             return
     else:
         print(f"Using existing UUID: {worker_uuid}")
@@ -182,16 +182,19 @@ async def startup_event():
     # Start periodic healthcheck
     healthcheck_task = asyncio.create_task(periodic_healthcheck())
     print("Healthcheck task started")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
+    
+    yield
+    
+    # Shutdown
     if healthcheck_task:
         healthcheck_task.cancel()
         try:
             await healthcheck_task
         except asyncio.CancelledError:
             pass
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title="Worker Service", lifespan=lifespan)
 
 @app.post("/pipeline/create_task")
 async def create_task(task_data: Dict[str, Any], background_tasks: BackgroundTasks):
@@ -226,7 +229,7 @@ def main():
         return
     
     try:
-        port_int = int(port)
+        port_int = 80
         print(f"Starting worker server on port {port_int}")
         uvicorn.run(app, host="0.0.0.0", port=port_int)
     except ValueError:

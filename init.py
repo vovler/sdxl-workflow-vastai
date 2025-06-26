@@ -154,10 +154,10 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
         # Extract parameters from task_data or use defaults
         prompt = task_data.get("prompt", "A majestic anime knight standing on a cliff, cinematic lighting, ultra-detailed")
         negative_prompt = task_data.get("negative_prompt", "lowres, bad anatomy, watermark")
-        width = task_data.get("width", 1024)
-        height = task_data.get("height", 1024)
-        num_steps = task_data.get("num_inference_steps", 30)
-        guidance = task_data.get("guidance_scale", 5.0)
+        width = task_data.get("width", 1152)
+        height = task_data.get("height", 768)
+        num_steps = task_data.get("num_inference_steps", 4)
+        guidance = task_data.get("guidance_scale", 0)
         
         # Generate image using run_prompt module
         output_path = f"output_{task_id}.png"

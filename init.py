@@ -210,8 +210,8 @@ async def create_task(task_data: Dict[str, Any], background_tasks: BackgroundTas
     # Return STARTED status with TaskId
     return JSONResponse(
         content={
-            "Status": "STARTED",
-            "TaskId": task_id
+            "status": "STARTED",
+            "task_id": task_id
         }
     )
 

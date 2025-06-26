@@ -7,29 +7,29 @@ from typing import Optional, Dict, Any, Tuple
 pipe = None
 
 def initialize_pipeline():
-    """Initialize the SDXL pipeline"""
+    """Initialize the SDXL pipeline with DMD2 LoRA"""
     global pipe
     if pipe is not None:
         return pipe
         
     print("Loading SDXL pipeline...")
+   
+        
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        "John6666/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl",
+        torch_dtype=torch.float16,
+        use_safetensors=True
+    )
+    
+    # Load and apply DMD2 LoRA
+    print("Loading DMD2 LoRA...")
     try:
-        # Try loading with fp16 variant first
-        pipe = StableDiffusionXLPipeline.from_pretrained(
-            "John6666/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl",
-            torch_dtype=torch.float16,
-            use_safetensors=True,
-            variant="fp16"
-        )
+        pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors")
+        pipe.fuse_lora()
+        print("DMD2 LoRA loaded and applied successfully!")
     except Exception as e:
-        print(f"Failed to load with fp16 variant: {e}")
-        print("Trying without variant...")
-        # Fallback to loading without variant
-        pipe = StableDiffusionXLPipeline.from_pretrained(
-            "John6666/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl",
-            torch_dtype=torch.float16,
-            use_safetensors=True
-        )
+        print(f"Warning: Failed to load DMD2 LoRA: {e}")
+        print("Continuing without LoRA...")
     
     # Set up DPM++ 2M SGM Uniform scheduler
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(
@@ -45,7 +45,7 @@ def initialize_pipeline():
     pipe.enable_xformers_memory_efficient_attention()  # efficient attention
     #pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)  # speed-up (requires torch>=2.0)
     
-    print("SDXL pipeline loaded successfully with DPM++ 2M SGM Uniform scheduler!")
+    print("SDXL pipeline loaded successfully with DPM++ 2M SGM Uniform scheduler and DMD2 LoRA!")
     return pipe
 
 def generate_image(
@@ -53,12 +53,12 @@ def generate_image(
     negative_prompt: str = "lowres, bad anatomy, watermark",
     width: int = 1024,
     height: int = 1024,
-    num_steps: int = 25,
+    num_steps: int = 4,  # DMD2 is optimized for 4 steps
     guidance: float = 5.0,
     save_path: Optional[str] = None
 ) -> Tuple[bytes, Any]:
     """
-    Generate an image using SDXL pipeline
+    Generate an image using SDXL pipeline with DMD2 LoRA
     
     Returns:
         Tuple of (image_bytes, pil_image)

@@ -45,7 +45,7 @@ def generate_image(
     negative_prompt: str = "lowres, bad anatomy, watermark",
     width: int = 1024,
     height: int = 1024,
-    num_steps: int = 30,
+    num_steps: int = 20,
     guidance: float = 5.0,
     save_path: Optional[str] = None
 ) -> Tuple[bytes, Any]:
@@ -63,7 +63,12 @@ def generate_image(
     
     print(f"Generating image with prompt: {prompt}")
     
-    # Generate image
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, 1girl, " + prompt + ", looking_at_viewer, Thigh Up, background visible, high detail, highly detailed, high quality"
+    negavite_prompt = "worst quality, bad quality, very displeasing, displeasing, bad anatomy, \
+	artistic error, anatomical nonsense, lowres, bad hands, signature, artist name, variations, \
+	old, oldest, extra hands, multiple_penises, deformed, mutated, ugly, disfigured, long body, \
+	missing fingers, cropped, very displeasing, bad anatomy, conjoined, bad ai-generated, \
+	multiple_girls, multiple_boys, multiple_views"
     out = pipe(
         prompt=prompt,
         prompt_2=prompt,  # same prompt for both encoders; you can customize prompt_2 differently

@@ -26,7 +26,7 @@ def get_env_values():
     global public_ip, port, parent_host
     public_ip = os.getenv("PUBLIC_IPADDR", "")
     port = os.getenv("VAST_TCP_PORT_80", "")
-    parent_host = os.getenv("PARENT_HOST", "")
+    parent_host = "http://" + os.getenv("PARENT_HOST", "")
     return public_ip, port, parent_host
 
 def load_uuid() -> Optional[str]:

@@ -13,12 +13,24 @@ def initialize_pipeline():
         return pipe
         
     print("Loading SDXL pipeline...")
-    pipe = StableDiffusionXLPipeline.from_pretrained(
-        "John6666/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl",
-        torch_dtype=torch.float16,
-        use_safetensors=True,
-        variant="fp16"
-    )
+    try:
+        # Try loading with fp16 variant first
+        pipe = StableDiffusionXLPipeline.from_pretrained(
+            "John6666/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl",
+            torch_dtype=torch.float16,
+            use_safetensors=True,
+            variant="fp16"
+        )
+    except Exception as e:
+        print(f"Failed to load with fp16 variant: {e}")
+        print("Trying without variant...")
+        # Fallback to loading without variant
+        pipe = StableDiffusionXLPipeline.from_pretrained(
+            "John6666/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl",
+            torch_dtype=torch.float16,
+            use_safetensors=True
+        )
+    
     pipe.to("cuda")
 
     # Optional memory optimizations

@@ -25,7 +25,7 @@ def initialize_pipeline():
     print("Loading DMD2 LoRA...")
     try:
         pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors")
-        pipe.fuse_lora()
+        pipe.fuse_lora(lora_scale=0.8)
         print("DMD2 LoRA loaded and applied successfully!")
     except Exception as e:
         print(f"Warning: Failed to load DMD2 LoRA: {e}")

@@ -10,3 +10,4 @@ transformers>=4.25.0
 accelerate>=0.20.0
 safetensors>=0.3.0
 xformers
+peft

@@ -54,7 +54,7 @@ def generate_image(
     width: int = 1024,
     height: int = 1024,
     num_steps: int = 4,  # DMD2 is optimized for 4 steps
-    guidance: float = 5.0,
+    guidance: float = 1.0,
     save_path: Optional[str] = None
 ) -> Tuple[bytes, Any]:
     """

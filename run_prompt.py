@@ -1,5 +1,5 @@
 import torch
-from diffusers import StableDiffusionXLPipeline
+from diffusers import StableDiffusionXLPipeline, DPMSolverMultistepScheduler
 import io
 from typing import Optional, Dict, Any, Tuple
 
@@ -31,13 +31,21 @@ def initialize_pipeline():
             use_safetensors=True
         )
     
+    # Set up DPM++ 2M SGM Uniform scheduler
+    pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+        pipe.scheduler.config,
+        algorithm_type="sde-dpmsolver++",
+        use_karras_sigmas=False,
+        timestep_spacing="trailing"
+    )
+    
     pipe.to("cuda")
 
     # Optional memory optimizations
     pipe.enable_xformers_memory_efficient_attention()  # efficient attention
     #pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)  # speed-up (requires torch>=2.0)
     
-    print("SDXL pipeline loaded successfully!")
+    print("SDXL pipeline loaded successfully with DPM++ 2M SGM Uniform scheduler!")
     return pipe
 
 def generate_image(
@@ -45,7 +53,7 @@ def generate_image(
     negative_prompt: str = "lowres, bad anatomy, watermark",
     width: int = 1024,
     height: int = 1024,
-    num_steps: int = 20,
+    num_steps: int = 25,
     guidance: float = 5.0,
     save_path: Optional[str] = None
 ) -> Tuple[bytes, Any]:
@@ -63,8 +71,8 @@ def generate_image(
     
     print(f"Generating image with prompt: {prompt}")
     
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, 1girl, " + prompt + ", looking_at_viewer, Thigh Up, background visible, high detail, highly detailed, high quality"
-    negavite_prompt = "worst quality, bad quality, very displeasing, displeasing, bad anatomy, \
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, 1girl, " + prompt + ", looking_at_viewer, Thigh Up, background visible, high detail, volumetric lighting, highly detailed, high quality"
+    negative_prompt = "worst quality, bad quality, very displeasing, displeasing, bad anatomy, \
 	artistic error, anatomical nonsense, lowres, bad hands, signature, artist name, variations, \
 	old, oldest, extra hands, multiple_penises, deformed, mutated, ugly, disfigured, long body, \
 	missing fingers, cropped, very displeasing, bad anatomy, conjoined, bad ai-generated, \

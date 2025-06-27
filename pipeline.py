@@ -32,7 +32,7 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import onnx
-from tensorrt.tools import onnx_graphsurgeon as gs
+import onnx_graphsurgeon as gs
 import PIL.Image
 import tensorrt as trt
 import torch

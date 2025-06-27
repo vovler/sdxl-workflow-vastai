@@ -152,26 +152,12 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
     
     try:
         # Extract parameters from task_data or use defaults
-        prompt = task_data.get("prompt", "A majestic anime knight standing on a cliff, cinematic lighting, ultra-detailed")
-        negative_prompt = task_data.get("negative_prompt", "lowres, bad anatomy, watermark")
-        width = task_data.get("width", 1152)
-        height = task_data.get("height", 768)
-        num_steps = task_data.get("num_inference_steps", 4)
-        guidance = task_data.get("guidance_scale", 1)
-        
+        prompt = task_data.get("prompt", "")
+
         # Generate image using run_prompt module
-        output_path = f"output_{task_id}.png"
         image_data, img = generate_image(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            width=width,
-            height=height,
-            num_steps=num_steps,
-            guidance=guidance,
-            save_path=output_path
+            prompt=prompt
         )
-        
-        print(f"Image generated and saved as {output_path}")
         
         # Send DONE status with generated image
         await send_task_status(task_id, "DONE", "Image generated successfully!", image_data=image_data)

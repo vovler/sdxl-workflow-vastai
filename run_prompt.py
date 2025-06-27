@@ -44,13 +44,7 @@ def initialize_pipeline():
     return pipe
 
 def generate_image(
-    prompt: str = "A majestic anime knight standing on a cliff, cinematic lighting, ultra-detailed",
-    negative_prompt: str = "lowres, bad anatomy, watermark",
-    width: int = 1024,
-    height: int = 1024,
-    num_steps: int = 4,  # DMD2 is optimized for 4 steps
-    guidance: float = 0,
-    save_path: Optional[str] = None
+        prompt: str
 ) -> Tuple[bytes, Any]:
     """
     Generate an image using SDXL pipeline with DMD2 LoRA
@@ -72,6 +66,12 @@ def generate_image(
 	old, oldest, extra hands, multiple_penises, deformed, mutated, ugly, disfigured, long body, \
 	missing fingers, cropped, very displeasing, bad anatomy, conjoined, bad ai-generated, \
 	multiple_girls, multiple_boys, multiple_views"
+
+    width: int = 1152,
+    height: int = 768,
+    num_steps: int = 4,  # DMD2 is optimized for 4 steps
+    guidance: float = 1,
+
     out = pipe(
         prompt=prompt,
         prompt_2=prompt,  # same prompt for both encoders; you can customize prompt_2 differently

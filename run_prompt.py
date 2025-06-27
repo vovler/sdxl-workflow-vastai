@@ -32,8 +32,16 @@ def initialize_pipeline():
         print("Continuing without LoRA...")
     
     # Set up LCM scheduler with custom timesteps
-    pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
-    pipe.scheduler.set_timesteps([999, 749, 499, 249])
+    pipe.scheduler = LCMScheduler.from_config(
+        pipe.scheduler.config,
+        # Remove incompatible config attributes for LCM
+        interpolation_type=None,
+        skip_prk_steps=None,
+        use_karras_sigmas=None
+    )
+    # Set number of inference steps first, then manually set timesteps
+    pipe.scheduler.set_timesteps(4)  # 4 steps for our custom timesteps
+    pipe.scheduler.timesteps = torch.tensor([999, 749, 499, 249], dtype=torch.long)
     
     pipe.to("cuda")
 

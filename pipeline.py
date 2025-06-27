@@ -122,9 +122,9 @@ class Engine:
              config_kwargs['max_workspace_size'] = workspace_size
              
 
-
+             
         engine = engine_from_network(
-            network_from_onnx_path(onnx_path),
+            network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
             config=CreateConfig(
                 fp16=fp16, 
                 profiles=[p], 
@@ -415,7 +415,8 @@ class VAEDecoder(BaseModel):
 
 
 def get_path(name, directory, opt=True):
-    return os.path.join(directory, name + (".opt" if opt else "") + ".onnx")
+    return os.path.join(directory, name + ".onnx")
+    #return os.path.join(directory, name + (".opt" if opt else "") + ".onnx")
 
 
 def build_engines(

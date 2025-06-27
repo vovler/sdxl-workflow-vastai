@@ -25,7 +25,7 @@ def initialize_pipeline():
     # Load and apply DMD2 LoRA
     print("Loading DMD2 LoRA...", flush=True)
     pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors", adapter_name=None)
-    pipe.fuse_lora(lora_scale=0.8, adapter_names=["dmd2"])
+    pipe.fuse_lora(lora_scale=0.8, adapter_names=None)
     
     # Set up Euler Ancestral scheduler
     print("Setting up Euler Ancestral scheduler...", flush=True)
@@ -37,7 +37,7 @@ def initialize_pipeline():
     # Optional memory optimizations
     print("Enabling memory optimizations...", flush=True)
     #pipe.enable_pytorch_attention()
-    #pipe.enable_xformers_memory_efficient_attention()  # efficient attention
+    pipe.enable_xformers_memory_efficient_attention()  # efficient attention
     #pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)  # speed-up (requires torch>=2.0)
     
     print("SDXL pipeline loaded successfully with Euler Ancestral scheduler and DMD2 LoRA!", flush=True)

@@ -39,8 +39,8 @@ def initialize_pipeline():
         timestep_spacing="trailing"
     )
     # Set number of inference steps first, then manually set timesteps
-    pipe.scheduler.set_timesteps(4)  # 4 steps for our custom timesteps
-    pipe.scheduler.timesteps = torch.tensor([999, 749, 499, 249], dtype=torch.long)
+    #pipe.scheduler.set_timesteps(4)  # 4 steps for our custom timesteps
+    #pipe.scheduler.timesteps = torch.tensor([999, 749, 499, 249], dtype=torch.long)
     
     pipe.to("cuda")
 

@@ -36,8 +36,8 @@ def initialize_pipeline():
 
     # Optional memory optimizations
     print("Enabling memory optimizations...", flush=True)
-    pipe.enable_pytorch_attention()
-    pipe.enable_xformers_memory_efficient_attention()  # efficient attention
+    #pipe.enable_pytorch_attention()
+    #pipe.enable_xformers_memory_efficient_attention()  # efficient attention
     #pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)  # speed-up (requires torch>=2.0)
     
     print("SDXL pipeline loaded successfully with Euler Ancestral scheduler and DMD2 LoRA!", flush=True)

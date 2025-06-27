@@ -327,21 +327,40 @@ class CLIP2(BaseModel):
         return super().optimize(gs.export_onnx(opt.graph))
 
 
+class UNetXLWrapper(torch.nn.Module):
+    def __init__(self, unet):
+        super().__init__()
+        self.unet = unet
+    
+    def forward(self, sample, timestep, encoder_hidden_states, added_cond_kwargs_text_embeds, added_cond_kwargs_time_ids):
+        return self.unet(
+            sample,
+            timestep,
+            encoder_hidden_states,
+            added_cond_kwargs={
+                'text_embeds': added_cond_kwargs_text_embeds,
+                'time_ids': added_cond_kwargs_time_ids
+            }
+        ).sample
+
+
 class UNetXL(BaseModel):
     def __init__(self, model_name, model, device, max_batch_size, text_maxlen):
         super().__init__(model_name, model, device, fp16=True, max_batch_size=max_batch_size, text_maxlen=text_maxlen)
         self.text_embed_dim = 2048  # 768 + 1280
         self.time_embed_dim = 2816 # Not directly used but good to know
         self.add_embed_dim = 1280
+        self.wrapped_model = UNetXLWrapper(model)
 
-    def get_input_names(self): return ['sample', 'timestep', 'encoder_hidden_states', 'add_text_embeds', 'add_time_ids']
+    def get_model(self): return self.wrapped_model
+    def get_input_names(self): return ['sample', 'timestep', 'encoder_hidden_states', 'added_cond_kwargs_text_embeds', 'added_cond_kwargs_time_ids']
     def get_output_names(self): return ['latent']
     
     def get_dynamic_axes(self):
         return {
             'sample': {0: '2B', 2: 'H', 3: 'W'},
             'encoder_hidden_states': {0: '2B'},
-            'add_text_embeds': {0: '2B'},
+            'added_cond_kwargs_text_embeds': {0: '2B'},
             'latent': {0: '2B', 2: 'H', 3: 'W'},
         }
 
@@ -355,7 +374,7 @@ class UNetXL(BaseModel):
         return {
             'sample': [(2 * min_batch, 4, min_latent_h, min_latent_w), (2 * batch_size, 4, latent_h, latent_w), (2 * max_batch, 4, max_latent_h, max_latent_w)],
             'encoder_hidden_states': [(2 * min_batch, self.text_maxlen, self.text_embed_dim), (2 * batch_size, self.text_maxlen, self.text_embed_dim), (2 * max_batch, self.text_maxlen, self.text_embed_dim)],
-            'add_text_embeds': [(2 * min_batch, self.add_embed_dim), (2 * batch_size, self.add_embed_dim), (2 * max_batch, self.add_embed_dim)],
+            'added_cond_kwargs_text_embeds': [(2 * min_batch, self.add_embed_dim), (2 * batch_size, self.add_embed_dim), (2 * max_batch, self.add_embed_dim)],
         }
         
     def get_shape_dict(self, batch_size, image_height, image_width):
@@ -365,8 +384,8 @@ class UNetXL(BaseModel):
             'sample': (2 * batch_size, 4, latent_h, latent_w),
             'timestep': (1,),
             'encoder_hidden_states': (2 * batch_size, self.text_maxlen, self.text_embed_dim),
-            'add_text_embeds': (2 * batch_size, self.add_embed_dim),
-            'add_time_ids': (2 * batch_size, 6),
+            'added_cond_kwargs_text_embeds': (2 * batch_size, self.add_embed_dim),
+            'added_cond_kwargs_time_ids': (2 * batch_size, 6),
             'latent': (2 * batch_size, 4, latent_h, latent_w)
         }
     
@@ -663,8 +682,8 @@ class TensorRTStableDiffusionXLPipeline(DiffusionPipeline):
                 'sample': latent_model_input,
                 'timestep': timestep.float(),
                 'encoder_hidden_states': text_embeddings,
-                'add_text_embeds': add_text_embeds,
-                'add_time_ids': add_time_ids
+                'added_cond_kwargs_text_embeds': add_text_embeds,
+                'added_cond_kwargs_time_ids': add_time_ids
             }
             
             noise_pred = self.engine[engine_name].infer(feed_dict, self.stream)['latent']

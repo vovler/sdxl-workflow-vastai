@@ -1,3 +1,4 @@
+import gc
 import torch
 from diffusers import DDIMScheduler
 from diffusers.pipelines import StableDiffusionXLPipeline

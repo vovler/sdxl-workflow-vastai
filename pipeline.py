@@ -468,9 +468,9 @@ def build_engines(
                 else:
                     logger.info(f"Found cached ONNX model: {onnx_path}")
 
-                logger.info(f"Optimizing ONNX model: {onnx_opt_path}")
+                #logger.info(f"Optimizing ONNX model: {onnx_opt_path}")
                 #onnx_opt_graph = model_obj.optimize(onnx.load(onnx_path))
-                onnx.save(onnx_opt_graph, onnx_opt_path)
+                #onnx.save(onnx_opt_graph, onnx_opt_path)
             else:
                 logger.info(f"Found cached optimized ONNX model: {onnx_opt_path}")
 

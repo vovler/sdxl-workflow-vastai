@@ -90,10 +90,6 @@ def generate_image(
     img_buffer = io.BytesIO()
     img.save(img_buffer, format='PNG')
     image_bytes = img_buffer.getvalue()
-    
-    # Save to file if path provided
-    if save_path:
-        img.save(save_path)
-        print(f"Image saved as {save_path}")
+
     
     return image_bytes, img

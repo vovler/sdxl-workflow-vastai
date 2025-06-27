@@ -14,3 +14,4 @@ peft
 onnxruntime==1.22.0
 tensorrt==10.11.0.33
 tensorrt-stubs==10.11.0.33
+colored

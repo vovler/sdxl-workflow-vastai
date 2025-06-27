@@ -62,11 +62,14 @@ def generate_image(
     
     prompt = "masterpiece,best quality,amazing quality, scenery, 1girl, " + prompt + ", looking_at_viewer, Thigh Up, background visible, high detail"
     negative_prompt = "worst quality, bad quality, very displeasing, displeasing, bad anatomy, artistic error, anatomical nonsense, lowres, bad hands, signature, artist name, variations, old, oldest, extra hands, multiple_penises, deformed, mutated, ugly, disfigured, long body, missing fingers, cropped, very displeasing, bad anatomy, conjoined, bad ai-generated, multiple_girls, multiple_boys, multiple_views"
+    # Define seed
+    seed = 12345
+    generator = torch.Generator(device="cuda").manual_seed(seed)
 
     width = 1152
     height = 768
-    num_steps = 4 # DMD2 is optimized for 4 steps
-    guidance = 1.5
+    num_steps = 8 # DMD2 is optimized for 4 steps
+    guidance = 2
 
     out = pipe(
         prompt=prompt,
@@ -78,7 +81,7 @@ def generate_image(
         num_inference_steps=num_steps,
         guidance_scale=guidance,
         output_type="pil",
-        seed=42
+        generator=generator
     )
     
     img = out.images[0]

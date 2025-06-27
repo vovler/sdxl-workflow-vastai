@@ -35,23 +35,23 @@ def load_uuid() -> Optional[str]:
         try:
             return uuid_file.read_text().strip()
         except Exception as e:
-            print(f"Error reading UUID file: {e}")
+            print(f"Error reading UUID file: {e}", flush=True)
     return None
 
 def save_uuid(uuid_str: str):
     """Save UUID to file"""
     try:
         Path("uuid.txt").write_text(uuid_str)
-        print(f"UUID saved: {uuid_str}")
+        print(f"UUID saved: {uuid_str}", flush=True)
     except Exception as e:
-        print(f"Error saving UUID: {e}")
+        print(f"Error saving UUID: {e}", flush=True)
 
 async def connect_to_parent() -> Optional[str]:
     """Connect to parent host and get UUID"""
     get_env_values()
     
     if not parent_host or not public_ip or not port:
-        print("Missing required environment variables: PARENT_HOST, PUBLIC_IPADDR, VAST_TCP_PORT_80")
+        print("Missing required environment variables: PARENT_HOST, PUBLIC_IPADDR, VAST_TCP_PORT_80", flush=True)
         return None
     
     payload = {
@@ -67,13 +67,13 @@ async def connect_to_parent() -> Optional[str]:
             received_uuid = data.get("uuid")
             if received_uuid:
                 save_uuid(received_uuid)
-                print(f"Connected to parent, received UUID: {received_uuid}")
+                print(f"Connected to parent, received UUID: {received_uuid}", flush=True)
                 return received_uuid
             else:
-                print("No UUID received from parent")
+                print("No UUID received from parent", flush=True)
                 return None
     except Exception as e:
-        print(f"Error connecting to parent: {e}")
+        print(f"Error connecting to parent: {e}", flush=True)
         return None
 
 async def send_healthcheck():
@@ -94,9 +94,9 @@ async def send_healthcheck():
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(f"{parent_host}/worker/healthcheck", json=payload)
             response.raise_for_status()
-            print(f"Healthcheck sent successfully")
+            print(f"Healthcheck sent successfully", flush=True)
     except Exception as e:
-        print(f"Error sending healthcheck: {e}")
+        print(f"Error sending healthcheck: {e}", flush=True)
 
 async def periodic_healthcheck():
     """Send healthcheck every 5 seconds"""
@@ -144,13 +144,13 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
                 response = await client.post(f"{parent_host}/worker/task", json=payload)
         
         response.raise_for_status()
-        print(f"Task status sent: {status} for task {task_id}")
+        print(f"Task status sent: {status} for task {task_id}", flush=True)
     except Exception as e:
-        print(f"Error sending task status: {e}")
+        print(f"Error sending task status: {e}", flush=True)
 
 async def process_task(task_id: str, task_data: Dict[str, Any]):
     """Process a task with the specified workflow"""
-    print(f"Processing task {task_id} with data: {json.dumps(task_data)}")
+    print(f"Processing task {task_id} with data: {json.dumps(task_data)}", flush=True)
     
     # Send PROCESSING status
     await send_task_status(task_id, "PROCESSING", "Worker is processing the request...")
@@ -165,14 +165,14 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
         )
         
         # Debug: Check if image_data is valid
-        print(f"Image data type: {type(image_data)}")
-        print(f"Image data size: {len(image_data) if image_data else 'None'}")
+        print(f"Image data type: {type(image_data)}", flush=True)
+        print(f"Image data size: {len(image_data) if image_data else 'None'}", flush=True)
         
         # Send DONE status with generated image
         await send_task_status(task_id, "DONE", "Image generated successfully!", image_data=image_data)
         
     except Exception as e:
-        print(f"Error processing task: {e}")
+        print(f"Error processing task: {e}", flush=True)
         await send_task_status(task_id, "ERROR", f"Task processing failed: {str(e)}")
 
 @asynccontextmanager

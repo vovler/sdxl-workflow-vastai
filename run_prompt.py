@@ -12,7 +12,7 @@ def initialize_pipeline():
     if pipe is not None:
         return pipe
         
-    print("Loading SDXL pipeline...")
+    print("Loading SDXL pipeline...", flush=True)
    
         
     pipe = StableDiffusionXLPipeline.from_pretrained(
@@ -20,27 +20,31 @@ def initialize_pipeline():
         torch_dtype=torch.float16,
         use_safetensors=True
     )
+    print("SDXL pipeline loaded from pretrained", flush=True)
     
     # Load and apply DMD2 LoRA
-    print("Loading DMD2 LoRA...")
+    print("Loading DMD2 LoRA...", flush=True)
     try:
-        pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors")
-        pipe.fuse_lora(lora_scale=0.8)
-        print("DMD2 LoRA loaded and applied successfully!")
+        pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors", adapter_name=None)
+        pipe.fuse_lora(lora_scale=0.8, adapter_names=["dmd2"])
+        print("DMD2 LoRA loaded and applied successfully!", flush=True)
     except Exception as e:
-        print(f"Warning: Failed to load DMD2 LoRA: {e}")
-        print("Continuing without LoRA...")
+        print(f"Warning: Failed to load DMD2 LoRA: {e}", flush=True)
+        print("Continuing without LoRA...", flush=True)
     
     # Set up Euler Ancestral scheduler
+    print("Setting up Euler Ancestral scheduler...", flush=True)
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     
+    print("Moving pipeline to CUDA...", flush=True)
     pipe.to("cuda")
 
     # Optional memory optimizations
+    print("Enabling memory optimizations...", flush=True)
     pipe.enable_xformers_memory_efficient_attention()  # efficient attention
     #pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)  # speed-up (requires torch>=2.0)
     
-    print("SDXL pipeline loaded successfully with Euler Ancestral scheduler and DMD2 LoRA!")
+    print("SDXL pipeline loaded successfully with Euler Ancestral scheduler and DMD2 LoRA!", flush=True)
     return pipe
 
 def generate_image(

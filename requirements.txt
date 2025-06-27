@@ -11,6 +11,7 @@ accelerate>=0.20.0
 safetensors>=0.3.0
 xformers
 peft
+onnx==1.18.0
 onnxruntime-gpu==1.22.0
 tensorrt==10.11.0.33
 tensorrt-stubs==10.11.0.33.1

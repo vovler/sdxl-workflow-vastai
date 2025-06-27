@@ -121,8 +121,10 @@ class Engine:
         else:
              config_kwargs['max_workspace_size'] = workspace_size
              
+
+
         engine = engine_from_network(
-            network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
+            network_from_onnx_path(onnx_path),
             config=CreateConfig(
                 fp16=fp16, 
                 profiles=[p], 
@@ -132,6 +134,9 @@ class Engine:
             save_timing_cache=timing_cache
         )
         save_engine(engine, path=self.engine_path)
+
+
+
 
     def load(self):
         logger.info(f"Loading TensorRT engine: {self.engine_path}")

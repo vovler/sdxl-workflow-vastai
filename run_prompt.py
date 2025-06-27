@@ -16,7 +16,7 @@ def initialize_pipeline():
    
         
     pipe = StableDiffusionXLPipeline.from_pretrained(
-        "John6666/ntr-mix-illustrious-xl-noob-xl-xiii-sdxl",
+        "socks22/sdxl-wai-nsfw-illustriousv14",
         torch_dtype=torch.float16,
         use_safetensors=True
     )

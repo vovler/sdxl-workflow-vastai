@@ -509,14 +509,14 @@ class TensorRTStableDiffusionXLPipeline(DiffusionPipeline):
         image_height: int = 1024,
         image_width: int = 1024,
         max_batch_size: int = 1,
-        onnx_opset: int = 17,
+        onnx_opset: int = 14,
         onnx_dir: str = "onnx_xl",
         engine_dir: str = "engine_xl",
         force_engine_rebuild: bool = False,
         timing_cache: str = "timing_cache_xl",
         static_batch: bool = False,
         static_shape: bool = True,
-        workspace_size: int = 0, # 0 for auto
+        workspace_size: int = 4 * 1024 * 1024 * 1024, # 4GB workspace
     ):
         super().__init__()
         

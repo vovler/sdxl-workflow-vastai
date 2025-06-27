@@ -24,8 +24,8 @@ def initialize_pipeline():
     
     # Load and apply DMD2 LoRA
     print("Loading DMD2 LoRA...", flush=True)
-    pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors", adapter_name=None)
-    pipe.fuse_lora(lora_scale=0.8, adapter_names=None)
+    pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors", torch_dtype=torch.float16, variant="fp16").to("cuda")
+    pipe.fuse_lora(lora_scale=1)
     
     # Set up Euler Ancestral scheduler
     print("Setting up Euler Ancestral scheduler...", flush=True)

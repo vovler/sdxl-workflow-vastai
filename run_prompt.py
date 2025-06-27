@@ -62,7 +62,7 @@ def generate_image(
     if pipe is None:
         initialize_pipeline()
     
-    print(f"Generating image with prompt: {prompt}")
+    print(f"Generating image with prompt: {prompt}", flush=True)
     
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, 1girl, " + prompt + ", looking_at_viewer, Thigh Up, background visible, high detail, volumetric lighting, highly detailed, high quality"
     negative_prompt = "worst quality, bad quality, very displeasing, displeasing, bad anatomy, artistic error, anatomical nonsense, lowres, bad hands, signature, artist name, variations, old, oldest, extra hands, multiple_penises, deformed, mutated, ugly, disfigured, long body, missing fingers, cropped, very displeasing, bad anatomy, conjoined, bad ai-generated, multiple_girls, multiple_boys, multiple_views"
@@ -92,7 +92,7 @@ def generate_image(
     image_bytes = img_buffer.getvalue()
     
     # Debug: Check the generated image bytes
-    print(f"Generated image bytes type: {type(image_bytes)}")
-    print(f"Generated image bytes size: {len(image_bytes)}")
+    print(f"Generated image bytes type: {type(image_bytes)}", flush=True)
+    print(f"Generated image bytes size: {len(image_bytes)}", flush=True)
     
     return image_bytes, img

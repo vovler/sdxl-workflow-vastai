@@ -119,9 +119,9 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
         payload["status_text"] = status_text
     
     # Debug: Check image_data in send_task_status
-    print(f"send_task_status - image_data type: {type(image_data)}")
-    print(f"send_task_status - image_data size: {len(image_data) if image_data else 'None'}")
-    print(f"send_task_status - image_data is not None: {image_data is not None}")
+    print(f"send_task_status - image_data type: {type(image_data)}", flush=True)
+    print(f"send_task_status - image_data size: {len(image_data) if image_data else 'None'}", flush=True)
+    print(f"send_task_status - image_data is not None: {image_data is not None}", flush=True)
     
     try:
         if image_data:
@@ -181,31 +181,33 @@ async def lifespan(app: FastAPI):
     global worker_uuid, healthcheck_task
     
     # Startup
-    print("Worker starting up...")
+    print("Worker starting up...", flush=True)
     
     # Initialize SDXL pipeline
     try:
+        print("About to initialize SDXL pipeline...", flush=True)
         initialize_pipeline()
+        print("SDXL pipeline initialization completed!", flush=True)
     except Exception as e:
-        print(f"Warning: Failed to initialize SDXL pipeline: {e}")
+        print(f"Warning: Failed to initialize SDXL pipeline: {e}", flush=True)
     
     # Check if UUID exists
     worker_uuid = load_uuid()
     
     if not worker_uuid:
-        print("No UUID found, connecting to parent...")
+        print("No UUID found, connecting to parent...", flush=True)
         worker_uuid = await connect_to_parent()
         
         if not worker_uuid:
-            print("Failed to get UUID from parent")
+            print("Failed to get UUID from parent", flush=True)
             yield
             return
     else:
-        print(f"Using existing UUID: {worker_uuid}")
+        print(f"Using existing UUID: {worker_uuid}", flush=True)
     
     # Start periodic healthcheck
     healthcheck_task = asyncio.create_task(periodic_healthcheck())
-    print("Healthcheck task started")
+    print("Healthcheck task started", flush=True)
     
     yield
     
@@ -226,7 +228,7 @@ async def create_task(task_data: Dict[str, Any], background_tasks: BackgroundTas
     task_id = str(uuid_lib.uuid4())
     
     # Print the encoded JSON string as requested
-    print(f"Received task: {json.dumps(task_data)}")
+    print(f"Received task: {json.dumps(task_data)}", flush=True)
     
     # Start processing in background
     background_tasks.add_task(process_task, task_id, task_data)
@@ -249,15 +251,15 @@ def main():
     get_env_values()
     
     if not port:
-        print("VAST_TCP_PORT_80 environment variable not set")
+        print("VAST_TCP_PORT_80 environment variable not set", flush=True)
         return
     
     try:
         port_int = 80
-        print(f"Starting worker server on port {port_int}")
+        print(f"Starting worker server on port {port_int}", flush=True)
         uvicorn.run(app, host="0.0.0.0", port=port_int)
     except ValueError:
-        print(f"Invalid port value: {port}")
+        print(f"Invalid port value: {port}", flush=True)
 
 if __name__ == "__main__":
     main()

@@ -68,7 +68,7 @@ def generate_image(
 
     width = 1152
     height = 768
-    num_steps = 8 # DMD2 is optimized for 4 steps
+    num_steps = 4 # DMD2 is optimized for 4 steps
     guidance = 2
 
     out = pipe(

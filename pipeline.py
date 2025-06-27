@@ -180,8 +180,9 @@ class Engine:
 
 
 class Optimizer:
-    def __init__(self, onnx_graph):
+    def __init__(self, onnx_graph, onnxruntime_providers=None):
         self.graph = gs.import_onnx(onnx_graph)
+        self.onnxruntime_providers = onnxruntime_providers or ['CUDAExecutionProvider']
 
     def cleanup(self, return_onnx=False):
         self.graph.cleanup().toposort()
@@ -195,7 +196,11 @@ class Optimizer:
                 self.graph.outputs[i].name = name
 
     def fold_constants(self, return_onnx=False):
-        onnx_graph = fold_constants(gs.export_onnx(self.graph), allow_onnxruntime_shape_inference=True)
+        onnx_graph = fold_constants(
+            gs.export_onnx(self.graph), 
+            allow_onnxruntime_shape_inference=True,
+            onnxruntime_providers=self.onnxruntime_providers
+        )
         self.graph = gs.import_onnx(onnx_graph)
         if return_onnx:
             return onnx_graph
@@ -509,7 +514,7 @@ class TensorRTStableDiffusionXLPipeline(DiffusionPipeline):
         image_height: int = 1024,
         image_width: int = 1024,
         max_batch_size: int = 1,
-        onnx_opset: int = 14,
+        onnx_opset: int = 17,
         onnx_dir: str = "onnx_xl",
         engine_dir: str = "engine_xl",
         force_engine_rebuild: bool = False,

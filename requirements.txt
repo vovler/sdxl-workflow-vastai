@@ -16,4 +16,5 @@ onnxruntime-gpu==1.22.0
 onnx-graphsurgeon==0.5.8
 tensorrt==10.11.0.33
 tensorrt-stubs==10.11.0.33.1
+pycuda==2025.1.1
 colored

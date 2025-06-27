@@ -126,7 +126,6 @@ class Engine:
             config=CreateConfig(
                 fp16=fp16, 
                 profiles=[p], 
-                timing_cache=timing_cache, 
                 tactic_sources=None if enable_all_tactics else [],
                 **config_kwargs
             ),

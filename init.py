@@ -118,6 +118,11 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
     if status_text:
         payload["status_text"] = status_text
     
+    # Debug: Check image_data in send_task_status
+    print(f"send_task_status - image_data type: {type(image_data)}")
+    print(f"send_task_status - image_data size: {len(image_data) if image_data else 'None'}")
+    print(f"send_task_status - image_data is not None: {image_data is not None}")
+    
     try:
         if image_data:
             # Send with image data as multipart form data
@@ -158,6 +163,10 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
         image_data, img = generate_image(
             prompt=prompt
         )
+        
+        # Debug: Check if image_data is valid
+        print(f"Image data type: {type(image_data)}")
+        print(f"Image data size: {len(image_data) if image_data else 'None'}")
         
         # Send DONE status with generated image
         await send_task_status(task_id, "DONE", "Image generated successfully!", image_data=image_data)

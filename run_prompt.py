@@ -87,4 +87,8 @@ def generate_image(
     img.save(img_buffer, format='PNG')
     image_bytes = img_buffer.getvalue()
     
+    # Debug: Check the generated image bytes
+    print(f"Generated image bytes type: {type(image_bytes)}")
+    print(f"Generated image bytes size: {len(image_bytes)}")
+    
     return image_bytes, img

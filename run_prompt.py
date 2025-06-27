@@ -36,6 +36,7 @@ def initialize_pipeline():
 
     # Optional memory optimizations
     print("Enabling memory optimizations...", flush=True)
+    pipe.enable_pytorch_attention()
     pipe.enable_xformers_memory_efficient_attention()  # efficient attention
     #pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)  # speed-up (requires torch>=2.0)
     
@@ -59,12 +60,12 @@ def generate_image(
     
     print(f"Generating image with prompt: {prompt}", flush=True)
     
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, 1girl, " + prompt + ", looking_at_viewer, Thigh Up, background visible, high detail, volumetric lighting, highly detailed, high quality"
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, 1girl, " + prompt + ", looking_at_viewer, Thigh Up, background visible, high detail, highly detailed, high quality"
     negative_prompt = "worst quality, bad quality, very displeasing, displeasing, bad anatomy, artistic error, anatomical nonsense, lowres, bad hands, signature, artist name, variations, old, oldest, extra hands, multiple_penises, deformed, mutated, ugly, disfigured, long body, missing fingers, cropped, very displeasing, bad anatomy, conjoined, bad ai-generated, multiple_girls, multiple_boys, multiple_views"
 
     width = 1152
     height = 768
-    num_steps = 6  # DMD2 is optimized for 4 steps
+    num_steps = 8  # DMD2 is optimized for 4 steps
     guidance = 1.3
 
     out = pipe(

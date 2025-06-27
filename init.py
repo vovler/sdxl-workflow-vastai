@@ -126,7 +126,8 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
     try:
         if image_data:
             # Send with image data as multipart form data
-            files = {"image": ("test_image.png", image_data, "image/png")}
+            # Don't specify content-type in files tuple to ensure multipart/form-data is used
+            files = {"image": ("test_image.png", image_data)}
             # Convert payload to individual form fields
             form_data = {
                 "uuid": worker_uuid,
@@ -137,6 +138,7 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
                 form_data["status_text"] = status_text
             
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # httpx automatically sets Content-Type to multipart/form-data when files parameter is used
                 response = await client.post(f"{parent_host}/worker/task", data=form_data, files=files)
         else:
             # Send JSON only

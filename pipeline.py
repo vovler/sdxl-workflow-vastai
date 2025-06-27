@@ -509,7 +509,7 @@ class TensorRTStableDiffusionXLPipeline(DiffusionPipeline):
         image_height: int = 1024,
         image_width: int = 1024,
         max_batch_size: int = 1,
-        onnx_opset: int = 13,
+        onnx_opset: int = 14,
         onnx_dir: str = "onnx_xl",
         engine_dir: str = "engine_xl",
         force_engine_rebuild: bool = False,

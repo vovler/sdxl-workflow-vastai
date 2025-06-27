@@ -49,7 +49,7 @@ def generate_image(
     """
     Generate an image using SDXL pipeline with DMD2 LoRA
     
-    Returns:
+    Returns: 
         Tuple of (image_bytes, pil_image)
     """
     global pipe

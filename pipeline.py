@@ -198,8 +198,7 @@ class Optimizer:
     def fold_constants(self, return_onnx=False):
         onnx_graph = fold_constants(
             gs.export_onnx(self.graph), 
-            allow_onnxruntime_shape_inference=True,
-            onnxruntime_providers=self.onnxruntime_providers
+            allow_onnxruntime_shape_inference=True
         )
         self.graph = gs.import_onnx(onnx_graph)
         if return_onnx:
@@ -470,7 +469,7 @@ def build_engines(
                     logger.info(f"Found cached ONNX model: {onnx_path}")
 
                 logger.info(f"Optimizing ONNX model: {onnx_opt_path}")
-                onnx_opt_graph = model_obj.optimize(onnx.load(onnx_path))
+                #onnx_opt_graph = model_obj.optimize(onnx.load(onnx_path))
                 onnx.save(onnx_opt_graph, onnx_opt_path)
             else:
                 logger.info(f"Found cached optimized ONNX model: {onnx_opt_path}")

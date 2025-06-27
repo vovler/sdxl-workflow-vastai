@@ -24,13 +24,8 @@ def initialize_pipeline():
     
     # Load and apply DMD2 LoRA
     print("Loading DMD2 LoRA...", flush=True)
-    try:
-        pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors", adapter_name=None)
-        pipe.fuse_lora(lora_scale=0.8, adapter_names=["dmd2"])
-        print("DMD2 LoRA loaded and applied successfully!", flush=True)
-    except Exception as e:
-        print(f"Warning: Failed to load DMD2 LoRA: {e}", flush=True)
-        print("Continuing without LoRA...", flush=True)
+    pipe.load_lora_weights("tianweiy/DMD2", weight_name="dmd2_sdxl_4step_lora_fp16.safetensors", adapter_name=None)
+    pipe.fuse_lora(lora_scale=0.8, adapter_names=["dmd2"])
     
     # Set up Euler Ancestral scheduler
     print("Setting up Euler Ancestral scheduler...", flush=True)
@@ -69,8 +64,8 @@ def generate_image(
 
     width = 1152
     height = 768
-    num_steps = 8  # DMD2 is optimized for 4 steps
-    guidance = 2
+    num_steps = 4  # DMD2 is optimized for 4 steps
+    guidance = 1.3
 
     out = pipe(
         prompt=prompt,

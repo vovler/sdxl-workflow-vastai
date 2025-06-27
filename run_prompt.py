@@ -1,5 +1,5 @@
 import torch
-from diffusers import StableDiffusionXLPipeline, DPMSolverMultistepScheduler
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 import io
 from typing import Optional, Dict, Any, Tuple
 
@@ -31,16 +31,8 @@ def initialize_pipeline():
         print(f"Warning: Failed to load DMD2 LoRA: {e}")
         print("Continuing without LoRA...")
     
-    # Set up DPM++ 2M SGM Uniform scheduler
-    pipe.scheduler = DPMSolverMultistepScheduler.from_config(
-        pipe.scheduler.config,
-        algorithm_type="sde-dpmsolver++",
-        use_karras_sigmas=False,
-        timestep_spacing="trailing"
-    )
-    # Set number of inference steps first, then manually set timesteps
-    #pipe.scheduler.set_timesteps(4)  # 4 steps for our custom timesteps
-    #pipe.scheduler.timesteps = torch.tensor([999, 749, 499, 249], dtype=torch.long)
+    # Set up Euler Ancestral scheduler
+    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     
     pipe.to("cuda")
 
@@ -48,7 +40,7 @@ def initialize_pipeline():
     pipe.enable_xformers_memory_efficient_attention()  # efficient attention
     #pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)  # speed-up (requires torch>=2.0)
     
-    print("SDXL pipeline loaded successfully with DPM++ 2M SGM Uniform scheduler and DMD2 LoRA!")
+    print("SDXL pipeline loaded successfully with Euler Ancestral scheduler and DMD2 LoRA!")
     return pipe
 
 def generate_image(

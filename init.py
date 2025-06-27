@@ -157,7 +157,7 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
         width = task_data.get("width", 1152)
         height = task_data.get("height", 768)
         num_steps = task_data.get("num_inference_steps", 4)
-        guidance = task_data.get("guidance_scale", 0)
+        guidance = task_data.get("guidance_scale", 1)
         
         # Generate image using run_prompt module
         output_path = f"output_{task_id}.png"

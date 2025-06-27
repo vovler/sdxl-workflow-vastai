@@ -245,7 +245,7 @@ class BaseModel:
 
     def get_minmax_dims(self, batch_size, image_height, image_width, static_batch, static_shape):
         min_batch = batch_size if static_batch else self.min_batch
-        max_batch = batch_size if static_batch else self.max_batch
+        max_batch = batch_size if static_batch else self.max_batch_size
         
         min_h = image_height if static_shape else self.min_image_dim
         max_h = image_height if static_shape else self.max_image_dim

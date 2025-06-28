@@ -1,6 +1,6 @@
 import torch
 import tensorrt as trt
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
+from diffusers import StableDiffusionXLPipeline, LCMScheduler
 import numpy as np
 import os
 
@@ -12,7 +12,7 @@ def main():
     engine_file_path = "unet.engine"
     model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    prompt = "aqua_(konosuba), smiling, looking at the camera"
+    prompt = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba), smiling, looking at viewer, peace sign"
     negative_prompt = "lowres, bad anatomy, bad hands, blurry, text, watermark, signature"
     output_image_path = "output_trt.png"
     output_name = "conv2d_50" # From the onnx export log
@@ -30,8 +30,8 @@ def main():
         torch_dtype=torch.float16,
         use_safetensors=True,
     )
-    # Use Euler Ancestral scheduler
-    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+    # Use LCM scheduler
+    pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
     # Enable CPU offloading to avoid loading the original UNet into VRAM
     pipe.enable_model_cpu_offload()
 
@@ -122,7 +122,7 @@ def main():
         num_inference_steps=8,
         guidance_scale=1.0,
         height=768,
-        width=1024,
+        width=1152,
     )
     print(f"Number of images returned by pipeline: {len(result.images)}")
     image = result.images[0]

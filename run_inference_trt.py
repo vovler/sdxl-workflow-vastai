@@ -50,7 +50,7 @@ def main():
         unet=unet,
         torch_dtype=torch.float16,
         use_safetensors=True,
-    )
+    ).to(device)
 
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 

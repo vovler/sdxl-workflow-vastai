@@ -20,7 +20,7 @@ def build_engine(onnx_path, engine_path, use_fp16=True):
     config = builder.create_builder_config()
 
     # Set memory constraints
-    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 * (1024 ** 3)) # 1 GiB
+    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 10 * (1024 ** 3)) # 10 GiB
 
     # Enable FP16 if supported and requested
     if use_fp16 and builder.platform_has_fast_fp16:
@@ -42,17 +42,31 @@ def build_engine(onnx_path, engine_path, use_fp16=True):
     # --- Define Optimization Profile for Dynamic Shapes ---
     profile = builder.create_optimization_profile()
     
+    /
     # Define min, optimal, and max shapes for each input
     # Shape: (batch_size * 2, channels, height/8, width/8)
-    profile.set_shape("sample", (1*2, 4, 64, 64), (1*2, 4, 128, 128), (2*2, 4, 128, 128))
+    # profile.set_shape("sample", (1*2, 4, 64, 64), (1*2, 4, 128, 128), (2*2, 4, 128, 128))
     # Shape: (batch_size * 2,)
-    profile.set_shape("timestep", (1*2,), (1*2,), (2*2,))
+    # profile.set_shape("timestep", (1*2,), (1*2,), (2*2,))
     # Shape: (batch_size * 2, sequence_length, hidden_size)
-    profile.set_shape("encoder_hidden_states", (1*2, 77, 2048), (1*2, 77, 2048), (2*2, 77, 2048))
+    # profile.set_shape("encoder_hidden_states", (1*2, 77, 2048), (1*2, 77, 2048), (2*2, 77, 2048))
     # Shape: (batch_size * 2, pooled_projection_dim)
-    profile.set_shape("text_embeds", (1*2, 1280), (1*2, 1280), (2*2, 1280))
+    # profile.set_shape("text_embeds", (1*2, 1280), (1*2, 1280), (2*2, 1280))
     # Shape: (batch_size * 2, 6)
-    profile.set_shape("time_ids", (1*2, 6), (1*2, 6), (2*2, 6))
+    # profile.set_shape("time_ids", (1*2, 6), (1*2, 6), (2*2, 6))
+
+
+    # Define min, optimal, and max shapes for each input
+    # Shape: (batch_size * 2, channels, height/8, width/8)
+    profile.set_shape("sample", (1, 4, 64, 64), (1, 4, 128, 128), (2, 4, 128, 128))
+    # Shape: (batch_size * 2,)
+    profile.set_shape("timestep", (1,), (1,), (2,))
+    # Shape: (batch_size * 2, sequence_length, hidden_size)
+    profile.set_shape("encoder_hidden_states", (1, 77, 2048), (1, 77, 2048), (2, 77, 2048))
+    # Shape: (batch_size * 2, pooled_projection_dim)
+    profile.set_shape("text_embeds", (1, 1280), (1, 1280), (2, 1280))
+    # Shape: (batch_size * 2, 6)
+    profile.set_shape("time_ids", (1, 6), (1, 6), (2, 6))
     
     config.add_optimization_profile(profile)
 

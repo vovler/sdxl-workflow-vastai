@@ -50,7 +50,12 @@ def main():
         unet=unet,
         torch_dtype=torch.float16,
         use_safetensors=True,
-    ).to(device)
+    )
+
+    # Move components to device individually, leaving the meta UNet on the meta device.
+    pipe.vae.to(device)
+    pipe.text_encoder.to(device)
+    pipe.text_encoder_2.to(device)
 
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 

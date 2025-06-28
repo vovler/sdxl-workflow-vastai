@@ -12,6 +12,7 @@ def main():
     # --- Argument Parser ---
     parser = argparse.ArgumentParser(description="Run SDXL inference with a TensorRT UNet engine.")
     parser.add_argument("prompt", type=str, help="The base prompt for image generation.")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for diffusion.")
     args = parser.parse_args()
 
     # --- Configuration ---
@@ -125,6 +126,12 @@ def main():
     
     # --- Run Inference ---
     print(f"Running inference for prompt: '{prompt}'")
+    
+    generator = None
+    if args.seed is not None:
+        print(f"Using seed: {args.seed}")
+        generator = torch.Generator(device=device).manual_seed(args.seed)
+        
     result = pipe(
         prompt=prompt,
         #negative_prompt=negative_prompt,
@@ -133,6 +140,7 @@ def main():
         height=768,
         width=1152,
         timesteps=[999, 749, 499, 249],
+        generator=generator,
     )
     print(f"Number of images returned by pipeline: {len(result.images)}")
     image = result.images[0]

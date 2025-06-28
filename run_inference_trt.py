@@ -142,8 +142,6 @@ def main():
         
     print(f"Using timesteps: {timesteps}")
 
-    pipe.set_pag_applied_layers(["mid", "down.block_2", "up.block_1.attentions_0"])
-
     result = pipe(
         prompt=prompt,
         #negative_prompt=negative_prompt,
@@ -154,6 +152,7 @@ def main():
         timesteps=timesteps,
         enable_pag=True,
         pag_scale=3.0,
+        pag_applied_layers=["mid", "down.block_2", "up.block_1.attentions_0"],
         generator=generator,
     )
     print(f"Number of images returned by pipeline: {len(result.images)}")

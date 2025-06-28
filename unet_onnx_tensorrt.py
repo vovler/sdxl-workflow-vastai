@@ -58,7 +58,7 @@ def build_engine(onnx_path, engine_path, use_fp16=True):
 
     # Define min, optimal, and max shapes for each input
     # Shape: (batch_size * 2, channels, height/8, width/8)
-    profile.set_shape("sample", (1, 4, 64, 64), (1, 4, 128, 128), (2, 4, 128, 128))
+    profile.set_shape("sample", (1, 4, 64, 64), (1, 4, 144, 144), (2, 4, 144, 144))
     # Shape: (batch_size * 2,)
     profile.set_shape("timestep", (1,), (1,), (2,))
     # Shape: (batch_size * 2, sequence_length, hidden_size)

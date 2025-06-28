@@ -1,6 +1,7 @@
 import torch
 import tensorrt as trt
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, UNet2DConditionModel
+from accelerate import init_empty_weights
 import numpy as np
 import os
 import argparse
@@ -36,9 +37,17 @@ def main():
         return
 
     # --- Load Pipeline ---
+    print("Creating dummy UNet to avoid loading original...")
+    unet_config = UNet2DConditionModel.load_config(model_id, subfolder="unet")
+    with init_empty_weights():
+        # The UNet will be created with random weights on the 'meta' device,
+        # consuming no RAM.
+        unet = UNet2DConditionModel.from_config(unet_config)
+
     print("Loading SDXL pipeline...")
     pipe = StableDiffusionXLPipeline.from_pretrained(
         model_id,
+        unet=unet,
         torch_dtype=torch.float16,
         use_safetensors=True,
     )
@@ -46,7 +55,9 @@ def main():
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
     # Enable CPU offloading to avoid loading the original UNet into VRAM
-    pipe.enable_model_cpu_offload()
+    # This is not strictly necessary for the UNet anymore, but good for other components
+    # like VAE and text encoders if VRAM is limited.
+    #pipe.enable_model_cpu_offload()
 
     # --- Set up Compel ---
     compel = Compel(

@@ -51,7 +51,7 @@ def main():
         
         buffer = torch.empty(shape, dtype=dtype, device=device).contiguous()
         
-        if engine.binding_is_input(binding):
+        if engine.get_tensor_mode(binding) == trt.TensorIOMode.INPUT:
             input_buffers[binding] = buffer
         else:
             output_buffers[binding] = buffer
@@ -97,7 +97,7 @@ def main():
     print("Inference complete.")
     
     # Restore original forward method for safety
-    pipe.unet.forward = original_forward
+    #pipe.unet.forward = original_forward
 
 if __name__ == "__main__":
     main() 

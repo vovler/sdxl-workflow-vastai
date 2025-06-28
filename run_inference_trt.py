@@ -72,7 +72,8 @@ def main():
         output_buffers = {}
         for binding in engine:
             if engine.get_tensor_mode(binding) == trt.TensorIOMode.OUTPUT:
-                shape = tuple(context.get_tensor_shape(binding))
+                # The shape of the output tensor is determined by the shape of the input sample.
+                shape = input_tensors["sample"].shape
                 dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_tensor_dtype(binding)))).dtype
                 output_buffers[binding] = torch.empty(shape, dtype=dtype, device=device).contiguous()
 

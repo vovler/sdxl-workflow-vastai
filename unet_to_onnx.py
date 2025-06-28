@@ -26,8 +26,8 @@ def main():
     print(f"Using device: {device}")
 
     print(f"Loading SDXL model: {model_id}")
-    # Load model with its default dtype, then use that for all tensors.
-    pipe = StableDiffusionXLPipeline.from_pretrained(model_id, use_safetensors=True)
+    # Load model and force it into FP16, then use that for all tensors.
+    pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=torch.float16, use_safetensors=True)
     unet = pipe.unet
     unet.to(device)
     unet.eval()

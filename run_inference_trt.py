@@ -1,6 +1,6 @@
 import torch
 import tensorrt as trt
-from diffusers import StableDiffusionXLPipeline
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 import numpy as np
 import os
 
@@ -13,6 +13,7 @@ def main():
     model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     prompt = "aqua_(konosuba), smiling, looking at the camera"
+    negative_prompt = "lowres, bad anatomy, bad hands, blurry, text, watermark, signature"
     output_image_path = "output_trt.png"
     output_name = "conv2d_50" # From the onnx export log
 
@@ -29,6 +30,8 @@ def main():
         torch_dtype=torch.float16,
         use_safetensors=True,
     )
+    # Use Euler Ancestral scheduler
+    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
     # Enable CPU offloading to avoid loading the original UNet into VRAM
     pipe.enable_model_cpu_offload()
 
@@ -89,7 +92,12 @@ def main():
     
     # --- Run Inference ---
     print(f"Running inference for prompt: '{prompt}'")
-    image = pipe(prompt=prompt, num_inference_steps=30, guidance_scale=7.5).images[0]
+    image = pipe(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        num_inference_steps=20,
+        guidance_scale=5
+    ).images[0]
 
     # --- Save Image ---
     print(f"Saving generated image to {output_image_path}")

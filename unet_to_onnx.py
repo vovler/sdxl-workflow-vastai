@@ -99,8 +99,8 @@ def main():
         export_options=export_options,
     )
 
-    #print("Optimizing ONNX model...")
-    #onnx_program.optimize()
+    print("Optimizing ONNX model...")
+    onnx_program.optimize()
 
     print("\n--- ONNX Model Inputs ---")
     for i, input_proto in enumerate(onnx_program.model_proto.graph.input):

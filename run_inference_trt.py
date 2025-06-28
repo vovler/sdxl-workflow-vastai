@@ -152,6 +152,7 @@ class _SDXLTRTPipeline:
 
         for t in timesteps:
             latent_model_input = self.pipe.scheduler.scale_model_input(latents, t)
+            del latents
             noise_pred = self.pipe.unet(
                 sample=latent_model_input,
                 timestep=t,
@@ -159,7 +160,11 @@ class _SDXLTRTPipeline:
                 added_cond_kwargs=added_cond_kwargs,
             ).sample
             
+            del latent_model_input
             latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+            del noise_pred
+            
+            
             
         t3 = time.time()
         print(f"UNet denoising loop ({len(timesteps)} steps) took: {t3 - t2:.2f}s")

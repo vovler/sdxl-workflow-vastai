@@ -64,6 +64,7 @@ def main():
     original_forward = pipe.unet.forward
     
     def trt_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
+        print(f"Sample tensor in trt_unet_forward: {sample}")
         # Map pipeline inputs to our engine's buffers
         input_buffers["sample"].copy_(sample)
         input_buffers["timestep"].copy_(timestep)
@@ -81,7 +82,7 @@ def main():
         
         # Run inference
         context.execute_async_v3(stream_handle=stream.cuda_stream)
-        #stream.synchronize()
+        stream.synchronize()
         
         from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput
         return UNet2DConditionOutput(sample=output_buffers[output_name])

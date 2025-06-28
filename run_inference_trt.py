@@ -118,9 +118,9 @@ def main():
     print(f"Running inference for prompt: '{prompt}'")
     result = pipe(
         prompt=prompt,
-        negative_prompt=negative_prompt,
+        #negative_prompt=negative_prompt,
         num_inference_steps=8,
-        guidance_scale=1.2,
+        guidance_scale=1.0,
         height=768,
         width=1024,
     )

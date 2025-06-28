@@ -152,7 +152,7 @@ class _SDXLTRTPipeline:
 
         for t in timesteps:
             latent_model_input = self.pipe.scheduler.scale_model_input(latents, t)
-            del latents
+            #del latents
             noise_pred = self.pipe.unet(
                 sample=latent_model_input,
                 timestep=t,
@@ -160,9 +160,9 @@ class _SDXLTRTPipeline:
                 added_cond_kwargs=added_cond_kwargs,
             ).sample
             
-            del latent_model_input
+            #del latent_model_input
             latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
-            del noise_pred
+            #del noise_pred
             
             
             

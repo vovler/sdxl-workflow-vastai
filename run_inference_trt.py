@@ -42,41 +42,43 @@ def main():
         engine = runtime.deserialize_cuda_engine(f.read())
     
     context = engine.create_execution_context()
-    
-    # --- Prepare Buffers ---
-    input_buffers = {}
-    output_buffers = {}
-    stream = torch.cuda.Stream()
-    
-    for binding in engine:
-        shape = tuple(engine.get_tensor_shape(binding))
-        dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_tensor_dtype(binding)))).dtype
-        
-        buffer = torch.empty(shape, dtype=dtype, device=device).contiguous()
-        
-        if engine.get_tensor_mode(binding) == trt.TensorIOMode.INPUT:
-            input_buffers[binding] = buffer
-        else:
-            output_buffers[binding] = buffer
 
     # --- Create Inference Wrapper ---
     # Keep the original forward method
     original_forward = pipe.unet.forward
     
     def trt_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
-        print(f"Sample tensor shape in trt_unet_forward: {sample.shape}")
-        # Map pipeline inputs to our engine's buffers
-        input_buffers["sample"].copy_(sample)
-        input_buffers["timestep"].copy_(timestep)
-        input_buffers["encoder_hidden_states"].copy_(encoder_hidden_states)
+        # No need to print shape anymore, it's handled dynamically
+        # print(f"Sample tensor shape in trt_unet_forward: {sample.shape}")
 
-        added_cond = kwargs["added_cond_kwargs"]
-        input_buffers["text_embeds"].copy_(added_cond["text_embeds"])
-        input_buffers["time_ids"].copy_(added_cond["time_ids"])
+        # --- Prepare Buffers ---
+        stream = torch.cuda.Stream()
         
+        # Directly use input tensors, making them contiguous
+        added_cond = kwargs["added_cond_kwargs"]
+        input_tensors = {
+            "sample": sample.contiguous(),
+            "timestep": timestep.contiguous(),
+            "encoder_hidden_states": encoder_hidden_states.contiguous(),
+            "text_embeds": added_cond["text_embeds"].contiguous(),
+            "time_ids": added_cond["time_ids"].contiguous()
+        }
+        
+        # Set input shapes for the context
+        for name, tensor in input_tensors.items():
+            context.set_input_shape(name, tensor.shape)
+            
+        # Allocate output buffers
+        output_buffers = {}
+        for binding in engine:
+            if engine.get_tensor_mode(binding) == trt.TensorIOMode.OUTPUT:
+                shape = tuple(context.get_tensor_shape(binding))
+                dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_tensor_dtype(binding)))).dtype
+                output_buffers[binding] = torch.empty(shape, dtype=dtype, device=device).contiguous()
+
         # Set tensor addresses for execute_async_v3
-        for name, buffer in input_buffers.items():
-            context.set_tensor_address(name, buffer.data_ptr())
+        for name, tensor in input_tensors.items():
+            context.set_tensor_address(name, tensor.data_ptr())
         for name, buffer in output_buffers.items():
             context.set_tensor_address(name, buffer.data_ptr())
         

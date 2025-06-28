@@ -42,7 +42,7 @@ def build_engine(onnx_path, engine_path, use_fp16=True):
     # --- Define Optimization Profile for Dynamic Shapes ---
     profile = builder.create_optimization_profile()
     
-    /
+    
     # Define min, optimal, and max shapes for each input
     # Shape: (batch_size * 2, channels, height/8, width/8)
     # profile.set_shape("sample", (1*2, 4, 64, 64), (1*2, 4, 128, 128), (2*2, 4, 128, 128))

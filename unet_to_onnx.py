@@ -1,5 +1,6 @@
 import torch
 from diffusers import StableDiffusionXLPipeline, UNet2DConditionModel
+from torch.export import Dim
 import os
 
 class UNetWrapper(torch.nn.Module):
@@ -76,7 +77,21 @@ def main():
     unet_wrapper = UNetWrapper(unet)
     
     print("Exporting UNet to ONNX with TorchDynamo...")
-    export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
+
+    # Define dynamic axes for ONNX export following the user's example
+    batch_dim = Dim("batch_size_x2")
+    height_dim = Dim("height_div_8")
+    width_dim = Dim("width_div_8")
+
+    dynamic_shapes = {
+        "sample": {0: batch_dim, 2: height_dim, 3: width_dim},
+        "timestep": {0: batch_dim},
+        "encoder_hidden_states": {0: batch_dim},
+        "text_embeds": {0: batch_dim},
+        "time_ids": {0: batch_dim},
+    }
+
+    export_options = torch.onnx.ExportOptions(dynamic_shapes=dynamic_shapes)
     onnx_program = torch.onnx.export(
         unet_wrapper,
         model_args,

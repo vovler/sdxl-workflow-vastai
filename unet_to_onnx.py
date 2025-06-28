@@ -7,6 +7,8 @@ from torch.onnx import _flags
 # Force the exporter to use the new, experimental logic that has better
 # support for dynamic shapes, as deduced from the source code.
 _flags.USE_EXPERIMENTAL_LOGIC = True
+_flags.USE_EXPERIMENTAL_DYNAMIC_SHAPES = True
+
 
 class UNetWrapper(torch.nn.Module):
     def __init__(self, unet):
@@ -50,12 +52,14 @@ def main():
     batch_size = 1
     eff_batch_size = batch_size * 2
 
-    height = 1024
-    width = 1024
+    # These are latent space dimensions, not image dimensions.
+    # The default for SDXL is 1024x1024, which corresponds to 128x128 in latent space.
+    latent_height = 1024 // 8
+    latent_width = 1024 // 8
 
     # Get model-specific dimensions
     unet_in_channels = unet.config.in_channels
-    unet_latent_shape = (eff_batch_size, unet_in_channels, height // 8, width // 8)
+    unet_latent_shape = (eff_batch_size, unet_in_channels, latent_height, latent_width)
     
     # SDXL has two text encoders, their embeddings are concatenated.
     # Text encoder 1: 768, Text encoder 2: 1280.
@@ -83,6 +87,8 @@ def main():
     
     print("Exporting UNet to ONNX with TorchDynamo...")
 
+    _flags.USE_EXPERIMENTAL_LOGIC = True
+    _flags.USE_EXPERIMENTAL_DYNAMIC_SHAPES = True
     # The new experimental path works with the simple boolean flag.
     export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
     onnx_program = torch.onnx.export(
@@ -93,6 +99,7 @@ def main():
     )
 
     print("Optimizing ONNX model...")
+    # The new ONNXProgram object has an optimize method.
     onnx_program.optimize()
 
     print("\n--- ONNX Model Inputs ---")
@@ -104,6 +111,7 @@ def main():
         print(f"{i}: {output_proto.name}\n")
 
     print(f"Saving ONNX model to {output_path}...")
+    # The new ONNXProgram object has a save method.
     onnx_program.save(output_path)
 
     print(f"UNet successfully exported to {output_path}")

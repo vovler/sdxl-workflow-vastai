@@ -3,16 +3,25 @@ import tensorrt as trt
 from diffusers import StableDiffusionXLPipeline, LCMScheduler
 import numpy as np
 import os
+import argparse
 
 def main():
     """
     Runs SDXL inference using a TensorRT engine for the UNet.
     """
+    # --- Argument Parser ---
+    parser = argparse.ArgumentParser(description="Run SDXL inference with a TensorRT UNet engine.")
+    parser.add_argument("prompt", type=str, help="The base prompt for image generation.")
+    args = parser.parse_args()
+
     # --- Configuration ---
     engine_file_path = "unet.engine"
     model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    prompt = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba), smiling, looking at viewer, peace sign, v, standing"
+    
+    prompt_suffix = ", masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"
+    prompt = args.prompt + prompt_suffix
+    
     negative_prompt = "lowres, bad anatomy, bad hands, blurry, text, watermark, signature"
     output_image_path = "output_trt.png"
     output_name = "conv2d_50" # From the onnx export log
@@ -123,6 +132,7 @@ def main():
         guidance_scale=1.0,
         height=768,
         width=1152,
+        timesteps=[999, 749, 499, 249],
     )
     print(f"Number of images returned by pipeline: {len(result.images)}")
     image = result.images[0]

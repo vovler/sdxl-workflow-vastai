@@ -141,7 +141,9 @@ def main():
         timesteps.append(int(timesteps[-1] - decrement))
         
     print(f"Using timesteps: {timesteps}")
-        
+
+    pipe.set_pag_applied_layers(["mid", "down.block_2", "up.block_1.attentions_0"])
+
     result = pipe(
         prompt=prompt,
         #negative_prompt=negative_prompt,
@@ -151,7 +153,6 @@ def main():
         width=1152,
         timesteps=timesteps,
         enable_pag=True,
-        pag_applied_layers=["mid"],
         pag_scale=3.0,
         generator=generator,
     )

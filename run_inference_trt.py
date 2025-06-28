@@ -78,7 +78,7 @@ def main():
         
         # Run inference
         context.execute_async_v3(stream_handle=stream.cuda_stream)
-        stream.synchronize()
+        #stream.synchronize()
         
         from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput
         return UNet2DConditionOutput(sample=output_buffers[output_name])

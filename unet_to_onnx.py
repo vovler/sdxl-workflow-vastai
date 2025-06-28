@@ -2,6 +2,11 @@ import torch
 from diffusers import StableDiffusionXLPipeline, UNet2DConditionModel
 from torch.export import Dim
 import os
+from torch.onnx import _flags
+
+# Force the exporter to use the new, experimental logic that has better
+# support for dynamic shapes, as deduced from the source code.
+_flags.USE_EXPERIMENTAL_LOGIC = True
 
 class UNetWrapper(torch.nn.Module):
     def __init__(self, unet):
@@ -78,20 +83,8 @@ def main():
     
     print("Exporting UNet to ONNX with TorchDynamo...")
 
-    # Define dynamic axes for ONNX export following the user's example
-    batch_dim = Dim("batch_size_x2")
-    height_dim = Dim("height_div_8")
-    width_dim = Dim("width_div_8")
-
-    dynamic_shapes = {
-        "sample": {0: batch_dim, 2: height_dim, 3: width_dim},
-        "timestep": {0: batch_dim},
-        "encoder_hidden_states": {0: batch_dim},
-        "text_embeds": {0: batch_dim},
-        "time_ids": {0: batch_dim},
-    }
-
-    export_options = torch.onnx.ExportOptions(dynamic_shapes=dynamic_shapes)
+    # The new experimental path works with the simple boolean flag.
+    export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
     onnx_program = torch.onnx.export(
         unet_wrapper,
         model_args,

@@ -161,7 +161,6 @@ class _SDXLTRTPipeline:
             ).sample
             
             latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
-            del latents
             del latent_model_input
             del noise_pred
             

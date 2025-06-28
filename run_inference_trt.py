@@ -47,7 +47,7 @@ def main():
     
     for binding in engine:
         shape = tuple(engine.get_tensor_shape(binding))
-        dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_binding_dtype(binding)))).dtype
+        dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_tensor_dtype(binding)))).dtype
         
         buffer = torch.empty(shape, dtype=dtype, device=device).contiguous()
         

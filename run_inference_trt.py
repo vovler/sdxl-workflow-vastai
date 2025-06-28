@@ -144,8 +144,9 @@ class _SDXLTRTPipeline:
         added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
 
         for t in timesteps:
+            latent_model_input = self.pipe.scheduler.scale_model_input(latents, t)
             noise_pred = self.pipe.unet(
-                sample=latents,
+                sample=latent_model_input,
                 timestep=t,
                 encoder_hidden_states=prompt_embeds,
                 added_cond_kwargs=added_cond_kwargs,

@@ -42,35 +42,6 @@ def main():
         engine = runtime.deserialize_cuda_engine(f.read())
     
     context = engine.create_execution_context()
-
-    # --- Define Shapes and Allocate Buffers ---
-    # We need to set the context's input shapes before we can allocate buffers.
-    # The UNet input shapes are based on the inference settings.
-    batch_size = 1 # This is the user-facing batch size.
-    unet_batch_size = 2 # For classifier-free guidance, this is always 2*batch_size
-    
-    # Get image dimensions from the later pipe() call
-    height=768
-    width=1152
-    latent_height = height // 8
-    latent_width = width // 8
-    
-    # Manually define the input shapes, matching the names from the ONNX export
-    # The UNet config is available from the loaded pipeline.
-    unet_in_channels = pipe.unet.config.in_channels
-    # SDXL uses a concatenated projection of two text encoders for its cross-attention context
-    text_embed_dim = 2048 
-    
-    input_shapes = {
-        "sample": (unet_batch_size, unet_in_channels, latent_height, latent_width),
-        "timestep": (unet_batch_size,),
-        "encoder_hidden_states": (unet_batch_size, 77, text_embed_dim),
-        "text_embeds": (unet_batch_size, 1280),
-        "time_ids": (unet_batch_size, 6)
-    }
-    
-    for binding_name, shape in input_shapes.items():
-        context.set_input_shape(binding_name, shape)
     
     # --- Prepare Buffers ---
     input_buffers = {}
@@ -78,8 +49,7 @@ def main():
     stream = torch.cuda.Stream()
     
     for binding in engine:
-        # get_tensor_shape() will now return concrete shapes
-        shape = tuple(context.get_tensor_shape(binding))
+        shape = tuple(engine.get_tensor_shape(binding))
         dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_tensor_dtype(binding)))).dtype
         
         buffer = torch.empty(shape, dtype=dtype, device=device).contiguous()
@@ -97,12 +67,7 @@ def main():
         print(f"Sample tensor shape in trt_unet_forward: {sample.shape}")
         # Map pipeline inputs to our engine's buffers
         input_buffers["sample"].copy_(sample)
-        
-        # The timestep from the pipeline is a single value, but our engine expects a batch.
-        timestep_buffer = input_buffers["timestep"]
-        expanded_timestep = timestep.expand(timestep_buffer.shape[0]).to(timestep_buffer.dtype)
-        timestep_buffer.copy_(expanded_timestep)
-
+        input_buffers["timestep"].copy_(timestep)
         input_buffers["encoder_hidden_states"].copy_(encoder_hidden_states)
 
         added_cond = kwargs["added_cond_kwargs"]

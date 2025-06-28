@@ -51,7 +51,7 @@ def main():
     # --- Set up Compel ---
     compel = Compel(
         tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
-        text_encoders=[pipe.text_encoder, pipe.text_encoder_2],
+        text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
         returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
         requires_pooled=[False, True]
     )

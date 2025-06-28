@@ -1,6 +1,7 @@
 import torch
 import tensorrt as trt
 from diffusers import StableDiffusionXLPipeline, LCMScheduler
+from compel import Compel, ReturnedEmbeddings
 import numpy as np
 import os
 import argparse
@@ -24,7 +25,6 @@ def main():
     prompt_suffix = ", masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"
     prompt = args.prompt + prompt_suffix
     
-    negative_prompt = "lowres, bad anatomy, bad hands, blurry, text, watermark, signature"
     output_image_path = "output_trt.png"
     output_name = "conv2d_50" # From the onnx export log
 
@@ -45,6 +45,15 @@ def main():
     pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
     # Enable CPU offloading to avoid loading the original UNet into VRAM
     pipe.enable_model_cpu_offload()
+
+    # --- Setup Compel for SDXL ---
+    compel_proc = Compel(
+        tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
+        text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
+        returned_embeddings_type=ReturnedEmbeddings.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+        requires_pooled=[False, True],
+        device=device
+    )
 
     # --- Load TensorRT Engine ---
     print(f"Loading TensorRT engine from: {engine_file_path}")
@@ -141,10 +150,15 @@ def main():
         timesteps.append(int(timesteps[-1] - decrement))
         
     print(f"Using timesteps: {timesteps}")
+
+    # Process the prompt string into embedding tensors using Compel
+    conditioning, pooled = compel_proc(prompt)
         
     result = pipe(
-        prompt=prompt,
-        #negative_prompt=negative_prompt,
+        prompt_embeds=conditioning,
+        pooled_prompt_embeds=pooled,
+        negative_prompt_embeds=None,
+        negative_pooled_prompt_embeds=None,
         num_inference_steps=args.steps,
         guidance_scale=1.0,
         height=768,

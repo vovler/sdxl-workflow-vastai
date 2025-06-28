@@ -8,6 +8,7 @@ from compel import Compel, ReturnedEmbeddingsType
 from io import BytesIO
 from PIL import Image
 import re
+import time
 
 class _SDXLTRTPipeline:
     def __init__(self):
@@ -103,29 +104,69 @@ class _SDXLTRTPipeline:
         return UNet2DConditionOutput(sample=output_buffers[self.output_name])
 
     def generate(self, prompt, seed=None, steps=4):
+        height = 768
+        width = 1152
+        batch_size = 1
+        num_images_per_prompt = 1
+
+        # 1. CLIP text encoding
+        t0 = time.time()
         prompt_prefix = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"
         full_prompt = f"{prompt_prefix}, {prompt}"
-        negative_prompt = "lowres, bad anatomy, bad hands, blurry, text, watermark, signature"
         
         prompt_embeds, pooled_prompt_embeds = self.compel(full_prompt)
+        t1 = time.time()
+        print(f"CLIP encoding took: {t1 - t0:.2f}s")
         
+        # 2. Prepare latents
         generator = None
         if seed is not None:
             generator = torch.Generator(device=self.device).manual_seed(seed)
-            
-        pipe_kwargs = {
-            "prompt_embeds": prompt_embeds,
-            "pooled_prompt_embeds": pooled_prompt_embeds,
-            "num_inference_steps": steps,
-            "guidance_scale": 1.0,
-            "height": 768,
-            "width": 1152,
-            "generator": generator,
-        }
-
-        result = self.pipe(**pipe_kwargs)
-        image = result.images[0]
         
+        latents_shape = (
+            batch_size * num_images_per_prompt,
+            self.pipe.unet.config.in_channels,
+            height // self.pipe.vae_scale_factor,
+            width // self.pipe.vae_scale_factor,
+        )
+        latents = torch.randn(latents_shape, generator=generator, device=self.device, dtype=self.pipe.vae.dtype)
+        
+        # 3. Denoising loop (UNet)
+        t2 = time.time()
+        self.pipe.scheduler.set_timesteps(steps, device=self.device)
+        timesteps = self.pipe.scheduler.timesteps
+        latents = latents * self.pipe.scheduler.init_noise_sigma
+
+        # Prepare additional conditioning signals
+        add_text_embeds = pooled_prompt_embeds
+        add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], dtype=prompt_embeds.dtype, device=self.device)
+        add_time_ids = add_time_ids.repeat(batch_size * num_images_per_prompt, 1)
+        added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+
+        for t in timesteps:
+            noise_pred = self.pipe.unet(
+                sample=latents,
+                timestep=t,
+                encoder_hidden_states=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
+            ).sample
+            
+            latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+            
+        t3 = time.time()
+        print(f"UNet denoising loop ({len(timesteps)} steps) took: {t3 - t2:.2f}s")
+
+        # 4. VAE decoding
+        t4 = time.time()
+        latents = latents / self.pipe.vae.config.scaling_factor
+        image = self.pipe.vae.decode(latents, return_dict=False)[0]
+        t5 = time.time()
+        print(f"VAE decoding took: {t5 - t4:.2f}s")
+
+        # 5. Post-processing
+        image = self.pipe.image_processor.postprocess(image, output_type="pil")[0]
+
+        # 6. Convert to bytes
         img_byte_arr = BytesIO()
         image.save(img_byte_arr, format='PNG')
         img_bytes = img_byte_arr.getvalue()

@@ -103,10 +103,9 @@ class _SDXLTRTPipeline:
         return UNet2DConditionOutput(sample=output_buffers[self.output_name])
 
     def generate(self, prompt, seed=None, steps=4):
-        prompt_prefix = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"
-        full_prompt = f"{prompt_prefix}, {prompt}"
-        negative_prompt = "lowres, bad anatomy, bad hands, blurry, text, watermark, signature"
-        
+        #prompt_prefix = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"
+        #full_prompt = f"{prompt_prefix}, {prompt}"
+        full_prompt = prompt
         prompt_embeds, pooled_prompt_embeds = self.compel(full_prompt)
         
         generator = None

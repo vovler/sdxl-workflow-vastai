@@ -44,17 +44,17 @@ def build_engine(onnx_path, engine_path, use_fp16=True):
     
     # Define min, optimal, and max shapes for each input
     # These should match the names printed by the previous script.
-    # The ONNX graph has a static shape, so min/opt/max for H/W must match it.
+    # The ONNX graph has a static shape, so min/opt/max for all dims must match.
     # Shape: (batch_size * 2, channels, height/8, width/8)
-    profile.set_shape("sample", (1*2, 4, 128, 128), (1*2, 4, 128, 128), (2*2, 4, 128, 128))
+    profile.set_shape("sample", (1*2, 4, 128, 128), (1*2, 4, 128, 128), (1*2, 4, 128, 128))
     # Shape: (batch_size * 2,)
-    profile.set_shape("timestep", (1*2,), (1*2,), (2*2,))
+    profile.set_shape("timestep", (1*2,), (1*2,), (1*2,))
     # Shape: (batch_size * 2, sequence_length, hidden_size)
-    profile.set_shape("encoder_hidden_states", (1*2, 77, 2048), (1*2, 77, 2048), (2*2, 77, 2048))
+    profile.set_shape("encoder_hidden_states", (1*2, 77, 2048), (1*2, 77, 2048), (1*2, 77, 2048))
     # Shape: (batch_size * 2, pooled_projection_dim)
-    profile.set_shape("text_embeds", (1*2, 1280), (1*2, 1280), (2*2, 1280))
+    profile.set_shape("text_embeds", (1*2, 1280), (1*2, 1280), (1*2, 1280))
     # Shape: (batch_size * 2, 6)
-    profile.set_shape("time_ids", (1*2, 6), (1*2, 6), (2*2, 6))
+    profile.set_shape("time_ids", (1*2, 6), (1*2, 6), (1*2, 6))
     
     config.add_optimization_profile(profile)
 

@@ -48,18 +48,24 @@ def main():
     original_forward = pipe.unet.forward
     
     def trt_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
-        # No need to print shape anymore, it's handled dynamically
-        # print(f"Sample tensor shape in trt_unet_forward: {sample.shape}")
+        # --- Debug prints ---
+        print("\n--- trt_unet_forward call ---")
+        print(f"sample.shape: {sample.shape}, sample.dtype: {sample.dtype}, sample.device: {sample.device}")
+        print(f"timestep: {timestep}, timestep.shape: {timestep.shape}, timestep.dtype: {timestep.dtype}, timestep.device: {timestep.device}")
+        print(f"encoder_hidden_states.shape: {encoder_hidden_states.shape}, encoder_hidden_states.dtype: {encoder_hidden_states.dtype}, encoder_hidden_states.device: {encoder_hidden_states.device}")
+        added_cond = kwargs["added_cond_kwargs"]
+        print(f"text_embeds.shape: {added_cond['text_embeds'].shape}, text_embeds.dtype: {added_cond['text_embeds'].dtype}, text_embeds.device: {added_cond['text_embeds'].device}")
+        print(f"time_ids.shape: {added_cond['time_ids'].shape}, time_ids.dtype: {added_cond['time_ids'].dtype}, time_ids.device: {added_cond['time_ids'].device}")
+        print("--------------------------")
 
         # --- Prepare Buffers ---
         stream = torch.cuda.Stream()
         
         # Directly use input tensors, making them contiguous
-        added_cond = kwargs["added_cond_kwargs"]
-
-        # Timestep from the pipeline is a scalar, but the engine expects a 1D tensor.
-        if timestep.dim() == 0:
-            timestep = timestep.reshape(1)
+        
+        # Timestep from the pipeline is a scalar, but the engine expects a 1D tensor of size batch_size.
+        batch_size = sample.shape[0]
+        timestep = timestep.expand(batch_size)
 
         input_tensors = {
             "sample": sample.contiguous(),
@@ -68,6 +74,11 @@ def main():
             "text_embeds": added_cond["text_embeds"].contiguous(),
             "time_ids": added_cond["time_ids"].contiguous()
         }
+        
+        print("\n--- TensorRT Input Tensors ---")
+        for name, tensor in input_tensors.items():
+            print(f"{name}: shape={tensor.shape}, dtype={tensor.dtype}, device={tensor.device}")
+        print("------------------------------")
         
         # Set input shapes for the context
         for name, tensor in input_tensors.items():
@@ -91,6 +102,10 @@ def main():
         # Run inference
         context.execute_async_v3(stream_handle=stream.cuda_stream)
         stream.synchronize()
+
+        print("\n--- TensorRT Output ---")
+        print(f"output shape: {output_buffers[output_name].shape}")
+        print("-----------------------")
         
         from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput
         return UNet2DConditionOutput(sample=output_buffers[output_name])

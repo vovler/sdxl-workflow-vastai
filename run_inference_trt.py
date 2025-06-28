@@ -119,7 +119,7 @@ def main():
     result = pipe(
         prompt=prompt,
         #negative_prompt=negative_prompt,
-        num_inference_steps=8,
+        num_inference_steps=4,
         guidance_scale=1.0,
         height=768,
         width=1152,

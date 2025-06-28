@@ -4,7 +4,7 @@ from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 import numpy as np
 import os
 import argparse
-from compel.embeddings_provider import EmbeddingsProviderMulti, ReturnedEmbeddingsType
+from compel import Compel, ReturnedEmbeddingsType
 
 def main():
     """
@@ -49,22 +49,15 @@ def main():
     pipe.enable_model_cpu_offload()
 
     # --- Set up Compel ---
-    compel_proc = EmbeddingsProviderMulti(
-        tokenizers=[pipe.tokenizer, pipe.tokenizer_2],
+    compel = Compel(
+        tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
         text_encoders=[pipe.text_encoder, pipe.text_encoder_2],
         returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
         requires_pooled=[False, True]
     )
 
     # Get positive prompt embeddings
-    # compel's get_embeddings_for_weighted_prompt_fragments takes a batch of prompts and weights
-    prompt_embeds = compel_proc.get_embeddings_for_weighted_prompt_fragments([[prompt]], [[1.0]])
-    pooled_prompt_embeds = compel_proc.get_pooled_embeddings([prompt])
-
-    # For negative prompt, we use an empty string as per user request to not use negative prompts.
-    # The SDXL pipeline still expects negative prompt embeddings, so we provide it with embeddings for an empty string.
-    ##negative_prompt_embeds = compel_proc.get_embeddings_for_weighted_prompt_fragments([[""]], [[1.0]])
-    ##negative_pooled_prompt_embeds = compel_proc.get_pooled_embeddings([""])
+    prompt_embeds, pooled_prompt_embeds = compel(prompt)
 
     # --- Load TensorRT Engine ---
     print(f"Loading TensorRT engine from: {engine_file_path}")
@@ -157,8 +150,6 @@ def main():
     pipe_kwargs = {
         "prompt_embeds": prompt_embeds,
         "pooled_prompt_embeds": pooled_prompt_embeds,
-        #"negative_prompt_embeds": negative_prompt_embeds,
-        #"negative_pooled_prompt_embeds": negative_pooled_prompt_embeds,
         "num_inference_steps": args.steps,
         "guidance_scale": 1.0,
         "height": 768,

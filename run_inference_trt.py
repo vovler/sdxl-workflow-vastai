@@ -46,7 +46,7 @@ def main():
     stream = torch.cuda.Stream()
     
     for binding in engine:
-        shape = tuple(engine.get_binding_shape(binding))
+        shape = tuple(engine.get_tensor_shape(binding))
         dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_binding_dtype(binding)))).dtype
         
         buffer = torch.empty(shape, dtype=dtype, device=device).contiguous()

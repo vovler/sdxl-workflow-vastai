@@ -43,10 +43,6 @@ class _SDXLTRTPipeline:
             use_safetensors=True,
         )
 
-        self.pipe.vae.to(self.device)
-        self.pipe.text_encoder.to(self.device)
-        self.pipe.text_encoder_2.to(self.device)
-
         self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(self.pipe.scheduler.config)
 
         self.compel = Compel(
@@ -55,6 +51,11 @@ class _SDXLTRTPipeline:
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
             requires_pooled=[False, True]
         )
+
+        # Move models to CPU to save VRAM. They will be moved to GPU when needed.
+        self.pipe.vae.to("cpu")
+        self.pipe.text_encoder.to("cpu")
+        self.pipe.text_encoder_2.to("cpu")
 
         print(f"Loading TensorRT engine from: {engine_file_path}")
         TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
@@ -114,7 +115,13 @@ class _SDXLTRTPipeline:
         prompt_prefix = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"
         full_prompt = f"{prompt_prefix}, {prompt}"
         
+        self.pipe.text_encoder.to(self.device)
+        self.pipe.text_encoder_2.to(self.device)
         prompt_embeds, pooled_prompt_embeds = self.compel(full_prompt)
+        self.pipe.text_encoder.to("cpu")
+        self.pipe.text_encoder_2.to("cpu")
+        torch.cuda.empty_cache()
+        
         t1 = time.time()
         print(f"CLIP encoding took: {t1 - t0:.2f}s")
         
@@ -159,8 +166,11 @@ class _SDXLTRTPipeline:
 
         # 4. VAE decoding
         t4 = time.time()
+        self.pipe.vae.to(self.device)
         latents = latents / self.pipe.vae.config.scaling_factor
         image = self.pipe.vae.decode(latents, return_dict=False)[0]
+        self.pipe.vae.to("cpu")
+        torch.cuda.empty_cache()
         t5 = time.time()
         print(f"VAE decoding took: {t5 - t4:.2f}s")
 

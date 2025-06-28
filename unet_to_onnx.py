@@ -71,12 +71,12 @@ def main():
     unet_wrapper = UNetWrapper(unet)
     
     print("Exporting UNet to ONNX with TorchDynamo...")
-    export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
+    #export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
     onnx_program = torch.onnx.export(
         unet_wrapper,
         model_args,
         dynamo=True,
-        export_options=export_options,
+        #export_options=export_options,
     )
 
     print("Optimizing ONNX model...")

@@ -151,16 +151,16 @@ def main():
         "generator": generator,
     }
 
-    #if args.scheduler == "lcm":
+    if args.scheduler == "lcm":
         # According to LCM paper, this is the best practice for a small number of steps.
-    timesteps = [999]
-    decrement = 1000 / args.steps
-    for i in range(1, args.steps):
-        timesteps.append(int(timesteps[-1] - decrement))
-    print(f"Using custom timesteps for LCM: {timesteps}")
-    pipe_kwargs["timesteps"] = timesteps
-    #else:
-    #    print(f"Using {args.scheduler} with {args.steps} steps. The scheduler will determine the timesteps.")
+        timesteps = [999]
+        decrement = 1000 / args.steps
+        for i in range(1, args.steps):
+            timesteps.append(int(timesteps[-1] - decrement))
+        print(f"Using custom timesteps for LCM: {timesteps}")
+        pipe_kwargs["timesteps"] = timesteps
+    else:
+        print(f"Using {args.scheduler} with {args.steps} steps. The scheduler will determine the timesteps.")
         
 
     result = pipe(**pipe_kwargs)

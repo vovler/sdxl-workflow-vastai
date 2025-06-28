@@ -93,12 +93,14 @@ def main():
     
     # --- Run Inference ---
     print(f"Running inference for prompt: '{prompt}'")
-    image = pipe(
+    result = pipe(
         prompt=prompt,
         negative_prompt=negative_prompt,
         num_inference_steps=20,
         guidance_scale=5
-    ).images[0]
+    )
+    print(f"Number of images returned by pipeline: {len(result.images)}")
+    image = result.images[0]
 
     # --- Save Image ---
     print(f"Saving generated image to {output_image_path}")

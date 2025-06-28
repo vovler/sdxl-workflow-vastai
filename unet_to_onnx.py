@@ -6,8 +6,7 @@ from torch.onnx import _flags
 
 # Force the exporter to use the new, experimental logic that has better
 # support for dynamic shapes, as deduced from the source code.
-_flags.USE_EXPERIMENTAL_LOGIC = True
-_flags.USE_EXPERIMENTAL_DYNAMIC_SHAPES = True
+# _flags.USE_EXPERIMENTAL_LOGIC = True
 
 
 class UNetWrapper(torch.nn.Module):
@@ -87,19 +86,29 @@ def main():
     
     print("Exporting UNet to ONNX with TorchDynamo...")
 
-    _flags.USE_EXPERIMENTAL_LOGIC = True
-    _flags.USE_EXPERIMENTAL_DYNAMIC_SHAPES = True
-    # The new experimental path works with the simple boolean flag.
-    export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
+    # Define dynamic axes for the model inputs. This is the new way to specify
+    # dynamic shapes for the dynamo exporter.
+    dynamic_shapes = {
+        "sample": {
+            0: Dim("batch_size"),
+            2: Dim("height"),
+            3: Dim("width"),
+        },
+        "timestep": {0: Dim("batch_size")},
+        "encoder_hidden_states": {0: Dim("batch_size")},
+        "text_embeds": {0: Dim("batch_size")},
+        "time_ids": {0: Dim("batch_size")},
+    }
+
     onnx_program = torch.onnx.export(
         unet_wrapper,
         model_args,
         dynamo=True,
-        export_options=export_options,
+        dynamic_shapes=dynamic_shapes,
+        opset_version=18,
     )
 
     print("Optimizing ONNX model...")
-    # The new ONNXProgram object has an optimize method.
     onnx_program.optimize()
 
     print("\n--- ONNX Model Inputs ---")

@@ -22,12 +22,17 @@ def main():
     """
     model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
     output_path = "unet.onnx"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
 
     print(f"Loading SDXL model: {model_id}")
-    # Using float32 for ONNX export compatibility
-    pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=torch.float32, use_safetensors=True)
+    # Load model with its default dtype, then use that for all tensors.
+    pipe = StableDiffusionXLPipeline.from_pretrained(model_id, use_safetensors=True)
     unet = pipe.unet
+    unet.to(device)
     unet.eval()
+    unet_dtype = unet.dtype
+    print(f"UNet dtype: {unet_dtype}")
 
     print("Preparing dummy inputs for UNet export...")
     # SDXL uses classifier-free guidance, so inputs are duplicated (one for conditional, one for unconditional)
@@ -53,12 +58,12 @@ def main():
     # Additional conditioning for image size and cropping
     add_time_ids_shape = (eff_batch_size, 6)
 
-    # Create dummy tensors
-    sample = torch.randn(unet_latent_shape, dtype=torch.float32)
-    timestep = torch.tensor([999] * eff_batch_size, dtype=torch.float32)
-    encoder_hidden_states = torch.randn(encoder_hidden_states_shape, dtype=torch.float32)
-    text_embeds = torch.randn(add_text_embeds_shape, dtype=torch.float32)
-    time_ids = torch.randn(add_time_ids_shape, dtype=torch.float32)
+    # Create dummy tensors with the same dtype as the UNet
+    sample = torch.randn(unet_latent_shape, dtype=unet_dtype).to(device)
+    timestep = torch.tensor([999] * eff_batch_size, dtype=unet_dtype).to(device)
+    encoder_hidden_states = torch.randn(encoder_hidden_states_shape, dtype=unet_dtype).to(device)
+    text_embeds = torch.randn(add_text_embeds_shape, dtype=unet_dtype).to(device)
+    time_ids = torch.randn(add_time_ids_shape, dtype=unet_dtype).to(device)
 
     model_args = (sample, timestep, encoder_hidden_states, text_embeds, time_ids)
 
@@ -73,6 +78,9 @@ def main():
         dynamo=True,
         export_options=export_options,
     )
+
+    print("Optimizing ONNX model...")
+    onnx_program.optimize()
 
     print("\n--- ONNX Model Inputs ---")
     for i, input_proto in enumerate(onnx_program.model_proto.graph.input):

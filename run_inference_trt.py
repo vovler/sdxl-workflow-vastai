@@ -56,6 +56,11 @@ def main():
         
         # Directly use input tensors, making them contiguous
         added_cond = kwargs["added_cond_kwargs"]
+
+        # Timestep from the pipeline is a scalar, but the engine expects a 1D tensor.
+        if timestep.dim() == 0:
+            timestep = timestep.reshape(1)
+
         input_tensors = {
             "sample": sample.contiguous(),
             "timestep": timestep.contiguous(),

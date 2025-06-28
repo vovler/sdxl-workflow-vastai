@@ -134,7 +134,7 @@ def main():
         num_inference_steps=8,
         guidance_scale=1.2,
         height=768,
-        width=1152,
+        width=1024,
     )
     print(f"Number of images returned by pipeline: {len(result.images)}")
     image = result.images[0]

@@ -64,7 +64,7 @@ def main():
     original_forward = pipe.unet.forward
     
     def trt_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
-        print(f"Sample tensor in trt_unet_forward: {sample}")
+        print(f"Sample tensor shape in trt_unet_forward: {sample.shape}")
         # Map pipeline inputs to our engine's buffers
         input_buffers["sample"].copy_(sample)
         input_buffers["timestep"].copy_(timestep)

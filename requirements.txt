@@ -17,8 +17,8 @@ polygraphy==0.49.24
 cuda-python==12.9.0
 accelerate>=0.20.0
 safetensors>=0.3.0
-xformers
-peft
+xformers==0.0.31
+peft==0.15.2
 
 fastapi==0.104.1
 uvicorn[standard]==0.24.0

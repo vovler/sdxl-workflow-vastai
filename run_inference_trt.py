@@ -12,7 +12,7 @@ def main():
     engine_file_path = "unet.engine"
     model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    prompt = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba), smiling, looking at viewer, peace sign"
+    prompt = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba), smiling, looking at viewer, peace sign, v, standing, not explicit"
     negative_prompt = "lowres, bad anatomy, bad hands, blurry, text, watermark, signature"
     output_image_path = "output_trt.png"
     output_name = "conv2d_50" # From the onnx export log

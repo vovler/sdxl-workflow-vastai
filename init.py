@@ -11,6 +11,9 @@ import httpx
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 import uvicorn
+import torch
+from torchvision.io import encode_jpeg
+import numpy as np
 from run_inference_trt import generate_image, initialize_pipeline
 
 # Global variables
@@ -166,9 +169,25 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
             prompt=prompt
         )
         
-        # Debug: Check if image_data is valid
-        print(f"Image data type: {type(image_data)}", flush=True)
-        print(f"Image data size: {len(image_data) if image_data else 'None'}", flush=True)
+        # Minify image to JPEG 85% on GPU, removing metadata
+        print("Minifying image to JPEG (85% quality)...", flush=True)
+        try:
+            # Convert PIL image to uint8 tensor (C, H, W) and move to GPU
+            tensor_img_gpu = torch.from_numpy(np.array(img)).permute(2, 0, 1).to("cuda")
+
+            # Encode to JPEG on GPU
+            jpeg_tensor_gpu = encode_jpeg(tensor_img_gpu, quality=85)
+
+            # Move back to CPU and get bytes
+            image_data = jpeg_tensor_gpu.cpu().numpy().tobytes()
+            print(f"Minified image size: {len(image_data)} bytes", flush=True)
+        except Exception as e:
+            print(f"Could not minify image on GPU, falling back to CPU: {e}", flush=True)
+            # Fallback to CPU-based conversion with Pillow
+            from io import BytesIO
+            buffer = BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            image_data = buffer.getvalue()
         
         # Send DONE status with generated image
         await send_task_status(task_id, "DONE", "Image generated successfully!", image_data=image_data)

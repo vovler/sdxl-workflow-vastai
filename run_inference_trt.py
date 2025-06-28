@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run SDXL inference with a TensorRT UNet engine.")
     parser.add_argument("prompt", type=str, help="The base prompt for image generation.")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for diffusion.")
+    parser.add_argument("--steps", type=int, default=4, help="Number of inference steps.")
     args = parser.parse_args()
 
     # --- Configuration ---
@@ -132,14 +133,23 @@ def main():
         print(f"Using seed: {args.seed}")
         generator = torch.Generator(device=device).manual_seed(args.seed)
         
+    # --- Timesteps ---
+    # According to LCM paper, this is the best practice for a small number of steps.
+    timesteps = [999]
+    decrement = 1000 / args.steps
+    for i in range(1, args.steps):
+        timesteps.append(int(timesteps[-1] - decrement))
+        
+    print(f"Using timesteps: {timesteps}")
+        
     result = pipe(
         prompt=prompt,
         #negative_prompt=negative_prompt,
-        num_inference_steps=4,
+        num_inference_steps=args.steps,
         guidance_scale=1.0,
         height=768,
         width=1152,
-        timesteps=[999, 749, 499, 249],
+        timesteps=timesteps,
         generator=generator,
     )
     print(f"Number of images returned by pipeline: {len(result.images)}")

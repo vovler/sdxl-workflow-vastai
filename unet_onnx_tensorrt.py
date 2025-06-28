@@ -46,7 +46,7 @@ def build_engine(onnx_path, engine_path, use_fp16=True):
     # These should match the names printed by the previous script.
     # The ONNX graph has a static shape, so min/opt/max for all dims must match.
     # Shape: (batch_size * 2, channels, height/8, width/8)
-    profile.set_shape("sample", (1*2, 4, 96, 96), (1*2, 4, 86, 144), (1*2, 4, 144, 144))
+    profile.set_shape("sample", (1*2, 4, 96, 96), (1*2, 4, 96, 144), (1*2, 4, 144, 144))
     # Shape: (batch_size * 2,)
     profile.set_shape("timestep", (1*2,), (1*2,), (1*2,))
     # Shape: (batch_size * 2, sequence_length, hidden_size)

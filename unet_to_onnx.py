@@ -28,6 +28,11 @@ def main():
     print(f"Loading SDXL model: {model_id}")
     # Load model and force it into FP16, then use that for all tensors.
     pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=torch.float16, use_safetensors=True)
+    
+    print("Loading and fusing DMD2 LoRA...")
+    pipe.load_lora_weights("tianweiy/DMD2")
+    pipe.fuse_lora(lora_scale=0.8)
+    
     unet = pipe.unet
     unet.to(device)
     unet.eval()
@@ -71,22 +76,16 @@ def main():
     unet_wrapper = UNetWrapper(unet)
     
     print("Exporting UNet to ONNX with TorchDynamo...")
-    #export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
+    export_options = torch.onnx.ExportOptions(dynamic_shapes=True)
     onnx_program = torch.onnx.export(
         unet_wrapper,
         model_args,
         dynamo=True,
-        #export_options=export_options,
+        export_options=export_options,
     )
 
-    print("Optimizing ONNX model...")
-    onnx_program.optimize()
-
-    print("Optimizing ONNX model 2...")
-    onnx_program.optimize()
-
-    print("Optimizing ONNX model 3...")
-    onnx_program.optimize()
+    #print("Optimizing ONNX model...")
+    #onnx_program.optimize()
 
     print("\n--- ONNX Model Inputs ---")
     for i, input_proto in enumerate(onnx_program.model_proto.graph.input):

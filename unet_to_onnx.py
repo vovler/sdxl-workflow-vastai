@@ -88,16 +88,19 @@ def main():
 
     # Define dynamic axes for the model inputs. This is the new way to specify
     # dynamic shapes for the dynamo exporter.
+    # Re-using the same Dim object tells the exporter that these dimensions
+    # are constrained to be the same.
+    batch_dim = Dim("batch_size")
     dynamic_shapes = {
         "sample": {
-            0: Dim("batch_size"),
+            0: batch_dim,
             2: Dim("height"),
             3: Dim("width"),
         },
-        "timestep": {0: Dim("batch_size")},
-        "encoder_hidden_states": {0: Dim("batch_size")},
-        "text_embeds": {0: Dim("batch_size")},
-        "time_ids": {0: Dim("batch_size")},
+        "timestep": {0: batch_dim},
+        "encoder_hidden_states": {0: batch_dim},
+        "text_embeds": {0: batch_dim},
+        "time_ids": {0: batch_dim},
     }
 
     onnx_program = torch.onnx.export(

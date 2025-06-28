@@ -1,6 +1,6 @@
 import torch
 import tensorrt as trt
-from diffusers import StableDiffusionXLPipeline, LCMScheduler
+from diffusers import StableDiffusionXLPipeline, LCMScheduler, EulerAncestralDiscreteScheduler
 import numpy as np
 import os
 import argparse
@@ -14,6 +14,7 @@ def main():
     parser.add_argument("prompt", type=str, help="The base prompt for image generation.")
     parser.add_argument("--seed", type=int, default=None, help="Random seed for diffusion.")
     parser.add_argument("--steps", type=int, default=4, help="Number of inference steps.")
+    parser.add_argument("--scheduler", type=str, default="lcm", choices=["lcm", "eulera"], help="Scheduler to use (lcm or eulera).")
     args = parser.parse_args()
 
     # --- Configuration ---
@@ -41,8 +42,14 @@ def main():
         torch_dtype=torch.float16,
         use_safetensors=True,
     )
-    # Use LCM scheduler
-    pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+    # Use selected scheduler
+    if args.scheduler == "lcm":
+        print("Using LCMScheduler")
+        pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+    elif args.scheduler == "eulera":
+        print("Using EulerAncestralDiscreteScheduler")
+        pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+
     # Enable CPU offloading to avoid loading the original UNet into VRAM
     pipe.enable_model_cpu_offload()
 
@@ -133,28 +140,30 @@ def main():
         print(f"Using seed: {args.seed}")
         generator = torch.Generator(device=device).manual_seed(args.seed)
         
-    # --- Timesteps ---
-    # According to LCM paper, this is the best practice for a small number of steps.
-    timesteps = [999]
-    decrement = 1000 / args.steps
-    for i in range(1, args.steps):
-        timesteps.append(int(timesteps[-1] - decrement))
-        
-    print(f"Using timesteps: {timesteps}")
+    # --- Timesteps & Inference Args ---
+    pipe_kwargs = {
+        "prompt": prompt,
+        # "negative_prompt": negative_prompt,
+        "num_inference_steps": args.steps,
+        "guidance_scale": 1.0,
+        "height": 768,
+        "width": 1152,
+        "generator": generator,
+    }
 
-    result = pipe(
-        prompt=prompt,
-        #negative_prompt=negative_prompt,
-        num_inference_steps=args.steps,
-        guidance_scale=1.0,
-        height=768,
-        width=1152,
-        timesteps=timesteps,
-        enable_pag=True,
-        pag_scale=3.0,
-        pag_applied_layers=["mid", "down.block_2", "up.block_1.attentions_0"],
-        generator=generator,
-    )
+    if args.scheduler == "lcm":
+        # According to LCM paper, this is the best practice for a small number of steps.
+        timesteps = [999]
+        decrement = 1000 / args.steps
+        for i in range(1, args.steps):
+            timesteps.append(int(timesteps[-1] - decrement))
+        print(f"Using custom timesteps for LCM: {timesteps}")
+        pipe_kwargs["timesteps"] = timesteps
+    else:
+        print(f"Using {args.scheduler} with {args.steps} steps. The scheduler will determine the timesteps.")
+        
+
+    result = pipe(**pipe_kwargs)
     print(f"Number of images returned by pipeline: {len(result.images)}")
     image = result.images[0]
 

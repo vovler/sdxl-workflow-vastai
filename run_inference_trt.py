@@ -65,7 +65,7 @@ def main():
         
         # Timestep from the pipeline is a scalar, but the engine expects a 1D tensor of size batch_size.
         batch_size = sample.shape[0]
-        timestep = timestep.expand(batch_size)
+        timestep = timestep.expand(batch_size).to(dtype=torch.float16)
 
         input_tensors = {
             "sample": sample.contiguous(),

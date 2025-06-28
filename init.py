@@ -130,7 +130,7 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
         if image_data:
             # Send with image data as multipart form data
             # Don't specify content-type in files tuple to ensure multipart/form-data is used
-            files = {"image": ("test_image.png", image_data)}
+            files = {"image": ("generated_image.jpg", image_data)}
             # Convert payload to individual form fields
             form_data = {
                 "uuid": worker_uuid,

@@ -43,7 +43,7 @@ class SDXLPipeline:
         for t in timesteps:
             latent_model_input = latents_torch
 
-            timestep_numpy = np.array([t.item()], dtype=np.float16)
+            timestep_numpy = np.array([t.item()], dtype=np.float32)
 
             noise_pred_np = self.unet(
                 latent_model_input.cpu().numpy(),

@@ -39,9 +39,6 @@ def main():
     unet = pipe.unet
     unet.to(device)
     
-    # Force the added text and time embedding layers to float16 for consistency
-    unet.add_embedding.to(dtype=torch.float16)
-    
     unet.eval()
     unet_dtype = unet.dtype
     print(f"UNet dtype: {unet_dtype}")
@@ -73,9 +70,9 @@ def main():
     # Additional conditioning for image size and cropping
     add_time_ids_shape = (eff_batch_size, 6)
 
-    # Create dummy tensors with the same dtype as the UNet
+    # Create dummy tensors with the dtypes discovered from the pipeline test
     sample = torch.randn(unet_latent_shape, dtype=unet_dtype).to(device)
-    timestep = torch.tensor([999] * eff_batch_size, dtype=unet_dtype).to(device)
+    timestep = torch.tensor([999] * eff_batch_size, dtype=torch.float32).to(device)
     encoder_hidden_states = torch.randn(encoder_hidden_states_shape, dtype=unet_dtype).to(device)
     text_embeds = torch.randn(add_text_embeds_shape, dtype=unet_dtype).to(device)
     time_ids = torch.randn(add_time_ids_shape, dtype=unet_dtype).to(device)

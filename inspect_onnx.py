@@ -1,72 +1,72 @@
 import onnx
 from onnx import TensorProto
-import onnx.shape_inference
 
 def get_type_name(type_proto):
-    """Returns a string representation of a type and its raw enum value."""
-    if type_proto and type_proto.tensor_type.elem_type in TensorProto.DataType.DESCRIPTOR.values:
-        elem_type = type_proto.tensor_type.elem_type
-        return f"{TensorProto.DataType.Name(elem_type)} (enum: {elem_type})"
+    """Returns a string representation of a type."""
+    if type_proto.tensor_type.elem_type in TensorProto.DataType.DESCRIPTOR.values:
+        return TensorProto.DataType.Name(type_proto.tensor_type.elem_type)
     return "UNKNOWN"
 
 def find_mismatched_types(model_path: str):
     """
-    Loads an ONNX model, runs type inference, and checks for nodes with mismatched input data types.
+    Loads an ONNX model and checks for nodes with mismatched input data types.
+    Specifically targets Concat nodes as per the error message.
     """
     try:
-        print("Loading ONNX model and running type inference...")
         model = onnx.load(model_path)
-        # Run shape and type inference to populate value_info for all tensors.
-        model = onnx.shape_inference.infer_shapes(model)
-        print("Type inference complete.")
-
     except Exception as e:
-        print(f"Error loading or processing ONNX model at {model_path}: {e}")
+        print(f"Error loading ONNX model at {model_path}: {e}")
         return
 
-    # Now that we've run inference, value_info should be much more complete.
-    tensor_types = {vi.name: vi.type for vi in model.graph.value_info}
-    for i in model.graph.input:
-        tensor_types[i.name] = i.type
-    for init in model.graph.initializer:
-        tensor_types[init.name] = onnx.helper.make_tensor_type_proto(init.data_type, init.dims)
+    # Create a map of all tensor names to their data types for easy lookup.
+    # This includes initializers (weights) and value_info (activations).
+    value_info = {vi.name: vi.type for vi in model.graph.value_info}
+    inputs = {i.name: i.type for i in model.graph.input}
+    initializers = {init.name: init for init in model.graph.initializer}
 
-    print(f"--- Checking model for type mismatches: {model_path} ---")
+    tensor_types = {**value_info, **inputs}
+
+    # For initializers, we need to get their type from the tensor itself
+    for name, init in initializers.items():
+        # Create a TypeProto for the initializer
+        type_proto = onnx.helper.make_tensor_type_proto(init.data_type, init.dims)
+        tensor_types[name] = type_proto
+
+    print(f"--- Checking model: {model_path} ---")
     found_mismatch = False
     
     for node in model.graph.node:
         if node.op_type != "Concat":
             continue
 
-        input_names = node.input
-        if len(input_names) < 2:
+        input_types = []
+        for input_name in node.input:
+            if input_name in tensor_types:
+                input_types.append(tensor_types[input_name])
+            else:
+                input_types.append(None)
+
+        if not input_types or len(input_types) < 2:
             continue
 
-        first_input_name = input_names[0]
-        if first_input_name not in tensor_types:
-            continue 
-        
-        first_type_proto = tensor_types[first_input_name]
+        first_type_proto = input_types[0]
+        if first_type_proto is None:
+            continue
+            
         first_type = first_type_proto.tensor_type.elem_type
         
-        is_mismatched_node = False
-        for input_name in input_names:
-            if input_name not in tensor_types:
+        for i, type_proto in enumerate(input_types[1:], 1):
+            if type_proto is None:
                 continue
-            current_type = tensor_types[input_name].tensor_type.elem_type
+                
+            current_type = type_proto.tensor_type.elem_type
             if current_type != first_type:
-                is_mismatched_node = True
-                print(f"  - Input {i} ('{input_name}') has type: {current_type}")
-                print(f"  - Input {i} ('{first_input_name}') has type: {first_type}")
-                break
-        
-        if is_mismatched_node:
-            found_mismatch = True
-            print(f"\n[MISMATCH FOUND] in node '{node.name}' (Type: {node.op_type})")
-            for i, name in enumerate(input_names):
-                input_type = get_type_name(tensor_types.get(name))
-                print(f"  - Input {i} ('{name}') has type: {input_type}")
-            print("-" * 20)
+                found_mismatch = True
+                print(f"\n[MISMATCH FOUND] in node '{node.name}' (Type: {node.op_type})")
+                print(f"  Input {node.input[0]} has type {current_type} {get_type_name(input_types[0])}")
+                print(f"  Input {node.input[i]} has type {first_type} {get_type_name(type_proto)}")
+                print("-" * 20)
+
 
     if not found_mismatch:
         print("\nNo Concat nodes with mismatched input types were found.")

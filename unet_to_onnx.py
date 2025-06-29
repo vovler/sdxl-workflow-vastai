@@ -4,10 +4,6 @@ from torch.export import Dim
 import os
 from torch.onnx import _flags
 
-# Force the exporter to use the new, experimental logic that has better
-# support for dynamic shapes, as deduced from the source code.
-# _flags.USE_EXPERIMENTAL_LOGIC = True
-
 
 class UNetWrapper(torch.nn.Module):
     def __init__(self, unet):

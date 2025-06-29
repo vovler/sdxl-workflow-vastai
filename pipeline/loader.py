@@ -3,7 +3,7 @@ from transformers import CLIPTokenizer
 
 import models
 import defaults
-from compel import Compel
+from compel import Compel, ReturnedEmbeddingsType
 
 
 def load_pipeline_components():

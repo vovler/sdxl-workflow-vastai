@@ -71,7 +71,7 @@ def main():
 
     # Create dummy tensors with the same dtype as the UNet
     sample = torch.randn(unet_latent_shape, dtype=unet_dtype).to(device)
-    timestep = torch.tensor([999] * eff_batch_size, dtype=torch.float32).to(device)
+    timestep = torch.tensor([999] * eff_batch_size, dtype=unet_dtype).to(device)
     encoder_hidden_states = torch.randn(encoder_hidden_states_shape, dtype=unet_dtype).to(device)
     text_embeds = torch.randn(add_text_embeds_shape, dtype=unet_dtype).to(device)
     time_ids = torch.randn(add_time_ids_shape, dtype=unet_dtype).to(device)

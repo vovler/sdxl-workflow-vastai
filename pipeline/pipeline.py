@@ -43,7 +43,7 @@ class SDXLPipeline:
         for t in timesteps:
             latent_model_input = latents_torch
 
-            timestep_numpy = np.array([t.item()], dtype=np.float32)
+            timestep_numpy = np.array([t.item()], dtype=np.float16)
 
             noise_pred_np = self.unet(
                 latent_model_input.cpu().numpy(),
@@ -89,7 +89,7 @@ class SDXLPipeline:
             height,
             width,
         ]
-        time_ids = np.array([time_ids], dtype=np.float32)
+        time_ids = np.array([time_ids], dtype=np.float16)
         return time_ids
 
     def _postprocess_image(self, image: np.ndarray) -> Image.Image:

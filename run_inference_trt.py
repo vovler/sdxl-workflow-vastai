@@ -92,6 +92,7 @@ class _SDXLTRTPipeline:
                 "num_tokens": closest_num_tokens
             }
             profile_id = self.profile_map.index(runtime_config)
+            print(f"Selected profile #{profile_id} for shape: (batch={batch_size}, size={height}x{width}, tokens={num_tokens})")
             return profile_id
         except ValueError:
             print(f"Error: No profile found for configuration: {runtime_config}")

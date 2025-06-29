@@ -98,10 +98,10 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         model.graph.initializer
     )
     
-    # Create a new model from the new graph, ensuring to copy the opset version
-    new_model = helper.make_model(new_graph, producer_name='unet-patcher')
-    new_model.opset_import.CopyFrom(model.opset_import)
-
+    # Create a new model from the new graph, passing the opset_imports from the original model
+    new_model = helper.make_model(new_graph, 
+                                  producer_name='unet-patcher', 
+                                  opset_imports=model.opset_import)
 
     try:
         print("Re-running shape inference to update output types...")

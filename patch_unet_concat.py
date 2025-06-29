@@ -1,23 +1,19 @@
 import onnx
 from onnx import TensorProto, helper
-import onnx.shape_inference
 
 def patch_concat_nodes(input_model_path: str, output_model_path: str):
     """
-    Loads an ONNX model, finds Concat nodes with any mismatched input types,
-    and inserts Cast nodes to conform all inputs to the type of the first input.
+    Loads an ONNX model, finds Concat nodes with any mismatched input types using
+    the same logic as inspect_onnx.py, and inserts Cast nodes to fix them.
     """
     try:
         print(f"Loading model from {input_model_path}...")
         model = onnx.load(input_model_path)
-        print("Running shape and type inference to populate tensor types...")
-        model = onnx.shape_inference.infer_shapes(model)
-        print("Inference complete.")
     except Exception as e:
-        print(f"Error loading or processing ONNX model: {e}")
+        print(f"Error loading ONNX model: {e}")
         return
 
-    # Build a comprehensive map of tensor names to their types
+    # Build the tensor type map exactly as in the working inspect_onnx.py script
     tensor_types = {vi.name: vi.type for vi in model.graph.value_info}
     for i in model.graph.input:
         tensor_types[i.name] = i.type
@@ -33,40 +29,43 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
             new_nodes.append(node)
             continue
 
-        # Get the data type of the first input. This will be our target type.
-        first_input_type_proto = tensor_types.get(node.input[0])
-        if not first_input_type_proto or not first_input_type_proto.tensor_type:
-            # Cannot determine the type, cannot patch.
+        # Use the exact detection logic from inspect_onnx.py
+        input_type_protos = [tensor_types.get(name) for name in node.input]
+        
+        # Filter out inputs where type info is missing
+        valid_inputs = [(name, proto) for name, proto in zip(node.input, input_type_protos) if proto and proto.tensor_type]
+        if len(valid_inputs) < 2:
             new_nodes.append(node)
             continue
-        
-        target_type = first_input_type_proto.tensor_type.elem_type
-        
-        # Check if any other input has a different type
-        is_mismatched = False
-        for input_name in node.input[1:]:
-            current_type_proto = tensor_types.get(input_name)
-            if current_type_proto and current_type_proto.tensor_type and current_type_proto.tensor_type.elem_type != target_type:
-                is_mismatched = True
-                break
+
+        first_input_name, first_type_proto = valid_inputs[0]
+        target_type = first_type_proto.tensor_type.elem_type
+
+        # Check for any mismatch against the first input's type
+        is_mismatched = any(
+            proto.tensor_type.elem_type != target_type for _, proto in valid_inputs[1:]
+        )
 
         if not is_mismatched:
             new_nodes.append(node)
             continue
-
+            
         # If we get here, a mismatch was found.
         print(f"  - Found problematic Concat node: '{node.name}'")
         graph_modified = True
         target_type_name = TensorProto.DataType.Name(target_type)
-        print(f"    - Target type for casting is {target_type_name} (from input '{node.input[0]}')")
+        print(f"    - Target type for casting is {target_type_name} (from input '{first_input_name}')")
 
         new_concat_inputs = []
-        for input_name in node.input:
-            current_type_proto = tensor_types.get(input_name)
-            current_type = current_type_proto.tensor_type.elem_type if current_type_proto and current_type_proto.tensor_type else None
+        for input_name, current_type_proto in zip(node.input, input_type_protos):
+            # Also check if type info was missing for this input
+            if not current_type_proto or not current_type_proto.tensor_type:
+                print(f"    - WARNING: Could not determine type for input '{input_name}'. It will not be cast.")
+                new_concat_inputs.append(input_name)
+                continue
 
-            if current_type is not None and current_type != target_type:
-                # This input needs to be cast.
+            current_type = current_type_proto.tensor_type.elem_type
+            if current_type != target_type:
                 current_type_name = TensorProto.DataType.Name(current_type)
                 print(f"    - Input '{input_name}' is {current_type_name}. Creating a Cast node.")
                 
@@ -83,7 +82,7 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
             else:
                 new_concat_inputs.append(input_name)
         
-        # Re-create the concat node with the new (potentially casted) inputs
+        # Re-create the concat node
         new_concat_node = helper.make_node(
             "Concat",
             inputs=new_concat_inputs,
@@ -94,10 +93,10 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         new_nodes.append(new_concat_node)
 
     if not graph_modified:
-        print("No mismatched Concat nodes were found. The model appears to be correct.")
+        print("No mismatched Concat nodes were found.")
         return
 
-    # Rebuild the graph with the new list of nodes
+    # Rebuild the graph
     model.graph.ClearField("node")
     model.graph.node.extend(new_nodes)
 

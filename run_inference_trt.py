@@ -161,10 +161,11 @@ class _SDXLTRTPipeline:
                 dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_tensor_dtype(binding)))).dtype
                 output_buffers[binding] = torch.empty(shape, dtype=dtype, device=self.device).contiguous()
 
+        bindings = [0] * engine.num_io_tensors
         for name, tensor in input_tensors.items():
-            context.set_tensor_address(name, tensor.data_ptr())
+            bindings[engine.get_tensor_location(name)] = tensor.data_ptr()
         for name, buffer in output_buffers.items():
-            context.set_tensor_address(name, buffer.data_ptr())
+            bindings[engine.get_tensor_location(name)] = buffer.data_ptr()
         
         print("\n--- Tensor/Buffer Pre-Execution State ---")
         print("Input Tensors:")
@@ -177,10 +178,7 @@ class _SDXLTRTPipeline:
         
         # 5. Execute engine
         print("Executing TRT engine...")
-        success = context.execute_async_v3(stream_handle=stream.cuda_stream)
-        if not success:
-            raise RuntimeError("Failed to execute TensorRT engine.")
-        stream.synchronize()
+        context.execute_v2(bindings=bindings)
         print("TRT engine execution complete.")
 
         from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput

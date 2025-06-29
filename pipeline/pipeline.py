@@ -103,6 +103,6 @@ class SDXLPipeline:
 
 if __name__ == "__main__":
     pipeline = SDXLPipeline()
-    prompt = "A cinematic shot of a baby raccoon wearing an intricate italian mafioso suit, saying 'nice one, eh?'"
-    image = pipeline(prompt)
-    image.save("output.png") 
+    #prompt = "A cinematic shot of a baby raccoon wearing an intricate italian mafioso suit, saying 'nice one, eh?'"
+    #image = pipeline(prompt)
+    #image.save("output.png") 

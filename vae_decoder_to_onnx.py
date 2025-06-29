@@ -71,6 +71,8 @@ def main():
         opset_version=18,
     )
 
+    onnx_program.optimize()
+
     print("\n--- ONNX Model Inputs ---")
     for i, input_proto in enumerate(onnx_program.model_proto.graph.input):
         print(f"{i}: {input_proto.name}")

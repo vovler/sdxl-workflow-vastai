@@ -112,7 +112,7 @@ class _SDXLTRTPipeline:
         if profile_id == -1:
             raise ValueError("Could not find a valid optimization profile for the current input.")
         
-        print(f"Selected profile #{profile_id} for shape: (batch={user_batch_size}, size={height}x{width}, tokens={num_tokens})")
+        print(f"Selected profile #{profile_id} for shape: (batch={unet_batch_size}, size={height}x{width}, tokens={num_tokens})")
         self.trt_context.set_optimization_profile_v2(profile_id)
         
         batch_size = sample.shape[0]

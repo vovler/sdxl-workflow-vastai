@@ -113,7 +113,7 @@ class _SDXLTRTPipeline:
             raise ValueError("Could not find a valid optimization profile for the current input.")
         
         print(f"Selected profile #{profile_id} for shape: (batch={unet_batch_size}, size={height}x{width}, tokens={num_tokens})")
-        self.trt_context.set_optimization_profile_async(profile_id)
+        self.trt_context.set_optimization_profile_async(profile_id, stream.cuda_stream)
         
         batch_size = sample.shape[0]
         timestep = timestep.expand(batch_size).to(dtype=torch.float16)

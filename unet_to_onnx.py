@@ -79,7 +79,7 @@ def main():
 
     # Create dummy tensors with the dtypes discovered from the pipeline test
     sample = torch.randn(unet_latent_shape, dtype=unet_dtype).to(device)
-    timestep = torch.tensor([999] * batch_size, dtype=torch.float32).to(device)
+    timestep = torch.tensor(999, dtype=torch.float32).to(device)
     encoder_hidden_states = torch.randn(encoder_hidden_states_shape, dtype=unet_dtype).to(device)
     text_embeds = torch.randn(add_text_embeds_shape, dtype=unet_dtype).to(device)
     time_ids = torch.randn(add_time_ids_shape, dtype=unet_dtype).to(device)
@@ -102,7 +102,6 @@ def main():
             2: Dim("height"),
             3: Dim("width"),
         },
-        "timestep": {0: batch_dim},
         "encoder_hidden_states": {0: batch_dim, 1: Dim("num_tokens")},
         "text_embeds": {0: batch_dim},
         "time_ids": {0: batch_dim},

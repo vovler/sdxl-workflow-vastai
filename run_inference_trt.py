@@ -130,7 +130,7 @@ class _SDXLTRTPipeline:
         
         # 4. Prepare tensors and buffers
         batch_size = sample.shape[0]
-        timestep = timestep.expand(batch_size).to(dtype=torch.float16)
+        timestep = timestep.expand(batch_size).to(device=self.device, dtype=torch.float16)
 
         input_tensors = {
             "sample": sample.contiguous(),

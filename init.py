@@ -6,6 +6,7 @@ import uuid as uuid_lib
 from pathlib import Path
 from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
+import io
 
 import httpx
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -22,6 +23,7 @@ parent_host: str = ""
 public_ip: str = ""
 port: str = ""
 healthcheck_task: Optional[asyncio.Task] = None
+pipeline_lock = asyncio.Lock()
 
 def get_env_values():
     """Get and update environment values"""
@@ -153,6 +155,34 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
     except Exception as e:
         print(f"Error sending task status: {e}", flush=True)
 
+def generate_and_minify_image(prompt: str):
+    """
+    Generates an image and minifies it to JPEG format.
+    This is a synchronous, blocking function intended to be run in a separate thread.
+    """
+    # Generate image
+    _image_data, img = generate_image(prompt=prompt)
+
+    # Minify image to JPEG 85% on GPU, removing metadata
+    print("Minifying image to JPEG (85% quality)...", flush=True)
+    try:
+        # Convert PIL image to uint8 tensor (C, H, W) and move to GPU
+        tensor_img_gpu = torch.from_numpy(np.array(img)).permute(2, 0, 1).to("cuda")
+
+        # Encode to JPEG on GPU
+        jpeg_tensor_gpu = encode_jpeg(tensor_img_gpu, quality=85)
+
+        # Move back to CPU and get bytes
+        minified_image_data = jpeg_tensor_gpu.cpu().numpy().tobytes()
+        print(f"Minified image size: {len(minified_image_data)} bytes", flush=True)
+        return minified_image_data
+    except Exception as e:
+        print(f"Could not minify image on GPU, falling back to CPU: {e}", flush=True)
+        # Fallback to CPU-based conversion with Pillow
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=85)
+        return buffer.getvalue()
+
 async def process_task(task_id: str, task_data: Dict[str, Any]):
     """Process a task with the specified workflow"""
     print(f"Processing task {task_id} with data: {json.dumps(task_data)}", flush=True)
@@ -161,33 +191,13 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
     await send_task_status(task_id, "PROCESSING", "Worker is processing the request...")
     
     try:
-        # Extract parameters from task_data or use defaults
         prompt = task_data.get("prompt", "")
-
-        # Generate image using run_inference_trt module
-        image_data, img = generate_image(
-            prompt=prompt
-        )
         
-        # Minify image to JPEG 85% on GPU, removing metadata
-        print("Minifying image to JPEG (85% quality)...", flush=True)
-        try:
-            # Convert PIL image to uint8 tensor (C, H, W) and move to GPU
-            tensor_img_gpu = torch.from_numpy(np.array(img)).permute(2, 0, 1).to("cuda")
-
-            # Encode to JPEG on GPU
-            jpeg_tensor_gpu = encode_jpeg(tensor_img_gpu, quality=85)
-
-            # Move back to CPU and get bytes
-            image_data = jpeg_tensor_gpu.cpu().numpy().tobytes()
-            print(f"Minified image size: {len(image_data)} bytes", flush=True)
-        except Exception as e:
-            print(f"Could not minify image on GPU, falling back to CPU: {e}", flush=True)
-            # Fallback to CPU-based conversion with Pillow
-            from io import BytesIO
-            buffer = BytesIO()
-            img.save(buffer, format="JPEG", quality=85)
-            image_data = buffer.getvalue()
+        image_data = None
+        # Acquire lock to ensure single-threaded access to the GPU pipeline
+        async with pipeline_lock:
+            # Run the blocking image generation & minification in a separate thread
+            image_data = await asyncio.to_thread(generate_and_minify_image, prompt)
         
         # Send DONE status with generated image
         await send_task_status(task_id, "DONE", "Image generated successfully!", image_data=image_data)

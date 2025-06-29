@@ -4,33 +4,43 @@ from diffusers import StableDiffusionXLPipeline
 class UNetTypeInspector(torch.nn.Module):
     """
     A wrapper for a UNet model that intercepts the forward pass
-    to print the data types of all its inputs.
+    to print the data types and shapes of all its inputs.
+    It transparently delegates attribute access to the wrapped unet.
     """
     def __init__(self, unet):
         super().__init__()
         self.unet = unet
-        self.config = unet.config
-        self.device = unet.device
 
-    def print_types(self, name, tensor):
+    def __getattr__(self, name):
+        """
+        Makes the wrapper transparent by delegating attribute
+        lookups (like 'config' or 'add_embedding') to the original unet.
+        """
+        try:
+            # This allows the wrapper to have its own methods and attributes.
+            return super().__getattr__(name)
+        except AttributeError:
+            # If the attribute is not on the wrapper, get it from the wrapped unet.
+            return getattr(self.unet, name)
+
+    def print_info(self, name, tensor):
         if isinstance(tensor, torch.Tensor):
-            print(f"  - Arg '{name}': {tensor.dtype} on device '{tensor.device}'")
+            print(f"  - Arg '{name}': dtype={tensor.dtype}, shape={tensor.shape}, device='{tensor.device}'")
         elif isinstance(tensor, dict):
             print(f"  - Arg '{name}' (dict):")
             for k, v in tensor.items():
-                self.print_types(f"    - '{k}'", v)
+                self.print_info(f"    - '{k}'", v)
         else:
-            print(f"  - Arg '{name}': {type(tensor)}")
+            print(f"  - Arg '{name}': type={type(tensor)}")
 
     def forward(self, sample, timestep, encoder_hidden_states, **kwargs):
-        print("\n--- Inspecting UNet.forward() input types (from pipeline call) ---")
-        self.print_types("sample", sample)
-        self.print_types("timestep", timestep)
-        self.print_types("encoder_hidden_states", encoder_hidden_states)
+        print("\n--- Inspecting UNet.forward() input info (from pipeline call) ---")
+        self.print_info("sample", sample)
+        self.print_info("timestep", timestep)
+        self.print_info("encoder_hidden_states", encoder_hidden_states)
         
-        # In a real pipeline call, added_cond_kwargs is inside kwargs
         if 'added_cond_kwargs' in kwargs:
-            self.print_types("added_cond_kwargs", kwargs['added_cond_kwargs'])
+            self.print_info("added_cond_kwargs", kwargs['added_cond_kwargs'])
         
         print("------------------------------------------------------------------\n")
         

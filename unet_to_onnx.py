@@ -11,6 +11,14 @@ class UNetWrapper(torch.nn.Module):
         self.unet = unet
 
     def forward(self, sample, timestep, encoder_hidden_states, text_embeds, time_ids):
+        print("\n--- Exporting UNet with the following input shapes and types ---")
+        print(f"  - sample:                dtype={sample.dtype}, shape={sample.shape}")
+        print(f"  - timestep:              dtype={timestep.dtype}, shape={timestep.shape}")
+        print(f"  - encoder_hidden_states: dtype={encoder_hidden_states.dtype}, shape={encoder_hidden_states.shape}")
+        print(f"  - text_embeds:           dtype={text_embeds.dtype}, shape={text_embeds.shape}")
+        print(f"  - time_ids:              dtype={time_ids.dtype}, shape={time_ids.shape}")
+        print("------------------------------------------------------------------\n")
+        
         added_cond_kwargs = {"text_embeds": text_embeds, "time_ids": time_ids}
         return self.unet(
             sample,

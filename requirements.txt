@@ -28,3 +28,4 @@ httpx==0.25.2
 
 colored
 python-multipart==0.0.6
+tqdm

@@ -4,7 +4,7 @@ import json
 import asyncio
 import uuid as uuid_lib
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
 import io
 
@@ -109,8 +109,8 @@ async def periodic_healthcheck():
         await asyncio.sleep(5)
         await send_healthcheck()
 
-async def send_task_status(task_id: str, status: str, status_text: Optional[str] = None, image_data: Optional[bytes] = None):
-    """Send task status update to parent"""
+async def send_task_status(task_id: str, status: str, status_text: Optional[str] = None, image_data_list: Optional[List[bytes]] = None):
+    """Send task status update to parent, can handle multiple images."""
     if not worker_uuid or not parent_host:
         return
     
@@ -122,18 +122,14 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
     
     if status_text:
         payload["status_text"] = status_text
-    
-    # Debug: Check image_data in send_task_status
-    print(f"send_task_status - image_data type: {type(image_data)}", flush=True)
-    print(f"send_task_status - image_data size: {len(image_data) if image_data else 'None'}", flush=True)
-    print(f"send_task_status - image_data is not None: {image_data is not None}", flush=True)
-    
+
     try:
-        if image_data:
+        if image_data_list:
             # Send with image data as multipart form data
-            # Don't specify content-type in files tuple to ensure multipart/form-data is used
-            files = {"image": ("generated_image.jpg", image_data)}
-            # Convert payload to individual form fields
+            files = []
+            for i, image_data in enumerate(image_data_list):
+                files.append(("image", (f"generated_image_{i}.jpg", image_data, "image/jpeg")))
+
             form_data = {
                 "uuid": worker_uuid,
                 "task_id": task_id,
@@ -155,33 +151,37 @@ async def send_task_status(task_id: str, status: str, status_text: Optional[str]
     except Exception as e:
         print(f"Error sending task status: {e}", flush=True)
 
-def generate_and_minify_image(prompt: str):
+def generate_and_minify_image(prompt: str) -> List[bytes]:
     """
-    Generates an image and minifies it to JPEG format.
+    Generates one or more images and minifies them to JPEG format.
     This is a synchronous, blocking function intended to be run in a separate thread.
+    Returns a list of byte arrays, each being a minified JPEG image.
     """
-    # Generate image
-    _image_data, img = generate_image(prompt=prompt)
+    # Generate image(s)
+    _, pil_images = generate_image(prompt=prompt)
 
-    # Minify image to JPEG 85% on GPU, removing metadata
-    print("Minifying image to JPEG (85% quality)...", flush=True)
-    try:
-        # Convert PIL image to uint8 tensor (C, H, W) and move to GPU
-        tensor_img_gpu = torch.from_numpy(np.array(img)).permute(2, 0, 1).to("cuda")
+    minified_images = []
+    for i, img in enumerate(pil_images):
+        # Minify image to JPEG 85% on GPU, removing metadata
+        print(f"Minifying image {i + 1}/{len(pil_images)} to JPEG (85% quality)...", flush=True)
+        try:
+            # Convert PIL image to uint8 tensor (C, H, W) and move to GPU
+            tensor_img_gpu = torch.from_numpy(np.array(img)).permute(2, 0, 1).to("cuda")
 
-        # Encode to JPEG on GPU
-        jpeg_tensor_gpu = encode_jpeg(tensor_img_gpu, quality=85)
+            # Encode to JPEG on GPU
+            jpeg_tensor_gpu = encode_jpeg(tensor_img_gpu, quality=85)
 
-        # Move back to CPU and get bytes
-        minified_image_data = jpeg_tensor_gpu.cpu().numpy().tobytes()
-        print(f"Minified image size: {len(minified_image_data)} bytes", flush=True)
-        return minified_image_data
-    except Exception as e:
-        print(f"Could not minify image on GPU, falling back to CPU: {e}", flush=True)
-        # Fallback to CPU-based conversion with Pillow
-        buffer = io.BytesIO()
-        img.save(buffer, format="JPEG", quality=85)
-        return buffer.getvalue()
+            # Move back to CPU and get bytes
+            minified_image_data = jpeg_tensor_gpu.cpu().numpy().tobytes()
+            print(f"Minified image size: {len(minified_image_data)} bytes", flush=True)
+            minified_images.append(minified_image_data)
+        except Exception as e:
+            print(f"Could not minify image on GPU, falling back to CPU: {e}", flush=True)
+            # Fallback to CPU-based conversion with Pillow
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            minified_images.append(buffer.getvalue())
+    return minified_images
 
 async def process_task(task_id: str, task_data: Dict[str, Any]):
     """Process a task with the specified workflow"""
@@ -193,14 +193,14 @@ async def process_task(task_id: str, task_data: Dict[str, Any]):
     try:
         prompt = task_data.get("prompt", "")
         
-        image_data = None
+        image_data_list = None
         # Acquire lock to ensure single-threaded access to the GPU pipeline
         async with pipeline_lock:
             # Run the blocking image generation & minification in a separate thread
-            image_data = await asyncio.to_thread(generate_and_minify_image, prompt)
+            image_data_list = await asyncio.to_thread(generate_and_minify_image, prompt)
         
-        # Send DONE status with generated image
-        await send_task_status(task_id, "DONE", "Image generated successfully!", image_data=image_data)
+        # Send DONE status with generated image(s)
+        await send_task_status(task_id, "DONE", "Image generated successfully!", image_data_list=image_data_list)
         
     except Exception as e:
         print(f"Error processing task: {e}", flush=True)

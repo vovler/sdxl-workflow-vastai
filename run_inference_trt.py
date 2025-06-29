@@ -56,7 +56,6 @@ class _SDXLTRTPipeline:
         self.pipe.vae.to("cpu")
         self.pipe.text_encoder.to("cpu")
         self.pipe.text_encoder_2.to("cpu")
-
         self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(self.pipe.scheduler.config)
 
         self.compel = Compel(
@@ -176,7 +175,13 @@ class _SDXLTRTPipeline:
         print(f"Output buffer keys: {list(output_buffers.keys())}")
         print(f"Requested output name: {self.output_name}")
         from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput
-        return UNet2DConditionOutput(sample=output_buffers[self.output_name])
+        
+        # The output from the TRT engine is on the GPU.
+        # Since the rest of the pipeline (scheduler, VAE) is running on the CPU,
+        # we need to move the UNet's output tensor back to the CPU.
+        output_tensor = output_buffers[self.output_name].to("cpu")
+        
+        return UNet2DConditionOutput(sample=output_tensor)
 
     def generate(self, prompt, batch_size=1, height=768, width=1152, seed=None, steps=4):
         #prompt_prefix = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"

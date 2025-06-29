@@ -18,7 +18,7 @@ class _SDXLTRTPipeline:
         self.trt_engine = None
         self.profile_map = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.output_name = "sample"
+        self.output_name = "conv2d_50"
         self._initialize()
 
     def _initialize(self):
@@ -159,7 +159,9 @@ class _SDXLTRTPipeline:
         print("--- Tensor Addresses Set ---\n")
         
         print("Executing TRT engine...")
-        self.trt_context.execute_async_v3(stream_handle=stream.cuda_stream)
+        success = self.trt_context.execute_async_v3(stream_handle=stream.cuda_stream)
+        if not success:
+            raise RuntimeError("Failed to execute TensorRT engine.")
         stream.synchronize()
         print("TRT engine execution complete.")
 

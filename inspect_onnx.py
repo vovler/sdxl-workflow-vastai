@@ -76,4 +76,4 @@ def find_mismatched_types(model_path: str):
 
 if __name__ == "__main__":
     # Assuming the script is run from the root of the sdxl-workflow project
-    find_mismatched_types("unet.onnx") 
+    find_mismatched_types("unet.patched.onnx") 

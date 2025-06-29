@@ -179,8 +179,10 @@ class _SDXLTRTPipeline:
         # The output from the TRT engine is on the GPU.
         # Since the rest of the pipeline (scheduler, VAE) is running on the CPU,
         # we need to move the UNet's output tensor back to the CPU.
+        print(f"Output buffer shape: {output_buffers[self.output_name].shape}")
+        print("Sending output tensor to CPU...")
         output_tensor = output_buffers[self.output_name].to("cpu")
-        
+        print("Returning from _trt_unet_forward")
         return UNet2DConditionOutput(sample=output_tensor)
 
     def generate(self, prompt, batch_size=1, height=768, width=1152, seed=None, steps=4):

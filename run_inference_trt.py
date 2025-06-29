@@ -105,7 +105,7 @@ class _SDXLTRTPipeline:
         print("--- TRT UNet Forward Step ---")
         # 1. Deserialize engine and create context
         print("Deserializing TRT engine for this step...")
-        TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+        TRT_LOGGER = trt.Logger(trt.Logger.VERBOSE)
         runtime = trt.Runtime(TRT_LOGGER)
         engine = runtime.deserialize_cuda_engine(self.trt_engine_blob)
         context = engine.create_execution_context()
@@ -223,7 +223,7 @@ class _SDXLTRTPipeline:
         print(f"prompt_embeds size: {prompt_embeds.size()}")
         print(f"pooled_prompt_embeds size: {pooled_prompt_embeds.size()}")
         
-        print("Moving Text Encoders and embeddings to CPU...")
+        print("Moving Text Encoders to CPU...")
         self.pipe.text_encoder.to('cpu')
         self.pipe.text_encoder_2.to('cpu')
         print("--- Prompt Encoding Complete ---\n")

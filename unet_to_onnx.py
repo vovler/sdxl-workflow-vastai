@@ -44,8 +44,9 @@ def main():
 
     print("Preparing dummy inputs for UNet export...")
     # SDXL uses classifier-free guidance, so inputs are duplicated (one for conditional, one for unconditional)
+    # With DMD2, we can use CFG 1.0, so no duplication is needed.
     batch_size = 1
-    eff_batch_size = batch_size * 2
+    eff_batch_size = batch_size
 
     # These are latent space dimensions, not image dimensions.
     # The default for SDXL is 1024x1024, which corresponds to 128x128 in latent space.
@@ -70,7 +71,7 @@ def main():
 
     # Create dummy tensors with the same dtype as the UNet
     sample = torch.randn(unet_latent_shape, dtype=unet_dtype).to(device)
-    timestep = torch.tensor([999] * eff_batch_size, dtype=unet_dtype).to(device)
+    timestep = torch.tensor([999] * eff_batch_size, dtype=torch.float32).to(device)
     encoder_hidden_states = torch.randn(encoder_hidden_states_shape, dtype=unet_dtype).to(device)
     text_embeds = torch.randn(add_text_embeds_shape, dtype=unet_dtype).to(device)
     time_ids = torch.randn(add_time_ids_shape, dtype=unet_dtype).to(device)

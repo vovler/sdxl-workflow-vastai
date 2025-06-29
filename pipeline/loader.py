@@ -23,7 +23,7 @@ def load_pipeline_components():
     compel_instance = Compel(
         tokenizer=[tokenizer_1, tokenizer_2],
         text_encoder=[text_encoder_1, text_encoder_2],
-        returned_embeddings_type=Compel.ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+        returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
         requires_pooled=[False, True]
     )
 

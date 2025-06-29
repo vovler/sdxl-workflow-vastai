@@ -140,6 +140,11 @@ class _SDXLTRTPipeline:
             "time_ids": added_cond["time_ids"].contiguous()
         }
         
+        print("--- Input Tensor Devices ---")
+        for name, tensor in input_tensors.items():
+            print(f"Tensor '{name}' is on device: {tensor.device}")
+        print("--------------------------")
+
         for name, tensor in input_tensors.items():
             context.set_input_shape(name, tensor.shape)
             

@@ -113,6 +113,12 @@ class _SDXLTRTPipeline:
 
         added_cond = kwargs["added_cond_kwargs"]
         
+        # Move all input tensors to GPU
+        sample = sample.to(self.device)
+        encoder_hidden_states = encoder_hidden_states.to(self.device)
+        added_cond["text_embeds"] = added_cond["text_embeds"].to(self.device)
+        added_cond["time_ids"] = added_cond["time_ids"].to(self.device)
+
         stream = torch.cuda.Stream()
         
         # 3. Determine runtime dimensions & select profile
@@ -140,11 +146,6 @@ class _SDXLTRTPipeline:
             "time_ids": added_cond["time_ids"].contiguous()
         }
         
-        print("--- Input Tensor Devices ---")
-        for name, tensor in input_tensors.items():
-            print(f"Tensor '{name}' is on device: {tensor.device}")
-        print("--------------------------")
-
         for name, tensor in input_tensors.items():
             context.set_input_shape(name, tensor.shape)
             

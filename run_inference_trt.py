@@ -111,14 +111,7 @@ class _SDXLTRTPipeline:
         context = engine.create_execution_context()
         print("Engine deserialized.")
 
-        # 2. Move inputs to GPU
-        #print("Moving inputs to GPU...")
-        #sample = sample.to(self.device)
-        #timestep = timestep.to(self.device)
-        #encoder_hidden_states = encoder_hidden_states.to(self.device)
-        #added_cond = kwargs["added_cond_kwargs"]
-        #added_cond["text_embeds"] = added_cond["text_embeds"].to(self.device)
-        #added_cond["time_ids"] = added_cond["time_ids"].to(self.device)
+        added_cond = kwargs["added_cond_kwargs"]
         
         stream = torch.cuda.Stream()
         

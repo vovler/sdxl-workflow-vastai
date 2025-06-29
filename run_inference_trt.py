@@ -52,9 +52,10 @@ class _SDXLTRTPipeline:
             use_safetensors=True,
         )
 
-        self.pipe.vae.to(self.device)
-        self.pipe.text_encoder.to(self.device)
-        self.pipe.text_encoder_2.to(self.device)
+        print("Moving VAE and text encoders to CPU to save VRAM...")
+        self.pipe.vae.to("cpu")
+        self.pipe.text_encoder.to("cpu")
+        self.pipe.text_encoder_2.to("cpu")
 
         self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(self.pipe.scheduler.config)
 
@@ -100,6 +101,14 @@ class _SDXLTRTPipeline:
             return -1
 
     def _trt_unet_forward(self, sample, timestep, encoder_hidden_states, **kwargs):
+        # Move inputs to GPU since VAE and text encoders are on CPU
+        sample = sample.to(self.device)
+        timestep = timestep.to(self.device)
+        encoder_hidden_states = encoder_hidden_states.to(self.device)
+        added_cond = kwargs["added_cond_kwargs"]
+        added_cond["text_embeds"] = added_cond["text_embeds"].to(self.device)
+        added_cond["time_ids"] = added_cond["time_ids"].to(self.device)
+        
         stream = torch.cuda.Stream()
         
         # Determine runtime dimensions
@@ -118,7 +127,6 @@ class _SDXLTRTPipeline:
         
         batch_size = sample.shape[0]
         timestep = timestep.expand(batch_size).to(dtype=torch.float16)
-        added_cond = kwargs["added_cond_kwargs"]
 
         input_tensors = {
             "sample": sample.contiguous(),

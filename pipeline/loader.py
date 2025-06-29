@@ -1,7 +1,8 @@
 from diffusers import EulerAncestralDiscreteScheduler
 from transformers import CLIPTokenizer
 
-from . import models, defaults
+import models
+import defaults
 from pipeline.compel.src.compel import Compel
 
 

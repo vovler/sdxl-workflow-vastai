@@ -14,7 +14,8 @@ class CLIPGWrapper(torch.nn.Module):
         outputs = self.text_encoder(input_ids, output_hidden_states=False)
         return {
             "last_hidden_state": outputs.last_hidden_state,
-            "pooler_output": outputs.pooler_output,
+            # For CLIP-G (text_encoder_2), the pooled output is in `text_embeds`.
+            "pooler_output": outputs.text_embeds,
         }
 
 

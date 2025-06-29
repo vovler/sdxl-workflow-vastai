@@ -51,10 +51,12 @@ class _SDXLTRTPipeline:
             unet=unet,
             torch_dtype=torch.float16,
             use_safetensors=True,
-        ).to("cuda")
+        )
 
         print("Moving VAE to CPU to save VRAM...")
         self.pipe.vae.to("cpu")
+        self.pipe.text_encoder.to("cuda")
+        self.pipe.text_encoder_2.to("cuda")
         self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(self.pipe.scheduler.config)
 
         self.compel = Compel(

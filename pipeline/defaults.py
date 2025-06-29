@@ -12,7 +12,7 @@ DEFAULT_BASE_MODEL = "socks22/sdxl-wai-nsfw-illustriousv14"
 VAE_DECODER_PATH = os.path.join(_project_root, "vae_decoder.onnx")
 
 # UNet
-UNET_PATH = os.path.join(_project_root, "unet.onnx")
+UNET_PATH = os.path.join(_project_root, "unet.patched.onnx")
 
 # Text Encoders
 CLIP_TEXT_ENCODER_1_PATH = os.path.join(_project_root, "clip_l.onnx")

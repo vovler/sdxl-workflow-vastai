@@ -95,17 +95,17 @@ def main():
     # dynamic shapes for the dynamo exporter.
     # Re-using the same Dim object tells the exporter that these dimensions
     # are constrained to be the same.
-    batch_dim = Dim("batch_size")
+    
     dynamic_shapes = {
         "sample": {
-            0: batch_dim,
+            0: Dim("batch_size"),
             2: Dim("height"),
             3: Dim("width"),
         },
         "timestep": {},
-        "encoder_hidden_states": {0: batch_dim, 1: Dim("num_tokens")},
-        "text_embeds": {0: batch_dim},
-        "time_ids": {0: batch_dim},
+        "encoder_hidden_states": {0: Dim("batch_size"), 1: Dim("num_tokens")},
+        "text_embeds": {0: Dim("batch_size")},
+        "time_ids": {0: Dim("batch_size")},
     }
 
     onnx_program = torch.onnx.export(

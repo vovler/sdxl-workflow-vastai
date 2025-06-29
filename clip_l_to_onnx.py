@@ -1,7 +1,6 @@
 import torch
 from diffusers import StableDiffusionXLPipeline
 from torch.export import Dim
-import os
 
 
 class CLIPTextModelWrapper(torch.nn.Module):
@@ -10,9 +9,10 @@ class CLIPTextModelWrapper(torch.nn.Module):
         self.text_encoder = text_encoder
 
     def forward(self, input_ids):
-        # We only need the last_hidden_state.
-        # The pipeline's CLIPTextEncoder class will handle the output.
-        return self.text_encoder(input_ids, output_hidden_states=False).last_hidden_state
+        # Return a dictionary where the key is the desired output name.
+        # This is a more robust way to name outputs than modifying the graph later.
+        last_hidden_state = self.text_encoder(input_ids, output_hidden_states=False).last_hidden_state
+        return {"last_hidden_state": last_hidden_state}
 
 
 def main():
@@ -73,10 +73,6 @@ def main():
         dynamic_shapes=dynamic_shapes,
         opset_version=18,
     )
-
-    # The pipeline's CLIPTextEncoder expects the output name to be "last_hidden_state".
-    print("Renaming model output to 'last_hidden_state' for compatibility.")
-    onnx_program.model_proto.graph.output[0].name = "last_hidden_state"
 
     print("\n--- ONNX Model Inputs ---")
     for i, input_proto in enumerate(onnx_program.model_proto.graph.input):

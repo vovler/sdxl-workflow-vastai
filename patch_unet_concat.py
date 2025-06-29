@@ -89,12 +89,23 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         print("No mismatched Concat nodes were found.")
         return
 
-    model.graph.ClearField("node")
-    model.graph.node.extend(new_nodes)
+    # Create a new graph with the patched nodes and original metadata
+    new_graph = helper.make_graph(
+        new_nodes,
+        model.graph.name,
+        model.graph.input,
+        model.graph.output,
+        model.graph.initializer
+    )
+    
+    # Create a new model from the new graph, ensuring to copy the opset version
+    new_model = helper.make_model(new_graph, producer_name='unet-patcher')
+    new_model.opset_import.CopyFrom(model.opset_import)
+
 
     try:
         print("Re-running shape inference to update output types...")
-        model = onnx.shape_inference.infer_shapes(model)
+        new_model = onnx.shape_inference.infer_shapes(new_model)
         print("Shape inference complete.")
     except Exception as e:
         print(f"An error occurred during shape inference after patching: {e}")
@@ -102,7 +113,7 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
 
     print(f"Saving patched model to {output_model_path} with external data...")
     onnx.save(
-        model,
+        new_model,
         output_model_path,
         save_as_external_data=True,
         all_tensors_to_one_file=True,

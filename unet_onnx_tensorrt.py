@@ -44,7 +44,7 @@ class TQDMProgressMonitor(trt.IProgressMonitor):
         except KeyboardInterrupt:
             self._step_result = False
 
-    def step_complete(self, phase_name):
+    def step_complete(self, phase_name, step):
         try:
             if self._step_result and phase_name in self._active_phases:
                 self._active_phases[phase_name]["tq"].update()

@@ -100,16 +100,17 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
     model.graph.ClearField("node")
     model.graph.node.extend(new_nodes)
 
+    print(f"Saving patched model to {output_model_path}...")
+    onnx.save(model, output_model_path)
+
     try:
-        print("Checking patched model for correctness...")
-        onnx.checker.check_model(model)
+        print("Checking patched model for correctness (using file path)...")
+        onnx.checker.check_model(output_model_path)
         print("Model check passed.")
     except Exception as e:
         print(f"Model check failed after patching: {e}")
         return
 
-    print(f"Saving patched model to {output_model_path}...")
-    onnx.save(model, output_model_path)
     print("Patching complete.")
 
 if __name__ == "__main__":

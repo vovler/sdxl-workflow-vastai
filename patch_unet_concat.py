@@ -98,10 +98,13 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         model.graph.initializer
     )
     
-    # Create a new model from the new graph, passing the opset_imports from the original model
+    # Explicitly set the ONNX operator set version to 18, as you suggested.
+    opset_imports = [helper.make_opsetid("", 18)]
+    
+    # Create a new model from the new graph
     new_model = helper.make_model(new_graph, 
                                   producer_name='unet-patcher', 
-                                  opset_imports=model.opset_import)
+                                  opset_imports=opset_imports)
 
     try:
         print("Re-running shape inference to update output types...")
@@ -115,7 +118,7 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
     onnx.save(
         new_model,
         output_model_path,
-        save_as_external_data=True,
+        save_as_external_data=_model_has_external_data(model),
         all_tensors_to_one_file=True,
         location=f"{output_model_path}.data",
     )
@@ -129,6 +132,13 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         return
 
     print("Patching complete.")
+
+def _model_has_external_data(model) -> bool:
+    """Check if any tensor in the model uses external data."""
+    for tensor in model.graph.initializer:
+        if tensor.HasField("data_location") and tensor.data_location == TensorProto.EXTERNAL:
+            return True
+    return False
 
 if __name__ == "__main__":
     patch_concat_nodes("unet.onnx", "unet.patched.onnx") 

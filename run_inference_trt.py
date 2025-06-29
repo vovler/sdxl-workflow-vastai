@@ -18,7 +18,7 @@ class _SDXLTRTPipeline:
         self.trt_engine = None
         self.profile_map = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.output_name = "latent"
+        self.output_name = "sample"
         self._initialize()
 
     def _initialize(self):

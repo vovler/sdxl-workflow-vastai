@@ -100,8 +100,14 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
     model.graph.ClearField("node")
     model.graph.node.extend(new_nodes)
 
-    print(f"Saving patched model to {output_model_path}...")
-    onnx.save(model, output_model_path)
+    print(f"Saving patched model to {output_model_path} with external data...")
+    onnx.save(
+        model,
+        output_model_path,
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location=f"{output_model_path}.data",
+    )
 
     try:
         print("Checking patched model for correctness (using file path)...")

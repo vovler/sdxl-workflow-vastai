@@ -16,6 +16,7 @@ class _SDXLTRTPipeline:
         self.compel = None
         self.trt_context = None
         self.trt_engine = None
+        self.trt_engine_blob = None
         self.profile_map = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.output_name = "conv2d_50"
@@ -50,12 +51,10 @@ class _SDXLTRTPipeline:
             unet=unet,
             torch_dtype=torch.float16,
             use_safetensors=True,
-        )
+        ).to("cuda")
 
-        print("Moving VAE and text encoders to CPU to save VRAM...")
+        print("Moving VAE to CPU to save VRAM...")
         self.pipe.vae.to("cpu")
-        self.pipe.text_encoder.to("cpu")
-        self.pipe.text_encoder_2.to("cpu")
         self.pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(self.pipe.scheduler.config)
 
         self.compel = Compel(
@@ -65,12 +64,9 @@ class _SDXLTRTPipeline:
             requires_pooled=[False, True]
         )
 
-        print(f"Loading TensorRT engine from: {engine_file_path}")
-        TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
-        with open(engine_file_path, 'rb') as f, trt.Runtime(TRT_LOGGER) as runtime:
-            self.trt_engine = runtime.deserialize_cuda_engine(f.read())
-        
-        self.trt_context = self.trt_engine.create_execution_context()
+        print(f"Loading serialized TensorRT engine from: {engine_file_path}")
+        with open(engine_file_path, 'rb') as f:
+            self.trt_engine_blob = f.read()
 
         self.pipe.unet.forward = self._trt_unet_forward
         print("UNet has been replaced with TensorRT engine.")
@@ -100,30 +96,44 @@ class _SDXLTRTPipeline:
             return -1
 
     def _trt_unet_forward(self, sample, timestep, encoder_hidden_states, **kwargs):
-        # Move inputs to GPU since VAE and text encoders are on CPU
-        sample = sample.to(self.device)
-        timestep = timestep.to(self.device)
-        encoder_hidden_states = encoder_hidden_states.to(self.device)
-        added_cond = kwargs["added_cond_kwargs"]
-        added_cond["text_embeds"] = added_cond["text_embeds"].to(self.device)
-        added_cond["time_ids"] = added_cond["time_ids"].to(self.device)
+        """
+        Manages the lifecycle of the TRT engine for a single forward pass to minimize VRAM.
+        It deserializes, runs, and cleans up the engine on each call.
+        """
+        print("--- TRT UNet Forward Step ---")
+        # 1. Deserialize engine and create context
+        print("Deserializing TRT engine for this step...")
+        TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+        runtime = trt.Runtime(TRT_LOGGER)
+        engine = runtime.deserialize_cuda_engine(self.trt_engine_blob)
+        context = engine.create_execution_context()
+        print("Engine deserialized.")
+
+        # 2. Move inputs to GPU
+        #print("Moving inputs to GPU...")
+        #sample = sample.to(self.device)
+        #timestep = timestep.to(self.device)
+        #encoder_hidden_states = encoder_hidden_states.to(self.device)
+        #added_cond = kwargs["added_cond_kwargs"]
+        #added_cond["text_embeds"] = added_cond["text_embeds"].to(self.device)
+        #added_cond["time_ids"] = added_cond["time_ids"].to(self.device)
         
         stream = torch.cuda.Stream()
         
-        # Determine runtime dimensions
+        # 3. Determine runtime dimensions & select profile
         unet_batch_size = sample.shape[0]
         height = sample.shape[2] * 8
         width = sample.shape[3] * 8
         num_tokens = encoder_hidden_states.shape[1]
 
-        # Select optimization profile
         profile_id = self._get_profile_id(unet_batch_size, height, width, num_tokens)
         if profile_id == -1:
             raise ValueError("Could not find a valid optimization profile for the current input.")
         
         print(f"Selected profile #{profile_id} for shape: (batch={unet_batch_size}, size={height}x{width}, tokens={num_tokens})")
-        self.trt_context.set_optimization_profile_async(profile_id, stream.cuda_stream)
+        context.set_optimization_profile_async(profile_id, stream.cuda_stream)
         
+        # 4. Prepare tensors and buffers
         batch_size = sample.shape[0]
         timestep = timestep.expand(batch_size).to(dtype=torch.float16)
 
@@ -135,68 +145,76 @@ class _SDXLTRTPipeline:
             "time_ids": added_cond["time_ids"].contiguous()
         }
         
-        print("--- Setting Input Shapes ---")
         for name, tensor in input_tensors.items():
-            print(f"Setting shape for input '{name}': {tensor.shape}")
-            self.trt_context.set_input_shape(name, tensor.shape)
-        print("--- Input Shapes Set ---")
+            context.set_input_shape(name, tensor.shape)
             
         output_buffers = {}
-        print("\n--- TRT Engine Bindings ---")
-        for binding in self.trt_engine:
-            mode = self.trt_engine.get_tensor_mode(binding)
-            print(f"Binding: '{binding}', Mode: {mode}")
-            if mode == trt.TensorIOMode.OUTPUT:
-                shape = self.trt_context.get_tensor_shape(binding)
-                # The output shape is dynamic, so we use the context to get the final shape.
-                # However, for this UNet, output shape is same as sample input shape.
-                shape = input_tensors["sample"].shape 
-                dtype = torch.from_numpy(np.array([], dtype=trt.nptype(self.trt_engine.get_tensor_dtype(binding)))).dtype
-                print(f"Allocating output buffer for '{binding}' with shape {shape} and dtype {dtype}")
+        for binding in engine:
+            if engine.get_tensor_mode(binding) == trt.TensorIOMode.OUTPUT:
+                shape = input_tensors["sample"].shape
+                dtype = torch.from_numpy(np.array([], dtype=trt.nptype(engine.get_tensor_dtype(binding)))).dtype
                 output_buffers[binding] = torch.empty(shape, dtype=dtype, device=self.device).contiguous()
-        print("--- TRT Engine Bindings Processed ---\n")
 
-        print("--- Setting Tensor Addresses ---")
         for name, tensor in input_tensors.items():
-            print(f"Setting address for input '{name}'")
-            self.trt_context.set_tensor_address(name, tensor.data_ptr())
+            context.set_tensor_address(name, tensor.data_ptr())
         for name, buffer in output_buffers.items():
-            print(f"Setting address for output '{name}'")
-            self.trt_context.set_tensor_address(name, buffer.data_ptr())
-        print("--- Tensor Addresses Set ---\n")
+            context.set_tensor_address(name, buffer.data_ptr())
         
+        # 5. Execute engine
         print("Executing TRT engine...")
-        success = self.trt_context.execute_async_v3(stream_handle=stream.cuda_stream)
+        success = context.execute_async_v3(stream_handle=stream.cuda_stream)
         if not success:
             raise RuntimeError("Failed to execute TensorRT engine.")
         stream.synchronize()
         print("TRT engine execution complete.")
 
-        print(f"Output buffer keys: {list(output_buffers.keys())}")
-        print(f"Requested output name: {self.output_name}")
         from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput
         
-        # The output from the TRT engine is on the GPU.
-        # Since the rest of the pipeline (scheduler, VAE) is running on the CPU,
-        # we need to move the UNet's output tensor back to the CPU.
-        print(f"Output buffer shape: {output_buffers[self.output_name].shape}")
-        print("Sending output tensor to CPU...")
-        output_tensor = output_buffers[self.output_name].to("cpu")
-        print("Returning from _trt_unet_forward")
+        # 6. Keep output on GPU
+        output_tensor = output_buffers[self.output_name]
+        
+        # 7. Clean up GPU resources for UNet
+        print("Cleaning up TRT engine resources...")
+        del context
+        del engine
+        del runtime
+
+        # 8. Move VAE to GPU in preparation for the final decoding step
+        # This is done here to ensure VAE is ready after the last UNet step.
+        if self.pipe.vae.device.type == 'cpu':
+             print("Moving VAE to GPU...")
+             self.pipe.vae.to(self.device)
+        
+        print("--- TRT UNet Forward Step Complete ---")
+
         return UNet2DConditionOutput(sample=output_tensor)
 
     def generate(self, prompt, batch_size=1, height=768, width=1152, seed=None, steps=4):
-        #prompt_prefix = "masterpiece,best quality,amazing quality, anime, aqua_(konosuba)"
-        #full_prompt = f"{prompt_prefix}, {prompt}"
         full_prompt = prompt
+
+        # --- VRAM Management: Text Encoding ---
+        print("\n--- Prompt Encoding Step ---")
+
+        print("Moving Text Encoders to GPU...")
+        self.pipe.text_encoder.to(self.device)
+        self.pipe.text_encoder_2.to(self.device)
+
         prompt_embeds, pooled_prompt_embeds = self.compel(full_prompt)
         print(f"prompt_embeds size: {prompt_embeds.size()}")
         print(f"pooled_prompt_embeds size: {pooled_prompt_embeds.size()}")
         
+        print("Moving Text Encoders and embeddings to CPU...")
+        self.pipe.text_encoder.to('cpu')
+        self.pipe.text_encoder_2.to('cpu')
+        print("--- Prompt Encoding Complete ---\n")
+        
         generator = None
         if seed is not None:
             generator = torch.Generator(device=self.device).manual_seed(seed)
-            
+
+        # The main pipeline call will handle denoising. The _trt_unet_forward function
+        # will now manage moving the VAE to the GPU at the appropriate time.
+        print("--- Starting Denoising and Decoding Pipeline ---")
         pipe_kwargs = {
             "prompt_embeds": prompt_embeds,
             "pooled_prompt_embeds": pooled_prompt_embeds,
@@ -209,10 +227,12 @@ class _SDXLTRTPipeline:
         }
 
         result = self.pipe(**pipe_kwargs)
-
-        print("Returning from generate")
-        
         images = result.images
+        print("--- Pipeline Complete ---")
+
+        # Move VAE back to CPU to conserve VRAM for the next run
+        print("Moving VAE back to CPU...")
+        self.pipe.vae.to("cpu")
         
         image_byte_arrays = []
         for image in images:

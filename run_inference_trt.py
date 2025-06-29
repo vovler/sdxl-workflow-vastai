@@ -136,7 +136,10 @@ class _SDXLTRTPipeline:
         
         # 4. Prepare tensors and buffers
         batch_size = sample.shape[0]
-        timestep = timestep.expand(batch_size).to(device=self.device, dtype=torch.float16)
+        
+        # Recreate timestep tensor robustly to avoid nullptr issues with TRT's execute_v2
+        timestep_scalar = timestep.item()
+        timestep = torch.full((batch_size,), timestep_scalar, dtype=torch.float16, device=self.device)
 
         input_tensors = {
             "sample": sample.contiguous(),

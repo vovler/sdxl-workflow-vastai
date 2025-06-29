@@ -113,24 +113,11 @@ class _SDXLTRTPipeline:
 
         added_cond = kwargs["added_cond_kwargs"]
         
-        print("\\n--- Checking Data Pointers Before/After GPU Move ---")
-        # Move all input tensors to GPU and check pointers
-        print(f"sample (CPU): {sample.data_ptr()}")
+        # Move all input tensors to GPU
         sample = sample.to(self.device)
-        print(f"sample (GPU): {sample.data_ptr()}")
-
-        print(f"encoder_hidden_states (CPU): {encoder_hidden_states.data_ptr()}")
         encoder_hidden_states = encoder_hidden_states.to(self.device)
-        print(f"encoder_hidden_states (GPU): {encoder_hidden_states.data_ptr()}")
-
-        print(f"text_embeds (CPU): {added_cond['text_embeds'].data_ptr()}")
         added_cond["text_embeds"] = added_cond["text_embeds"].to(self.device)
-        print(f"text_embeds (GPU): {added_cond['text_embeds'].data_ptr()}")
-
-        print(f"time_ids (CPU): {added_cond['time_ids'].data_ptr()}")
         added_cond["time_ids"] = added_cond["time_ids"].to(self.device)
-        print(f"time_ids (GPU): {added_cond['time_ids'].data_ptr()}")
-        print("--------------------------------------------------\\n")
 
         stream = torch.cuda.Stream()
         
@@ -150,10 +137,9 @@ class _SDXLTRTPipeline:
         # 4. Prepare tensors and buffers
         batch_size = sample.shape[0]
         
-        # Recreate timestep tensor robustly to avoid nullptr issues with TRT's execute_v2
+        # Recreate timestep tensor robustly. The TRT engine expects a Long tensor for timestep.
         timestep_scalar = timestep.item()
-        timestep = torch.full((batch_size,), timestep_scalar, dtype=torch.float16, device=self.device)
-        print(f"timestep (GPU, created with torch.full): {timestep.data_ptr()}")
+        timestep = torch.full((batch_size,), timestep_scalar, dtype=torch.float32, device=self.device)
 
         input_tensors = {
             "sample": sample.contiguous(),

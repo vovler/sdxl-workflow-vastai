@@ -128,24 +128,43 @@ class _SDXLTRTPipeline:
             "time_ids": added_cond["time_ids"].contiguous()
         }
         
+        print("--- Setting Input Shapes ---")
         for name, tensor in input_tensors.items():
+            print(f"Setting shape for input '{name}': {tensor.shape}")
             self.trt_context.set_input_shape(name, tensor.shape)
+        print("--- Input Shapes Set ---")
             
         output_buffers = {}
+        print("\n--- TRT Engine Bindings ---")
         for binding in self.trt_engine:
-            if self.trt_engine.get_tensor_mode(binding) == trt.TensorIOMode.OUTPUT:
-                shape = input_tensors["sample"].shape
+            mode = self.trt_engine.get_tensor_mode(binding)
+            print(f"Binding: '{binding}', Mode: {mode}")
+            if mode == trt.TensorIOMode.OUTPUT:
+                shape = self.trt_context.get_tensor_shape(binding)
+                # The output shape is dynamic, so we use the context to get the final shape.
+                # However, for this UNet, output shape is same as sample input shape.
+                shape = input_tensors["sample"].shape 
                 dtype = torch.from_numpy(np.array([], dtype=trt.nptype(self.trt_engine.get_tensor_dtype(binding)))).dtype
+                print(f"Allocating output buffer for '{binding}' with shape {shape} and dtype {dtype}")
                 output_buffers[binding] = torch.empty(shape, dtype=dtype, device=self.device).contiguous()
+        print("--- TRT Engine Bindings Processed ---\n")
 
+        print("--- Setting Tensor Addresses ---")
         for name, tensor in input_tensors.items():
+            print(f"Setting address for input '{name}'")
             self.trt_context.set_tensor_address(name, tensor.data_ptr())
         for name, buffer in output_buffers.items():
+            print(f"Setting address for output '{name}'")
             self.trt_context.set_tensor_address(name, buffer.data_ptr())
+        print("--- Tensor Addresses Set ---\n")
         
+        print("Executing TRT engine...")
         self.trt_context.execute_async_v3(stream_handle=stream.cuda_stream)
         stream.synchronize()
+        print("TRT engine execution complete.")
 
+        print(f"Output buffer keys: {list(output_buffers.keys())}")
+        print(f"Requested output name: {self.output_name}")
         from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput
         return UNet2DConditionOutput(sample=output_buffers[self.output_name])
 

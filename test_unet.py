@@ -9,6 +9,7 @@ class UNetTypeInspector(torch.nn.Module):
     def __init__(self, unet):
         super().__init__()
         self.unet = unet
+        self.config = unet.config
         self.device = unet.device
 
     def print_types(self, name, tensor):

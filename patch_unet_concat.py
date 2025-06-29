@@ -1,10 +1,11 @@
 import onnx
 from onnx import TensorProto, helper
+import onnx.shape_inference
 
 def patch_concat_nodes(input_model_path: str, output_model_path: str):
     """
-    Loads an ONNX model, finds Concat nodes with any mismatched input types using
-    the same logic as inspect_onnx.py, and inserts Cast nodes to fix them.
+    Loads an ONNX model, finds Concat nodes with any mismatched input types,
+    inserts Cast nodes to fix them, and re-runs shape inference to update the graph.
     """
     try:
         print(f"Loading model from {input_model_path}...")
@@ -13,7 +14,7 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         print(f"Error loading ONNX model: {e}")
         return
 
-    # Build the tensor type map exactly as in the working inspect_onnx.py script
+    # Build the tensor type map
     tensor_types = {vi.name: vi.type for vi in model.graph.value_info}
     for i in model.graph.input:
         tensor_types[i.name] = i.type
@@ -29,11 +30,7 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
             new_nodes.append(node)
             continue
 
-        # Use the exact detection logic from inspect_onnx.py
-        input_type_protos = [tensor_types.get(name) for name in node.input]
-        
-        # Filter out inputs where type info is missing
-        valid_inputs = [(name, proto) for name, proto in zip(node.input, input_type_protos) if proto and proto.tensor_type]
+        valid_inputs = [(name, tensor_types.get(name)) for name in node.input if tensor_types.get(name) and tensor_types.get(name).tensor_type]
         if len(valid_inputs) < 2:
             new_nodes.append(node)
             continue
@@ -41,7 +38,6 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         first_input_name, first_type_proto = valid_inputs[0]
         target_type = first_type_proto.tensor_type.elem_type
 
-        # Check for any mismatch against the first input's type
         is_mismatched = any(
             proto.tensor_type.elem_type != target_type for _, proto in valid_inputs[1:]
         )
@@ -50,17 +46,15 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
             new_nodes.append(node)
             continue
             
-        # If we get here, a mismatch was found.
         print(f"  - Found problematic Concat node: '{node.name}'")
         graph_modified = True
         target_type_name = TensorProto.DataType.Name(target_type)
         print(f"    - Target type for casting is {target_type_name} (from input '{first_input_name}')")
 
         new_concat_inputs = []
-        for input_name, current_type_proto in zip(node.input, input_type_protos):
-            # Also check if type info was missing for this input
+        for input_name in node.input:
+            current_type_proto = tensor_types.get(input_name)
             if not current_type_proto or not current_type_proto.tensor_type:
-                print(f"    - WARNING: Could not determine type for input '{input_name}'. It will not be cast.")
                 new_concat_inputs.append(input_name)
                 continue
 
@@ -82,7 +76,6 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
             else:
                 new_concat_inputs.append(input_name)
         
-        # Re-create the concat node
         new_concat_node = helper.make_node(
             "Concat",
             inputs=new_concat_inputs,
@@ -96,9 +89,16 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         print("No mismatched Concat nodes were found.")
         return
 
-    # Rebuild the graph
     model.graph.ClearField("node")
     model.graph.node.extend(new_nodes)
+
+    try:
+        print("Re-running shape inference to update output types...")
+        model = onnx.shape_inference.infer_shapes(model)
+        print("Shape inference complete.")
+    except Exception as e:
+        print(f"An error occurred during shape inference after patching: {e}")
+        return
 
     print(f"Saving patched model to {output_model_path} with external data...")
     onnx.save(
@@ -110,11 +110,11 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
     )
 
     try:
-        print("Checking patched model for correctness (using file path)...")
+        print("Final model check from file path...")
         onnx.checker.check_model(output_model_path)
-        print("Model check passed.")
+        print("Final model check passed.")
     except Exception as e:
-        print(f"Model check failed after patching: {e}")
+        print(f"Final model check from file path failed: {e}")
         return
 
     print("Patching complete.")

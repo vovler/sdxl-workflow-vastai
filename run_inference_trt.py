@@ -107,6 +107,8 @@ class _SDXLTRTPipeline:
         #full_prompt = f"{prompt_prefix}, {prompt}"
         full_prompt = prompt
         prompt_embeds, pooled_prompt_embeds = self.compel(full_prompt)
+        print(f"prompt_embeds size: {prompt_embeds.size()}")
+        print(f"pooled_prompt_embeds size: {pooled_prompt_embeds.size()}")
         
         generator = None
         if seed is not None:

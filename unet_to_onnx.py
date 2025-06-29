@@ -38,6 +38,10 @@ def main():
     
     unet = pipe.unet
     unet.to(device)
+    
+    # Force the added text and time embedding layers to float16 for consistency
+    unet.add_embedding.to(dtype=torch.float16)
+    
     unet.eval()
     unet_dtype = unet.dtype
     print(f"UNet dtype: {unet_dtype}")

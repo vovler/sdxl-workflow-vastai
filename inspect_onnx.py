@@ -56,6 +56,8 @@ def find_mismatched_types(model_path: str):
             current_type = tensor_types[input_name].tensor_type.elem_type
             if current_type != first_type:
                 is_mismatched_node = True
+                print(f"  - Input {i} ('{input_name}') has type: {current_type}")
+                print(f"  - Input {i} ('{first_input_name}') has type: {first_type}")
                 break
         
         if is_mismatched_node:

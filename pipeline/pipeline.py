@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from . import loader
+import loader
 
 class SDXLPipeline:
     def __init__(self):

@@ -1,12 +1,11 @@
 import onnx
 from onnx import TensorProto, helper
 import onnx.shape_inference
-from collections import Counter
 
 def patch_concat_nodes(input_model_path: str, output_model_path: str):
     """
     Loads an ONNX model, finds Concat nodes with any mismatched input types,
-    and inserts Cast nodes to conform all inputs to the most common type.
+    and inserts Cast nodes to conform all inputs to the type of the first input.
     """
     try:
         print(f"Loading model from {input_model_path}...")
@@ -18,6 +17,7 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
         print(f"Error loading or processing ONNX model: {e}")
         return
 
+    # Build a comprehensive map of tensor names to their types
     tensor_types = {vi.name: vi.type for vi in model.graph.value_info}
     for i in model.graph.input:
         tensor_types[i.name] = i.type
@@ -29,39 +29,44 @@ def patch_concat_nodes(input_model_path: str, output_model_path: str):
     
     print("Scanning for mismatched Concat nodes to patch...")
     for node in model.graph.node:
-        if node.op_type != "Concat":
+        if node.op_type != "Concat" or len(node.input) < 2:
             new_nodes.append(node)
             continue
 
-        # Get the element type for each input, filtering out any that can't be found
-        input_elem_types = []
-        for name in node.input:
-            tt = tensor_types.get(name)
-            if tt and tt.tensor_type and tt.tensor_type.elem_type:
-                input_elem_types.append(tt.tensor_type.elem_type)
-            else:
-                input_elem_types.append(None) # Keep placeholder for index mapping
+        # Get the data type of the first input. This will be our target type.
+        first_input_type_proto = tensor_types.get(node.input[0])
+        if not first_input_type_proto or not first_input_type_proto.tensor_type:
+            # Cannot determine the type, cannot patch.
+            new_nodes.append(node)
+            continue
+        
+        target_type = first_input_type_proto.tensor_type.elem_type
+        
+        # Check if any other input has a different type
+        is_mismatched = False
+        for input_name in node.input[1:]:
+            current_type_proto = tensor_types.get(input_name)
+            if current_type_proto and current_type_proto.tensor_type and current_type_proto.tensor_type.elem_type != target_type:
+                is_mismatched = True
+                break
 
-        # Check if there is more than one unique data type among the valid inputs
-        valid_elem_types = [t for t in input_elem_types if t is not None]
-        if len(set(valid_elem_types)) <= 1:
+        if not is_mismatched:
             new_nodes.append(node)
             continue
 
-        # Mismatch found!
+        # If we get here, a mismatch was found.
         print(f"  - Found problematic Concat node: '{node.name}'")
         graph_modified = True
-        
-        # Determine the target type (the most common one)
-        target_type = Counter(valid_elem_types).most_common(1)[0][0]
         target_type_name = TensorProto.DataType.Name(target_type)
-        print(f"    - Target type for casting is {target_type_name}")
+        print(f"    - Target type for casting is {target_type_name} (from input '{node.input[0]}')")
 
         new_concat_inputs = []
-        for i, input_name in enumerate(node.input):
-            current_type = input_elem_types[i]
+        for input_name in node.input:
+            current_type_proto = tensor_types.get(input_name)
+            current_type = current_type_proto.tensor_type.elem_type if current_type_proto and current_type_proto.tensor_type else None
+
             if current_type is not None and current_type != target_type:
-                # This is an input that needs to be cast.
+                # This input needs to be cast.
                 current_type_name = TensorProto.DataType.Name(current_type)
                 print(f"    - Input '{input_name}' is {current_type_name}. Creating a Cast node.")
                 

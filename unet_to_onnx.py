@@ -98,7 +98,7 @@ def main():
             3: Dim("width"),
         },
         "timestep": {0: batch_dim},
-        "encoder_hidden_states": {0: batch_dim},
+        "encoder_hidden_states": {0: batch_dim, 1: Dim("num_tokens")},
         "text_embeds": {0: batch_dim},
         "time_ids": {0: batch_dim},
     }

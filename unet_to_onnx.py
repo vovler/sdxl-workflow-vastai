@@ -47,7 +47,6 @@ def main():
     # SDXL uses classifier-free guidance, so inputs are duplicated (one for conditional, one for unconditional)
     # With DMD2, we can use CFG 1.0, so no duplication is needed.
     batch_size = 1
-    eff_batch_size = batch_size
 
     # These are latent space dimensions, not image dimensions.
     # The default for SDXL is 1024x1024, which corresponds to 128x128 in latent space.
@@ -56,23 +55,23 @@ def main():
 
     # Get model-specific dimensions
     unet_in_channels = unet.config.in_channels
-    unet_latent_shape = (eff_batch_size, unet_in_channels, latent_height, latent_width)
+    unet_latent_shape = (batch_size, unet_in_channels, latent_height, latent_width)
     
     # SDXL has two text encoders, their embeddings are concatenated.
     # Text encoder 1: 768, Text encoder 2: 1280.
     # The UNet expects the concatenated projection of 2048.
     text_embed_dim = 2048 
-    encoder_hidden_states_shape = (eff_batch_size, 77, text_embed_dim)
+    encoder_hidden_states_shape = (batch_size, 77, text_embed_dim)
 
     # Additional conditioning from the second text encoder's pooled output
-    add_text_embeds_shape = (eff_batch_size, 1280)
+    add_text_embeds_shape = (batch_size, 1280)
 
     # Additional conditioning for image size and cropping
-    add_time_ids_shape = (eff_batch_size, 6)
+    add_time_ids_shape = (batch_size, 6)
 
     # Create dummy tensors with the dtypes discovered from the pipeline test
     sample = torch.randn(unet_latent_shape, dtype=unet_dtype).to(device)
-    timestep = torch.tensor([999] * eff_batch_size, dtype=torch.float32).to(device)
+    timestep = torch.tensor([999] * batch_size, dtype=torch.float32).to(device)
     encoder_hidden_states = torch.randn(encoder_hidden_states_shape, dtype=unet_dtype).to(device)
     text_embeds = torch.randn(add_text_embeds_shape, dtype=unet_dtype).to(device)
     time_ids = torch.randn(add_time_ids_shape, dtype=unet_dtype).to(device)

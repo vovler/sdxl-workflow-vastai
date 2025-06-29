@@ -209,6 +209,9 @@ class _SDXLTRTPipeline:
         }
 
         result = self.pipe(**pipe_kwargs)
+
+        print("Returning from generate")
+        
         images = result.images
         
         image_byte_arrays = []

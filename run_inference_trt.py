@@ -27,7 +27,7 @@ class _SDXLTRTPipeline:
         """
         engine_file_path = "unet.engine"
         profile_map_path = "profile_map.json"
-        model_id = "stabilityai/stable-diffusion-xl-base-1.0"
+        model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
 
         if not os.path.exists(engine_file_path):
             raise FileNotFoundError(f"Engine file not found at {engine_file_path}. Please run unet_onnx_tensorrt.py first.")

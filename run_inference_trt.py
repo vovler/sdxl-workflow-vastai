@@ -166,6 +166,15 @@ class _SDXLTRTPipeline:
         for name, buffer in output_buffers.items():
             context.set_tensor_address(name, buffer.data_ptr())
         
+        print("\n--- Tensor/Buffer Pre-Execution State ---")
+        print("Input Tensors:")
+        for name, tensor in input_tensors.items():
+            print(f"  - {name}: device={tensor.device}, shape={tensor.shape}, dtype={tensor.dtype}")
+        print("Output Buffers:")
+        for name, buffer in output_buffers.items():
+            print(f"  - {name}: device={buffer.device}, shape={buffer.shape}, dtype={buffer.dtype}")
+        print("-----------------------------------------\n")
+        
         # 5. Execute engine
         print("Executing TRT engine...")
         success = context.execute_async_v3(stream_handle=stream.cuda_stream)
@@ -178,7 +187,12 @@ class _SDXLTRTPipeline:
         
         # 6. Keep output on GPU
         output_tensor = output_buffers[self.output_name]
-        
+        print("\n--- Output Tensor Post-Execution ---")
+        print(f"Shape: {output_tensor.shape}, Device: {output_tensor.device}, Dtype: {output_tensor.dtype}")
+        # Printing a small slice of the output tensor to verify content
+        print(f"Content (slice):\\n{output_tensor[0, 0, :5, :5]}")
+        print("------------------------------------\n")
+
         # 7. Clean up GPU resources for UNet
         print("Cleaning up TRT engine resources...")
         del context
@@ -189,7 +203,7 @@ class _SDXLTRTPipeline:
         # This is done here to ensure VAE is ready after the last UNet step.
         if self.pipe.vae.device.type == 'cpu':
              print("Moving VAE to GPU...")
-             self.pipe.vae.to(self.device)
+             self.pipe.vae.to("cuda")
         
         print("--- TRT UNet Forward Step Complete ---")
 

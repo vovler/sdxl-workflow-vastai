@@ -43,7 +43,7 @@ class UNet(ONNXModel):
     def __call__(self, latent: np.ndarray, timestep: np.ndarray, text_embedding: np.ndarray, text_embeds: np.ndarray, time_ids: np.ndarray) -> np.ndarray:
         return super().__call__(
             sample=latent.astype(np.float16),
-            timestep=timestep.astype(np.float16),
+            timestep=timestep,
             encoder_hidden_states=text_embedding.astype(np.float16),
             text_embeds=text_embeds.astype(np.float16),
             time_ids=time_ids.astype(np.float16),

@@ -86,7 +86,7 @@ class SDXLPipeline:
         )
         latents = torch.randn(shape, generator=generator, dtype=torch.float32).cpu().numpy()
         latents = latents * self.scheduler.init_noise_sigma.cpu().numpy()
-        return latents
+        return latents.astype(np.float16)
 
     def _get_time_ids(self, height, width):
         time_ids = [

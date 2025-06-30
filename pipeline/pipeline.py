@@ -38,10 +38,8 @@ class SDXLPipeline:
         prompt_embeds_np = prompt_embeds.cpu().numpy()
         pooled_prompt_embeds_np = pooled_prompt_embeds.cpu().numpy()
 
-        latents_torch = torch.from_numpy(latents).to("cuda")
-
         for t in timesteps:
-            latent_model_input = latents_torch
+            latent_model_input = self.scheduler.scale_model_input(torch.from_numpy(latents).to("cuda"), t)
 
             timestep_numpy = np.array([t.item()], dtype=np.float16)
 
@@ -54,10 +52,9 @@ class SDXLPipeline:
             )
             
             noise_pred_torch = torch.from_numpy(noise_pred_np).to("cuda")
-            latents_torch = self.scheduler.step(noise_pred_torch, t, latents_torch).prev_sample
+            latents_torch = self.scheduler.step(noise_pred_torch, t, torch.from_numpy(latents).to("cuda")).prev_sample
+            latents = latents_torch.cpu().numpy()
         
-        latents = latents_torch.cpu().numpy()
-
         # 6. Decode latents
         image = self.vae_decoder(latents / self.scheduler.config.scaling_factor)
 
@@ -77,8 +74,9 @@ class SDXLPipeline:
             height // 8,
             width // 8,
         )
-        latents = torch.randn(shape, generator=generator, dtype=torch.float32).numpy()
-        return self.scheduler.init_noise_sigma * latents
+        latents = torch.randn(shape, generator=generator, dtype=torch.float32).cpu().numpy()
+        latents = latents * self.scheduler.init_noise_sigma.cpu().numpy()
+        return latents
 
     def _get_time_ids(self, height, width):
         time_ids = [

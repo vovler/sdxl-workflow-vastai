@@ -73,8 +73,10 @@ class CLIPTextEncoder:
         last_hidden_state = torch.from_numpy(outputs_map['last_hidden_state']).to(self.device)
         
         pooler_output = None
-        if "pooler_output" in outputs_map:
+        if "pooler_output" in outputs_map and outputs_map['pooler_output'] is not None:
             pooler_output = torch.from_numpy(outputs_map['pooler_output']).to(self.device)
+        elif "text_embeds" in outputs_map and outputs_map['text_embeds'] is not None:
+            pooler_output = torch.from_numpy(outputs_map['text_embeds']).to(self.device)
 
         hidden_states = None
         if output_hidden_states:

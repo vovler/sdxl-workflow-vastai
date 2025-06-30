@@ -18,7 +18,7 @@ class SDXLPipeline:
         prompt: str,
         height: int = 1024,
         width: int = 1024,
-        num_inference_steps: int = 20,
+        num_inference_steps: int = 8,
         seed: int = 42,
     ):
         # 1. Get text embeddings
@@ -103,6 +103,6 @@ class SDXLPipeline:
 
 if __name__ == "__main__":
     pipeline = SDXLPipeline()
-    #prompt = "A cinematic shot of a baby raccoon wearing an intricate italian mafioso suit, saying 'nice one, eh?'"
-    #image = pipeline(prompt)
-    #image.save("output.png") 
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, 1boy, aqua(konosuba)"
+    image = pipeline(prompt)
+    image.save("output.png") 

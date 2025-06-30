@@ -39,24 +39,12 @@ class SDXLPipeline:
         pooled_prompt_embeds_np = pooled_prompt_embeds.cpu().numpy()
 
         for t in timesteps:
-            print(f"Original timestep tensor: {t}, shape: {t.shape}, dtype: {t.dtype}")
             latent_model_input = self.scheduler.scale_model_input(torch.from_numpy(latents).to("cuda"), t)
 
-            # Per user instruction, create a (1,) shaped tensor for the timestep
-            timestep_numpy = t.unsqueeze(0).to(torch.float16).cpu().numpy()
-            
-            unet_input_sample = latent_model_input.cpu().numpy()
-            
-            print("--- UNet Inputs ---")
-            print(f"sample: {type(unet_input_sample)}, {unet_input_sample.shape}, {unet_input_sample.dtype}")
-            print(f"timestep: {type(timestep_numpy)}, {timestep_numpy.shape}, {timestep_numpy.dtype}")
-            print(f"encoder_hidden_states: {type(prompt_embeds_np)}, {prompt_embeds_np.shape}, {prompt_embeds_np.dtype}")
-            print(f"text_embeds: {type(pooled_prompt_embeds_np)}, {pooled_prompt_embeds_np.shape}, {pooled_prompt_embeds_np.dtype}")
-            print(f"time_ids: {type(time_ids)}, {time_ids.shape}, {time_ids.dtype}")
-            print("--------------------")
+            timestep_numpy = t.cpu().numpy().astype(np.float16)
 
             noise_pred_np = self.unet(
-                unet_input_sample,
+                latent_model_input.cpu().numpy(),
                 timestep_numpy,
                 prompt_embeds_np,
                 pooled_prompt_embeds_np,

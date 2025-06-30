@@ -14,10 +14,10 @@ class ONNXCLIPTextOutput:
 
 class ONNXModel:
     def __init__(self, model_path: str):
-        #so = ort.SessionOptions()
-        #so.log_severity_level = 0
+        so = ort.SessionOptions()
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
         self.session = ort.InferenceSession(
-            model_path, providers=["CUDAExecutionProvider"]
+            model_path, providers=["CUDAExecutionProvider"], sess_options=so
         )
 
     def __call__(self, **kwargs):

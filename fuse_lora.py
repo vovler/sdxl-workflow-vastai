@@ -24,6 +24,9 @@ pipeline.fuse_lora()
 
 print("Fusing complete. Saving the UNet.")
 
+# Move UNet to CPU before saving to avoid device-specific issues
+pipeline.unet.to("cpu")
+
 # Get the cache path for the base model
 model_path = snapshot_download(base_model_id)
 

@@ -33,7 +33,7 @@ class VAEDecoder(ONNXModel):
         super().__init__(model_path)
 
     def __call__(self, latent: np.ndarray) -> np.ndarray:
-        return super().__call__(latent_sample=latent)[0]
+        return super().__call__(latent_sample=latent.astype(np.float16))[0]
 
 
 class UNet(ONNXModel):
@@ -42,11 +42,11 @@ class UNet(ONNXModel):
 
     def __call__(self, latent: np.ndarray, timestep: np.ndarray, text_embedding: np.ndarray, text_embeds: np.ndarray, time_ids: np.ndarray) -> np.ndarray:
         return super().__call__(
-            sample=latent,
-            timestep=timestep,
-            encoder_hidden_states=text_embedding,
-            text_embeds=text_embeds,
-            time_ids=time_ids,
+            sample=latent.astype(np.float16),
+            timestep=timestep.astype(np.float16),
+            encoder_hidden_states=text_embedding.astype(np.float16),
+            text_embeds=text_embeds.astype(np.float16),
+            time_ids=time_ids.astype(np.float16),
         )[0]
 
 
@@ -65,7 +65,7 @@ class CLIPTextEncoder:
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
-        input_feed = {"input_ids": input_ids.cpu().numpy()}
+        input_feed = {"input_ids": input_ids.cpu().numpy().astype(np.int64)}
         
         outputs = self.session.run(self.output_names, input_feed)
         outputs_map = dict(zip(self.output_names, outputs))

@@ -39,9 +39,11 @@ class SDXLPipeline:
         pooled_prompt_embeds_np = pooled_prompt_embeds.cpu().numpy()
 
         for t in timesteps:
+            print(f"Original timestep tensor: {t}, shape: {t.shape}, dtype: {t.dtype}")
             latent_model_input = self.scheduler.scale_model_input(torch.from_numpy(latents).to("cuda"), t)
 
-            timestep_numpy = t.unsqueeze(0).cpu().numpy().astype(np.float16)
+            # Per user instruction, create a (1,) shaped tensor for the timestep
+            timestep_numpy = t.unsqueeze(0).to(torch.float16).cpu().numpy()
             
             unet_input_sample = latent_model_input.cpu().numpy()
             

@@ -14,10 +14,10 @@ class ONNXCLIPTextOutput:
 
 class ONNXModel:
     def __init__(self, model_path: str):
-        so = ort.SessionOptions()
-        so.log_severity_level = 0
+        #so = ort.SessionOptions()
+        #so.log_severity_level = 0
         self.session = ort.InferenceSession(
-            model_path, sess_options=so, providers=["CUDAExecutionProvider"]
+            model_path, providers=["CUDAExecutionProvider"]
         )
 
     def __call__(self, **kwargs):
@@ -52,9 +52,9 @@ class UNet(ONNXModel):
 
 class CLIPTextEncoder:
     def __init__(self, model_path: str, device: str = "cuda"):
-        so = ort.SessionOptions()
-        so.log_severity_level = 0
-        self.session = ort.InferenceSession(model_path, sess_options=so, providers=["CUDAExecutionProvider"])
+        #so = ort.SessionOptions()
+        #so.log_severity_level = 0
+        self.session = ort.InferenceSession(model_path, providers=["CUDAExecutionProvider"])
         self.device = torch.device(device)
         self.output_names = [o.name for o in self.session.get_outputs()]
 

@@ -25,7 +25,7 @@ pipeline.fuse_lora()
 print("Fusing complete. Saving the UNet.")
 
 # Get the cache path for the base model
-model_path = snapshot_download(base_model_id, use_safetensors=True)
+model_path = snapshot_download(base_model_id)
 
 # Define the path to save the fused UNet, overwriting the original
 unet_path = os.path.join(model_path, "unet")

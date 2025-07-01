@@ -15,10 +15,9 @@ class SDXLPipeline:
         self.tokenizer_g = self.components["tokenizer_2"]
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
-        self.vae_decoder = self.components["vae_decoder"]
+        self.vae = self.components["vae"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
-        self.vae_scaling_factor = self.components["vae_scaling_factor"]
 
     def __call__(
         self,
@@ -96,10 +95,11 @@ class SDXLPipeline:
         
         # 6. Decode latents
         print("\n--- Decoding Latents ---")
-        latents_to_decode = latents / self.vae_scaling_factor
-        print(f"VAE scaling factor: {self.vae_scaling_factor}")
+        latents_to_decode = latents / self.vae.config.scaling_factor
+        print(f"VAE scaling factor: {self.vae.config.scaling_factor}")
         print(f"latents_to_decode: shape={latents_to_decode.shape}, dtype={latents_to_decode.dtype}, has_nan={torch.isnan(latents_to_decode).any()}, has_inf={torch.isinf(latents_to_decode).any()}")
-        image_np = self.vae_decoder(latents_to_decode)
+        image_np = self.vae.decode(latents_to_decode, return_dict=False)[0]
+        
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 
         # 7. Post-process image

@@ -1,4 +1,4 @@
-from diffusers import EulerAncestralDiscreteScheduler
+from diffusers import EulerAncestralDiscreteScheduler, AutoencoderTiny
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 import torch
 
@@ -33,12 +33,14 @@ def load_pipeline_components():
         device=device
     )
 
-    vae_decoder = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
+    # vae_decoder = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
     
-    vae_config_path = os.path.join(os.path.dirname(defaults.VAE_DECODER_PATH), "config.json")
-    with open(vae_config_path, "r") as f:
-        vae_config = json.load(f)
-    vae_scaling_factor = vae_config["scaling_factor"]
+    # vae_config_path = os.path.join(os.path.dirname(defaults.VAE_DECODER_PATH), "config.json")
+    # with open(vae_config_path, "r") as f:
+    #     vae_config = json.load(f)
+    # vae_scaling_factor = vae_config["scaling_factor"]
+    
+    vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
 
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
@@ -51,8 +53,9 @@ def load_pipeline_components():
         "tokenizer_2": tokenizer_2,
         "text_encoder_l": onnx_text_encoder_1,
         "text_encoder_g": onnx_text_encoder_2,
-        "vae_decoder": vae_decoder,
+        # "vae_decoder": vae_decoder,
+        "vae": vae,
         "unet": unet,
         "scheduler": scheduler,
-        "vae_scaling_factor": vae_scaling_factor,
+        # "vae_scaling_factor": vae_scaling_factor,
     } 

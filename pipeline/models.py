@@ -21,10 +21,13 @@ class ONNXModel:
         )
 
     def __call__(self, **kwargs):
-        inputs = {
-            input.name: np.ascontiguousarray(value)
-            for input, value in zip(self.session.get_inputs(), kwargs.values())
-        }
+        inputs = {}
+        for input_meta, value in zip(self.session.get_inputs(), kwargs.values()):
+            if isinstance(value, np.ndarray) and value.ndim == 0:
+                inputs[input_meta.name] = value
+            else:
+                inputs[input_meta.name] = np.ascontiguousarray(value)
+
         for name, arr in inputs.items():
             print(f"Input '{name}': shape={arr.shape}, dtype={arr.dtype}")
         return self.session.run(None, inputs)

@@ -2,6 +2,7 @@ import gc
 import numpy as np
 import torch
 from PIL import Image
+from diffusers.utils import randn_tensor
 
 import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
@@ -15,10 +16,12 @@ class SDXLPipeline:
         self.tokenizer_g = self.components["tokenizer_2"]
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
+        # self.vae_decoder = self.components["vae_decoder"]
         self.vae = self.components["vae"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
         self.image_processor = self.components["image_processor"]
+        self.vae_scale_factor = self.components["vae_scale_factor"]
 
     def __call__(
         self,
@@ -64,7 +67,11 @@ class SDXLPipeline:
         print("------------------------")
 
         # 2. Prepare latents
-        latents = self._prepare_latents(height, width, seed)
+        generator = torch.Generator(device=self.device).manual_seed(seed)
+        num_channels_latents = self.unet.session.get_inputs()[0].shape[1]
+        latents = self.prepare_latents(
+            1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.device, generator
+        )
 
         # 3. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
@@ -74,7 +81,10 @@ class SDXLPipeline:
         print("--------------------")
 
         # 4. Prepare extra inputs for UNet
-        time_ids = self._get_time_ids(height, width)
+        time_ids = self._get_add_time_ids(
+            (height, width), (0, 0), (height, width), dtype=pooled_prompt_embeds.dtype
+        )
+        time_ids = time_ids.to(self.device)
 
         # 5. Denoising loop
         print("\n--- Denoising Loop ---")
@@ -101,16 +111,18 @@ class SDXLPipeline:
         
         # 6. Decode latents
         print("\n--- Decoding Latents ---")
-        latents_to_decode = latents / self.vae.config.scaling_factor
-        print(f"VAE scaling factor: {self.vae.config.scaling_factor}")
-        # print(f"latents_to_decode: shape={latents_to_decode.shape}, dtype={latents_to_decode.dtype}, has_nan={torch.isnan(latents_to_decode).any()}, has_inf={torch.isinf(latents_to_decode).any()}")
-        image_np = self.vae.decode(latents_to_decode, return_dict=False)[0].detach().cpu()
+        
+        # Un-scale and un-shift latents for TinyVAE before decoding
+        latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
+        print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
+        
+        image_np = self.vae.decode(latents_to_decode, return_dict=False)[0]
         
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 
         # 7. Post-process image
         print("\n--- Post-processing Image ---")
-        image = self.image_processor.postprocess(image_np, output_type="pil")[0]
+        image = self.image_processor.postprocess(image_np.detach().cpu(), output_type="pil")[0]
         print(f"Post-processed image: {image}")
         print("--- Post-processing Complete ---")
 
@@ -120,57 +132,32 @@ class SDXLPipeline:
 
         return image
 
-    def _prepare_latents(self, height, width, seed):
-        print("\n--- Preparing Latents ---")
-        print(f"height={height}, width={width}, seed={seed}")
-        generator = torch.Generator(device=self.device).manual_seed(seed)
+    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
         shape = (
-            1,
-            4,
-            height // 8,
-            width // 8,
+            batch_size,
+            num_channels_latents,
+            int(height) // self.vae_scale_factor,
+            int(width) // self.vae_scale_factor,
         )
-        print(f"latent shape: {shape}")
-        latents = torch.randn(shape, generator=generator, device=self.device, dtype=torch.float16)
-        print(f"initial random latents: has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
-        print(f"initial random latents | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
-        print(f"scheduler.init_noise_sigma: {self.scheduler.init_noise_sigma}")
-        latents = latents * self.scheduler.init_noise_sigma.to(self.device)
-        print(f"scaled latents: shape={latents.shape}, dtype={latents.dtype}, has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
-        print(f"scaled latents | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
-        print("-------------------------")
+        if isinstance(generator, list) and len(generator) != batch_size:
+            raise ValueError(
+                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+            )
+
+        if latents is None:
+            latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+        else:
+            latents = latents.to(device)
+
+        # scale the initial noise by the standard deviation required by the scheduler
+        latents = latents * self.scheduler.init_noise_sigma
         return latents
 
-    def _get_time_ids(self, height, width):
-        print("\n--- Getting Time IDs ---")
-        time_ids_list = [
-            height,
-            width,
-            0,
-            0,
-            height,
-            width,
-        ]
-        time_ids = torch.tensor([time_ids_list], device=self.device, dtype=torch.float16)
-        print(f"time_ids: {time_ids}")
-        print(f"time_ids shape: {time_ids.shape}, dtype: {time_ids.dtype}")
-        print(f"time_ids | Mean: {time_ids.mean():.6f} | Std: {time_ids.std():.6f} | Sum: {time_ids.sum():.6f}")
-        print("------------------------")
-        return time_ids
-
-    def _postprocess_image(self, image: torch.Tensor) -> Image.Image:
-        print("--- In _postprocess_image ---")
-        print(f"input image tensor: shape={image.shape}, dtype={image.dtype}, has_nan={torch.isnan(image).any()}, has_inf={torch.isinf(image).any()}")
-        #image = torch.nan_to_num(image)
-        image = (image / 2 + 0.5).clamp(0, 1)
-        print(f"image after scaling and clamping: shape={image.shape}, dtype={image.dtype}, has_nan={torch.isnan(image).any()}, has_inf={torch.isinf(image).any()}")
-        image = image.permute(0, 2, 3, 1)
-        print(f"image after permute: shape={image.shape}, dtype={image.dtype}")
-        image = (image * 255).round().to(torch.uint8)
-        print(f"image after converting to uint8: shape={image.shape}, dtype={image.dtype}")
-        final_image = Image.fromarray(image.cpu().numpy()[0])
-        print("--- Exiting _postprocess_image ---")
-        return final_image
+    def _get_add_time_ids(self, original_size, crops_coords_top_left, target_size, dtype):
+        add_time_ids = list(original_size + crops_coords_top_left + target_size)
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+        return add_time_ids
 
     def _clear_memory(self):
         print("--- In _clear_memory ---")

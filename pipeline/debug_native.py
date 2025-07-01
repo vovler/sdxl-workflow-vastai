@@ -1,6 +1,6 @@
 # debug_native.py
 import torch
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
 
 # Ensure you use the exact same settings as your pipeline
 prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
@@ -18,6 +18,7 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
     torch_dtype=torch.float16,
     use_safetensors=True,
 ).to(device)
+pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
 
 # Set the exact same scheduler
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(

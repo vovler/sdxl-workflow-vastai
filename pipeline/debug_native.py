@@ -42,18 +42,18 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
     print(f"LATENT_MODEL_INPUT | Shape: {sample.shape} | Dtype: {sample.dtype}")
     print(f"LATENT_MODEL_INPUT | Mean: {sample.mean():.6f} | Std: {sample.std():.6f} | Sum: {sample.sum():.6f}")
 
-    # 2. Prompt Embeds (needs to be split for comparison)
-    uncond_embeds, cond_embeds = encoder_hidden_states.chunk(2)
+    # 2. Prompt Embeds
+    cond_embeds = encoder_hidden_states
     print(f"PROMPT_EMBEDS (cond) | Shape: {cond_embeds.shape} | Dtype: {cond_embeds.dtype}")
     print(f"PROMPT_EMBEDS (cond) | Mean: {cond_embeds.mean():.6f} | Std: {cond_embeds.std():.6f} | Sum: {cond_embeds.sum():.6f}")
 
-    # 3. Pooled Prompt Embeds (needs to be split)
-    uncond_pooled, cond_pooled = text_embeds.chunk(2)
+    # 3. Pooled Prompt Embeds
+    cond_pooled = text_embeds
     print(f"POOLED_EMBEDS (cond) | Shape: {cond_pooled.shape} | Dtype: {cond_pooled.dtype}")
     print(f"POOLED_EMBEDS (cond) | Mean: {cond_pooled.mean():.6f} | Std: {cond_pooled.std():.6f} | Sum: {cond_pooled.sum():.6f}")
     
-    # 4. Time IDs (needs to be split)
-    uncond_time, cond_time = time_ids.chunk(2)
+    # 4. Time IDs
+    cond_time = time_ids
     print(f"TIME_IDS (cond) | Shape: {cond_time.shape} | Dtype: {cond_time.dtype}")
     print(f"TIME_IDS (cond) | Values: {cond_time.flatten().tolist()}")
 
@@ -65,9 +65,8 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
     noise_pred = original_unet_forward(sample, timestep, encoder_hidden_states, **kwargs)
     
     print("\n" + "="*20 + f" NATIVE DIFFUSERS - CAPTURING UNET OUTPUT " + "="*20)
-    # Perform the guidance manually to get the final noise_pred that the scheduler sees
-    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-    final_noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+    # In CFG-less mode (guidance_scale=1.0), the UNet output is the final noise prediction
+    final_noise_pred = noise_pred
     
     print(f"NOISE_PRED (final) | Shape: {final_noise_pred.shape} | Dtype: {final_noise_pred.dtype}")
     print(f"NOISE_PRED (final) | Mean: {final_noise_pred.mean():.6f} | Std: {final_noise_pred.std():.6f} | Sum: {final_noise_pred.sum():.6f}")

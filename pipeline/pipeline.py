@@ -104,7 +104,20 @@ class SDXLPipeline:
         gc.collect()
 
 if __name__ == "__main__":
-    pipeline = SDXLPipeline()
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, 1boy, aqua(konosuba)"
-    image = pipeline(prompt)
-    image.save("output.png") 
+    
+    #pipeline = SDXLPipeline()
+    #image = pipeline(prompt)
+    #image.save("output.png") 
+
+    print("\n" + "="*40)
+    print("--- RUNNING NATIVE DIFFUSERS PIPELINE ---")
+    print("="*40)
+    native_pipeline = StableDiffusionXLPipeline.from_pretrained(
+        "socks22/sdxl-wai-nsfw-illustriousv14",
+        torch_dtype=torch.float16,
+        use_safetensors=True
+    )
+    native_pipeline.to("cuda:0")
+    native_image = native_pipeline(prompt=prompt, num_inference_steps=20).images[0]
+    native_image.save("output_native.png")

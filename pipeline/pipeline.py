@@ -14,7 +14,6 @@ class SDXLPipeline:
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
         self.vae_scaling_factor = self.components["vae_scaling_factor"]
-        self.scheduler.init_noise_sigma = self.scheduler.init_noise_sigma.to(self.device)
 
     def __call__(
         self,
@@ -73,7 +72,7 @@ class SDXLPipeline:
             width // 8,
         )
         latents = torch.randn(shape, generator=generator, device=self.device, dtype=torch.float16)
-        latents = latents * self.scheduler.init_noise_sigma
+        latents = latents * self.scheduler.init_noise_sigma.to(self.device)
         return latents
 
     def _get_time_ids(self, height, width):

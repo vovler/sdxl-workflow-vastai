@@ -13,7 +13,7 @@ def load_pipeline_components():
     """
     Load all the components of the SDXL pipeline.
     """
-    device = torch.device("cuda")
+    device = torch.device("cuda:0")
     tokenizer_1 = CLIPTokenizer.from_pretrained(
         defaults.DEFAULT_BASE_MODEL, subfolder="tokenizer"
     )

@@ -15,9 +15,8 @@ class ONNXCLIPTextOutput:
 class ONNXModel:
     def __init__(self, model_path: str, device: torch.device):
         self.device = device
-        provider_options = [{"device_id": self.device.index}]
         self.session = ort.InferenceSession(
-            model_path, providers=[("CUDAExecutionProvider", provider_options)]
+            model_path, providers=[("CUDAExecutionProvider")]
         )
         self.io_binding = self.session.io_binding()
         self.input_names = [i.name for i in self.session.get_inputs()]
@@ -87,8 +86,13 @@ class UNet(ONNXModel):
 class CLIPTextEncoder(ONNXModel):
     def __init__(self, model_path: str, device: torch.device):
         super().__init__(model_path, device)
-        self.hidden_size = self.session.get_outputs()[0].shape[2]
-        self.pooler_dim = self.session.get_outputs()[1].shape[1]
+        self.hidden_size = None
+        self.pooler_dim = None
+        for output in self.session.get_outputs():
+            if output.name == "last_hidden_state":
+                self.hidden_size = output.shape[2]
+            elif output.name in ["pooler_output", "text_embeds"]:
+                self.pooler_dim = output.shape[1]
 
     def __call__(
         self,
@@ -109,10 +113,11 @@ class CLIPTextEncoder(ONNXModel):
         self.bind_output("last_hidden_state", last_hidden_state)
         
         pooler_output = None
-        pooler_output_name = "text_embeds" if "text_embeds" in self.output_names else "pooler_output"
-        pooler_output_shape = (batch_size, self.pooler_dim)
-        pooler_output = torch.empty(pooler_output_shape, dtype=torch.float16, device=self.device)
-        self.bind_output(pooler_output_name, pooler_output)
+        if self.pooler_dim is not None:
+            pooler_output_name = "text_embeds" if "text_embeds" in self.output_names else "pooler_output"
+            pooler_output_shape = (batch_size, self.pooler_dim)
+            pooler_output = torch.empty(pooler_output_shape, dtype=torch.float16, device=self.device)
+            self.bind_output(pooler_output_name, pooler_output)
 
         self.session.run_with_iobinding(self.io_binding)
 

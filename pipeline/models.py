@@ -134,7 +134,10 @@ class CLIPTextEncoder(ONNXModel):
 
         # Prepare output tensors
         batch_size, seq_len = input_ids.shape
+        
+        print(f"--- {self.name} Prepared Output Shapes ---")
         last_hidden_state_shape = (batch_size, seq_len, self.hidden_size)
+        print(f"last_hidden_state_shape: {last_hidden_state_shape}")
         last_hidden_state = torch.empty(last_hidden_state_shape, dtype=torch.float16, device=self.device)
         self.bind_output("last_hidden_state", last_hidden_state)
         
@@ -142,8 +145,10 @@ class CLIPTextEncoder(ONNXModel):
         if self.pooler_dim is not None:
             pooler_output_name = "text_embeds" if "text_embeds" in self.output_names else "pooler_output"
             pooler_output_shape = (batch_size, self.pooler_dim)
+            print(f"pooler_output_shape: {pooler_output_shape}")
             pooler_output = torch.empty(pooler_output_shape, dtype=torch.float16, device=self.device)
             self.bind_output(pooler_output_name, pooler_output)
+        print("------------------------------------")
 
         self.session.run_with_iobinding(self.io_binding)
 

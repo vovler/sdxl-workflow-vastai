@@ -41,7 +41,7 @@ class SDXLPipeline:
         for t in timesteps:
             latent_model_input = self.scheduler.scale_model_input(torch.from_numpy(latents).to("cuda"), t)
 
-            timestep_numpy = t.unsqueeze(0).cpu().numpy().astype(np.float16)
+            timestep_numpy = t.cpu().numpy()
 
             noise_pred_np = self.unet(
                 latent_model_input.cpu().numpy(),

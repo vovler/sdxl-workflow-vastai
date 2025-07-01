@@ -18,7 +18,7 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
     torch_dtype=torch.float16,
     use_safetensors=True,
 )
-pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
+#pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
 pipe = pipe.to("cuda")
 # Set the exact same scheduler
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(

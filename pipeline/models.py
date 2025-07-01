@@ -25,8 +25,6 @@ class ONNXModel:
             input.name: np.ascontiguousarray(value)
             for input, value in zip(self.session.get_inputs(), kwargs.values())
         }
-        for name, arr in inputs.items():
-            print(f"Input '{name}': shape={arr.shape}, dtype={arr.dtype}")
         return self.session.run(None, inputs)
 
 

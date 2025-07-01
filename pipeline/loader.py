@@ -62,6 +62,6 @@ def load_pipeline_components():
         "image_processor": image_processor,
         "unet": unet,
         "scheduler": scheduler,
-        "vae_scale_factor": vae_scale_factor,
-        # "vae_scaling_factor": vae_scaling_factor,
+        #"vae_scale_factor": vae_scale_factor,
+        "vae_scaling_factor": vae_scaling_factor,
     } 

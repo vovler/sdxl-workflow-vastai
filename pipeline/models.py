@@ -70,6 +70,14 @@ class UNet(ONNXModel):
         self.io_binding.clear_binding_inputs()
         self.io_binding.clear_binding_outputs()
 
+        print("--- UNet Inputs ---")
+        print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}, has_nan={torch.isnan(latent).any()}, has_inf={torch.isinf(latent).any()}")
+        print(f"timestep: shape={timestep.shape}, dtype={timestep.dtype}, device={timestep.device}, has_nan={torch.isnan(timestep).any()}, has_inf={torch.isinf(timestep).any()}")
+        print(f"text_embedding: shape={text_embedding.shape}, dtype={text_embedding.dtype}, device={text_embedding.device}, has_nan={torch.isnan(text_embedding).any()}, has_inf={torch.isinf(text_embedding).any()}")
+        print(f"text_embeds: shape={text_embeds.shape}, dtype={text_embeds.dtype}, device={text_embeds.device}, has_nan={torch.isnan(text_embeds).any()}, has_inf={torch.isinf(text_embeds).any()}")
+        print(f"time_ids: shape={time_ids.shape}, dtype={time_ids.dtype}, device={time_ids.device}, has_nan={torch.isnan(time_ids).any()}, has_inf={torch.isinf(time_ids).any()}")
+        print("--------------------")
+
         self.bind_input("sample", latent)
         self.bind_input("timestep", timestep.to(torch.float16))
         self.bind_input("encoder_hidden_states", text_embedding.to(torch.float16))

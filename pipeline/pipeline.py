@@ -118,8 +118,9 @@ if __name__ == "__main__":
         "socks22/sdxl-wai-nsfw-illustriousv14",
         torch_dtype=torch.float16,
         device="cuda:0",
-        use_safetensors=True
+        use_safetensors=True,
+        cfg=1.0
     )
     native_pipeline.to("cuda:0")
-    native_image = native_pipeline(prompt=prompt, num_inference_steps=20).images[0]
+    native_image = native_pipeline(prompt=prompt, num_inference_steps=8).images[0]
     native_image.save("output_native.png")

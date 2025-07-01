@@ -62,6 +62,8 @@ def load_pipeline_components():
         "compel_original": compel_original,
         "tokenizer_1": tokenizer_1,
         "tokenizer_2": tokenizer_2,
+        "text_encoder_l": onnx_text_encoder_1,
+        "text_encoder_g": onnx_text_encoder_2,
         "vae_decoder": vae_decoder,
         "unet": unet,
         "scheduler": scheduler,

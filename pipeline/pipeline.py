@@ -4,7 +4,7 @@ import torch
 from PIL import Image
 
 import loader
-from diffusers import StableDiffusionXLPipeline
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 
 class SDXLPipeline:
     def __init__(self):
@@ -114,13 +114,17 @@ if __name__ == "__main__":
     print("\n" + "="*40)
     print("--- RUNNING NATIVE DIFFUSERS PIPELINE ---")
     print("="*40)
+    
+    scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
+        "socks22/sdxl-wai-nsfw-illustriousv14", subfolder="scheduler"
+    )
+    
     native_pipeline = StableDiffusionXLPipeline.from_pretrained(
         "socks22/sdxl-wai-nsfw-illustriousv14",
         torch_dtype=torch.float16,
-        device="cuda:0",
+        scheduler=scheduler,
         use_safetensors=True,
-        cfg=1.0
     )
     native_pipeline.to("cuda:0")
-    native_image = native_pipeline(prompt=prompt, num_inference_steps=8).images[0]
+    native_image = native_pipeline(prompt=prompt, num_inference_steps=8, guidance_scale=1.0).images[0]
     native_image.save("output_native.png")

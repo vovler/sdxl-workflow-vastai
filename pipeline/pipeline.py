@@ -15,7 +15,7 @@ class SDXLPipeline:
         self.tokenizer_g = self.components["tokenizer_2"]
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
-        # self.vae_decoder = self.components["vae_decoder"]
+        self.vae_decoder = self.components["vae_decoder"]
         self.vae = self.components["vae"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
@@ -74,7 +74,7 @@ class SDXLPipeline:
         # 2. Prepare latents
         generator = torch.Generator(device=self.device).manual_seed(seed)
         num_channels_latents = self.unet.session.get_inputs()[0].shape[1]
-        
+
         # 3. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
 

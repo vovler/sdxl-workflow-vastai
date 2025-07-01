@@ -34,17 +34,17 @@ def load_pipeline_components():
         device=device
     )
 
-    # vae_decoder = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
+     vae_decoder = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
     
-    # vae_config_path = os.path.join(os.path.dirname(defaults.VAE_DECODER_PATH), "config.json")
-    # with open(vae_config_path, "r") as f:
-    #     vae_config = json.load(f)
-    # vae_scaling_factor = vae_config["scaling_factor"]
+     vae_config_path = os.path.join(os.path.dirname(defaults.VAE_DECODER_PATH), "config.json")
+     with open(vae_config_path, "r") as f:
+         vae_config = json.load(f)
+     vae_scaling_factor = vae_config["scaling_factor"]
     
-    vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
+    #vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
     
-    vae_scale_factor = 2 ** (len(vae.config.decoder_block_out_channels) - 1)
-    image_processor = VaeImageProcessor(8)
+    #vae_scale_factor = 2 ** (len(vae.config.decoder_block_out_channels) - 1)
+    image_processor = VaeImageProcessor(vae_scaling_factor)
 
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(

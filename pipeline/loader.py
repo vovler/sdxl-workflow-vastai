@@ -1,4 +1,5 @@
-from diffusers import EulerAncestralDiscreteScheduler, AutoencoderTiny, VaeImageProcessor
+from diffusers import EulerAncestralDiscreteScheduler, AutoencoderTiny
+from diffusers.image_processor import VaeImageProcessor
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 import torch
 

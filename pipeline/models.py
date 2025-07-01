@@ -116,6 +116,8 @@ class CLIPTextEncoder(ONNXModel):
         self.io_binding.clear_binding_inputs()
         self.io_binding.clear_binding_outputs()
 
+        input_ids = input_ids.to(torch.int64)
+
         print("--- CLIPTextEncoder Input ---")
         print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}, has_nan={torch.isnan(input_ids.float()).any()}, has_inf={torch.isinf(input_ids.float()).any()}")
         print("---------------------------")

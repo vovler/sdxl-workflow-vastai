@@ -31,10 +31,10 @@ class SDXLPipeline:
         print("="*40)
         prompt_embeds, pooled_prompt_embeds = self.compel_onnx(prompt)
 
-        print("\n" + "="*40)
-        print("--- RUNNING ORIGINAL COMPEL ---")
-        print("="*40)
-        _, _ = self.compel_original(prompt)
+        #print("\n" + "="*40)
+        #print("--- RUNNING ORIGINAL COMPEL ---")
+        #print("="*40)
+        #_, _ = self.compel_original(prompt)
 
         # 2. Prepare latents
         latents = self._prepare_latents(height, width, seed)
@@ -107,24 +107,24 @@ class SDXLPipeline:
 if __name__ == "__main__":
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
     
-    #pipeline = SDXLPipeline()
-    #image = pipeline(prompt)
-    #image.save("output.png") 
+    pipeline = SDXLPipeline()
+    image = pipeline(prompt)
+    image.save("output.png") 
 
-    print("\n" + "="*40)
-    print("--- RUNNING NATIVE DIFFUSERS PIPELINE ---")
-    print("="*40)
+    #print("\n" + "="*40)
+    #print("--- RUNNING NATIVE DIFFUSERS PIPELINE ---")
+    #print("="*40)
     
-    scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
-        "socks22/sdxl-wai-nsfw-illustriousv14", subfolder="scheduler"
-    )
+    #scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
+    #    "socks22/sdxl-wai-nsfw-illustriousv14", subfolder="scheduler"
+    #)
     
-    native_pipeline = StableDiffusionXLPipeline.from_pretrained(
-        "socks22/sdxl-wai-nsfw-illustriousv14",
-        torch_dtype=torch.float16,
-        scheduler=scheduler,
-        use_safetensors=True,
-    )
-    native_pipeline.to("cuda:0")
-    native_image = native_pipeline(prompt=prompt, num_inference_steps=8, guidance_scale=1.0).images[0]
-    native_image.save("output_native.png")
+    #native_pipeline = StableDiffusionXLPipeline.from_pretrained(
+    #    "socks22/sdxl-wai-nsfw-illustriousv14",
+    #    torch_dtype=torch.float16,
+    #    scheduler=scheduler,
+    #    use_safetensors=True,
+    #)
+    #native_pipeline.to("cuda:0")
+    #native_image = native_pipeline(prompt=prompt, num_inference_steps=8, guidance_scale=1.0).images[0]
+    #native_image.save("output_native.png")

@@ -109,10 +109,18 @@ class CLIPTextEncoder(ONNXModel):
         self.name = name
         self.hidden_size = None
         self.pooler_dim = None
+
+        self.last_hidden_state_name = "last_hidden_state"
+        if "text_encoder_2" in model_path: # CLIP-G
+            self.pooler_output_name = "text_embeds"
+        else: # CLIP-L
+            self.last_hidden_state_name = "hidden_states.11"
+            self.pooler_output_name = "pooler_output"
+
         for output in self.session.get_outputs():
-            if output.name == "last_hidden_state":
+            if output.name == self.last_hidden_state_name:
                 self.hidden_size = output.shape[2]
-            elif output.name in ["pooler_output", "text_embeds"]:
+            elif output.name == self.pooler_output_name:
                 self.pooler_dim = output.shape[1]
 
     def __call__(
@@ -145,15 +153,15 @@ class CLIPTextEncoder(ONNXModel):
         last_hidden_state_shape = (batch_size, seq_len, self.hidden_size)
         print(f"last_hidden_state_shape: {last_hidden_state_shape}")
         last_hidden_state = torch.empty(last_hidden_state_shape, dtype=torch.float16, device=self.device)
-        self.bind_output("last_hidden_state", last_hidden_state)
+        self.bind_output(self.last_hidden_state_name, last_hidden_state)
         
         pooler_output = None
-        if self.pooler_dim is not None:
-            pooler_output_name = "text_embeds" if "text_embeds" in self.output_names else "pooler_output"
+        # For CLIP-L, the pooler output is not used, so we don't need to bind it.
+        if self.pooler_dim is not None and "text_encoder_2" in self.session.get_outputs()[0].name:
             pooler_output_shape = (batch_size, self.pooler_dim)
             print(f"pooler_output_shape: {pooler_output_shape}")
             pooler_output = torch.empty(pooler_output_shape, dtype=torch.float16, device=self.device)
-            self.bind_output(pooler_output_name, pooler_output)
+            self.bind_output(self.pooler_output_name, pooler_output)
         print("------------------------------------")
 
         self.session.run_with_iobinding(self.io_binding)
@@ -163,9 +171,9 @@ class CLIPTextEncoder(ONNXModel):
         last_hidden_state_nan_count = torch.isnan(last_hidden_state).sum()
         pooler_output_nan_count = torch.isnan(pooler_output).sum() if pooler_output is not None else 0
         
-        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
+        print(f"{self.last_hidden_state_name}: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
         if pooler_output is not None:
-            print(f"pooler_output: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, nans={pooler_output_nan_count}/{pooler_output.numel()}")
+            print(f"{self.pooler_output_name}: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, nans={pooler_output_nan_count}/{pooler_output.numel()}")
         print("----------------------------")
 
         hidden_states = None

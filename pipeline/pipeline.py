@@ -29,7 +29,34 @@ class SDXLPipeline:
         print("\n" + "="*40)
         print("--- RUNNING ONNX COMPEL ---")
         print("="*40)
-        prompt_embeds, pooled_prompt_embeds = self.compel_onnx(prompt)
+        #prompt_embeds, pooled_prompt_embeds = self.compel_onnx(prompt)
+        
+        tokenizer_l = self.compel_onnx.tokenizer[0]
+        tokenizer_g = self.compel_onnx.tokenizer[1]
+        
+        text_encoder_l = self.compel_onnx.text_encoder[0]
+        text_encoder_g = self.compel_onnx.text_encoder[1]
+
+        # Tokenize prompt
+        tokenized_l = tokenizer_l(prompt, padding="max_length", max_length=tokenizer_l.model_max_length, truncation=True, return_tensors="pt")
+        tokenized_g = tokenizer_g(prompt, padding="max_length", max_length=tokenizer_g.model_max_length, truncation=True, return_tensors="pt")
+
+        input_ids_l = tokenized_l.input_ids.to(self.device)
+        input_ids_g = tokenized_g.input_ids.to(self.device)
+
+        # Get embeddings
+        hidden_states_l = text_encoder_l(input_ids=input_ids_l).last_hidden_state
+        output_g = text_encoder_g(input_ids=input_ids_g)
+        hidden_states_g = output_g.last_hidden_state
+        pooled_prompt_embeds = output_g.pooler_output
+
+        prompt_embeds = torch.cat([hidden_states_l, hidden_states_g], dim=-1)
+
+        print("--- Final Embeddings ---")
+        print(f"prompt_embeds: shape={prompt_embeds.shape}, dtype={prompt_embeds.dtype}, device={prompt_embeds.device}, has_nan={torch.isnan(prompt_embeds).any()}, has_inf={torch.isinf(prompt_embeds).any()}")
+        if pooled_prompt_embeds is not None:
+            print(f"pooled_prompt_embeds: shape={pooled_prompt_embeds.shape}, dtype={pooled_prompt_embeds.dtype}, device={pooled_prompt_embeds.device}, has_nan={torch.isnan(pooled_prompt_embeds).any()}, has_inf={torch.isinf(pooled_prompt_embeds).any()}")
+        print("------------------------")
 
         #print("\n" + "="*40)
         #print("--- RUNNING ORIGINAL COMPEL ---")

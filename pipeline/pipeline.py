@@ -74,13 +74,17 @@ class SDXLPipeline:
         # 2. Prepare latents
         generator = torch.Generator(device=self.device).manual_seed(seed)
         num_channels_latents = self.unet.session.get_inputs()[0].shape[1]
+        
+        # 3. Prepare timesteps
+        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
+
         latents = self.prepare_latents(
             1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.device, generator
         )
 
         latents = latents.to(self.device)
-        # 3. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
+        
+        
         timesteps = self.scheduler.timesteps
         print(f"\n--- Timesteps ({len(timesteps)}) ---")
         print(timesteps)

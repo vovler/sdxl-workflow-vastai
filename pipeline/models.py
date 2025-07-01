@@ -70,18 +70,10 @@ class UNet(ONNXModel):
         self.io_binding.clear_binding_inputs()
         self.io_binding.clear_binding_outputs()
 
-        print("--- UNet Inputs ---")
-        print(f"latent: {latent.shape}, {latent.dtype}")
-        print(f"timestep: {timestep.shape}, {timestep.dtype}")
-        print(f"text_embedding: {text_embedding.shape}, {text_embedding.dtype}")
-        print(f"text_embeds: {text_embeds.shape}, {text_embeds.dtype}")
-        print(f"time_ids: {time_ids.shape}, {time_ids.dtype}")
-        print("--------------------")
-
         self.bind_input("sample", latent)
-        self.bind_input("timestep", timestep)
-        self.bind_input("encoder_hidden_states", text_embedding)
-        self.bind_input("text_embeds", text_embeds)
+        self.bind_input("timestep", timestep.to(torch.float16))
+        self.bind_input("encoder_hidden_states", text_embedding.to(torch.float16))
+        self.bind_input("text_embeds", text_embeds.to(torch.float16))
         self.bind_input("time_ids", time_ids)
 
         output_tensor = torch.empty(latent.shape, dtype=latent.dtype, device=self.device)

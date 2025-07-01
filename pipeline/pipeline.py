@@ -25,8 +25,6 @@ class SDXLPipeline:
     ):
         # 1. Get text embeddings
         prompt_embeds, pooled_prompt_embeds = self.compel(prompt)
-        prompt_embeds = prompt_embeds.to(dtype=torch.float16)
-        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=torch.float16)
 
         # 2. Prepare latents
         latents = self._prepare_latents(height, width, seed)

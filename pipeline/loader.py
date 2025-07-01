@@ -60,6 +60,8 @@ def load_pipeline_components():
     return {
         "compel_onnx": compel_onnx,
         "compel_original": compel_original,
+        "tokenizer_1": tokenizer_1,
+        "tokenizer_2": tokenizer_2,
         "vae_decoder": vae_decoder,
         "unet": unet,
         "scheduler": scheduler,

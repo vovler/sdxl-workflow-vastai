@@ -12,6 +12,8 @@ class SDXLPipeline:
         self.components = loader.load_pipeline_components()
         self.compel_onnx = self.components["compel_onnx"]
         self.compel_original = self.components["compel_original"]
+        self.tokenizer_l = self.components["tokenizer_1"]
+        self.tokenizer_g = self.components["tokenizer_2"]
         self.vae_decoder = self.components["vae_decoder"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
@@ -31,15 +33,12 @@ class SDXLPipeline:
         print("="*40)
         #prompt_embeds, pooled_prompt_embeds = self.compel_onnx(prompt)
         
-        tokenizer_l = self.compel_onnx.tokenizer[0]
-        tokenizer_g = self.compel_onnx.tokenizer[1]
-        
         text_encoder_l = self.compel_onnx.text_encoder[0]
         text_encoder_g = self.compel_onnx.text_encoder[1]
 
         # Tokenize prompt
-        tokenized_l = tokenizer_l(prompt, padding="max_length", max_length=tokenizer_l.model_max_length, truncation=True, return_tensors="pt")
-        tokenized_g = tokenizer_g(prompt, padding="max_length", max_length=tokenizer_g.model_max_length, truncation=True, return_tensors="pt")
+        tokenized_l = self.tokenizer_l(prompt, padding="max_length", max_length=self.tokenizer_l.model_max_length, truncation=True, return_tensors="pt")
+        tokenized_g = self.tokenizer_g(prompt, padding="max_length", max_length=self.tokenizer_g.model_max_length, truncation=True, return_tensors="pt")
 
         input_ids_l = tokenized_l.input_ids.to(self.device)
         input_ids_g = tokenized_g.input_ids.to(self.device)

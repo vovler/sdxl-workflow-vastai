@@ -116,6 +116,7 @@ if __name__ == "__main__":
     native_pipeline = StableDiffusionXLPipeline.from_pretrained(
         "socks22/sdxl-wai-nsfw-illustriousv14",
         torch_dtype=torch.float16,
+        device="cuda:0",
         use_safetensors=True
     )
     native_pipeline.to("cuda:0")

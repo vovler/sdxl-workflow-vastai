@@ -11,7 +11,6 @@ class SDXLPipeline:
         self.device = "cuda"
         self.components = loader.load_pipeline_components()
         self.compel_onnx = self.components["compel_onnx"]
-        self.compel_original = self.components["compel_original"]
         self.tokenizer_l = self.components["tokenizer_1"]
         self.tokenizer_g = self.components["tokenizer_2"]
         self.text_encoder_l = self.components["text_encoder_l"]

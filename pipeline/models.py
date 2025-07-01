@@ -83,7 +83,7 @@ class UNet(ONNXModel):
         self.io_binding.clear_binding_outputs()
 
         latent = latent.to(torch.float16)
-        timestep = timestep.to(torch.float16)
+        #timestep = timestep.to(torch.float16)
         text_embedding = text_embedding.to(torch.float16)
         text_embeds = text_embeds.to(torch.float16)
         time_ids = time_ids.to(torch.float16)

@@ -59,6 +59,8 @@ class SDXLPipeline:
         # 6. Decode latents
         image = self.vae_decoder(latents / self.vae_scaling_factor)
 
+        print(f"Image before post-processing: shape={image.shape}, dtype={image.dtype}, has_nan={np.isnan(image).any()}, has_inf={np.isinf(image).any()}")
+
         # 7. Post-process image
         image = self._postprocess_image(image)
 
@@ -92,6 +94,8 @@ class SDXLPipeline:
         return time_ids
 
     def _postprocess_image(self, image: np.ndarray) -> Image.Image:
+        print(f"Image inside post-processing (start): shape={image.shape}, dtype={image.dtype}, has_nan={np.isnan(image).any()}, has_inf={np.isinf(image).any()}")
+        image = np.nan_to_num(image)
         image = (image / 2 + 0.5).clip(0, 1)
         image = image.transpose((0, 2, 3, 1))
         image = (image * 255).round().astype("uint8")

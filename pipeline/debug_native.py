@@ -62,11 +62,12 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
     print("="*78 + "\n")
     
     # Call the original UNet
-    noise_pred = original_unet_forward(sample, timestep, encoder_hidden_states, **kwargs)
+    noise_pred_output = original_unet_forward(sample, timestep, encoder_hidden_states, **kwargs)
     
     print("\n" + "="*20 + f" NATIVE DIFFUSERS - CAPTURING UNET OUTPUT " + "="*20)
     # In CFG-less mode (guidance_scale=1.0), the UNet output is the final noise prediction
-    final_noise_pred = noise_pred
+    # The UNet can return a tuple, so we take the first element.
+    final_noise_pred = noise_pred_output[0] if isinstance(noise_pred_output, tuple) else noise_pred_output.sample
     
     print(f"NOISE_PRED (final) | Shape: {final_noise_pred.shape} | Dtype: {final_noise_pred.dtype}")
     print(f"NOISE_PRED (final) | Mean: {final_noise_pred.mean():.6f} | Std: {final_noise_pred.std():.6f} | Sum: {final_noise_pred.sum():.6f}")

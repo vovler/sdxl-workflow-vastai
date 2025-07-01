@@ -82,6 +82,12 @@ class UNet(ONNXModel):
         self.io_binding.clear_binding_inputs()
         self.io_binding.clear_binding_outputs()
 
+        latent = latent.to(torch.float16)
+        timestep = timestep.to(torch.float16)
+        text_embedding = text_embedding.to(torch.float16)
+        text_embeds = text_embeds.to(torch.float16)
+        time_ids = time_ids.to(torch.float16)
+
         print("--- UNet Inputs ---")
         print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}, has_nan={torch.isnan(latent).any()}, has_inf={torch.isinf(latent).any()}")
         print(f"timestep: shape={timestep.shape}, dtype={timestep.dtype}, device={timestep.device}, has_nan={torch.isnan(timestep).any()}, has_inf={torch.isinf(timestep).any()}")
@@ -91,9 +97,9 @@ class UNet(ONNXModel):
         print("--------------------")
 
         self.bind_input("sample", latent)
-        self.bind_input("timestep", timestep.to(torch.float16))
-        self.bind_input("encoder_hidden_states", text_embedding.to(torch.float16))
-        self.bind_input("text_embeds", text_embeds.to(torch.float16))
+        self.bind_input("timestep", timestep)
+        self.bind_input("encoder_hidden_states", text_embedding)
+        self.bind_input("text_embeds", text_embeds)
         self.bind_input("time_ids", time_ids)
 
         output_tensor = torch.empty(latent.shape, dtype=latent.dtype, device=self.device)
@@ -107,22 +113,23 @@ class CLIPTextEncoder(ONNXModel):
     def __init__(self, model_path: str, device: torch.device, name: str = "CLIPTextEncoder"):
         super().__init__(model_path, device)
         self.name = name
-        self.is_clip_g = "text_encoder_2" in model_path
         self.hidden_size = None
         self.pooler_dim = None
 
-        self.last_hidden_state_name = "last_hidden_state"
-        if self.is_clip_g: # CLIP-G
-            self.pooler_output_name = "text_embeds"
-        else: # CLIP-L
+        if self.name == "CLIP-L":
             self.last_hidden_state_name = "hidden_states.11"
-            self.pooler_output_name = "pooler_output"
+            self.pooler_output_name = None
+        elif self.name == "CLIP-G":
+            self.last_hidden_state_name = "hidden_states.31"
+            self.pooler_output_name = "text_embeds"
+        else:
+            raise ValueError(f"Unknown CLIP model name: {self.name}")
 
         for output in self.session.get_outputs():
             if output.name == self.last_hidden_state_name:
-                self.hidden_size = output.shape[2]
-            elif output.name == self.pooler_output_name:
-                self.pooler_dim = output.shape[1]
+                self.hidden_size = output.shape[-1]
+            elif self.pooler_output_name and output.name == self.pooler_output_name:
+                self.pooler_dim = output.shape[-1]
 
     def __call__(
         self,
@@ -157,8 +164,7 @@ class CLIPTextEncoder(ONNXModel):
         self.bind_output(self.last_hidden_state_name, last_hidden_state)
         
         pooler_output = None
-        # For CLIP-L, the pooler output is not used, so we don't need to bind it.
-        if self.pooler_dim is not None and self.is_clip_g:
+        if self.name == "CLIP-G":
             pooler_output_shape = (batch_size, self.pooler_dim)
             print(f"pooler_output_shape: {pooler_output_shape}")
             pooler_output = torch.empty(pooler_output_shape, dtype=torch.float16, device=self.device)
@@ -179,7 +185,7 @@ class CLIPTextEncoder(ONNXModel):
 
         hidden_states = None
         if output_hidden_states:
-            hidden_states = (last_hidden_state, last_hidden_state)
+            hidden_states = (last_hidden_state,)
 
         return ONNXCLIPTextOutput(
             last_hidden_state=last_hidden_state,
@@ -187,103 +193,3 @@ class CLIPTextEncoder(ONNXModel):
             hidden_states=hidden_states,
             text_embeds=pooler_output,
         )
-
-class DebugCLIPTextModel(CLIPTextModel):
-    def __init__(self, config):
-        super().__init__(config)
-        self.name = "CLIP-L Original"
-
-    def forward(
-        self,
-        input_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.Tensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ):
-        print(f"--- {self.name} Input ---")
-        if input_ids is not None:
-            print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
-            print(f"tokens: {input_ids.flatten().tolist()}")
-        if attention_mask is not None:
-            print(f"attention_mask: shape={attention_mask.shape}, dtype={attention_mask.dtype}, device={attention_mask.device}")
-        if position_ids is not None:
-            print(f"position_ids: shape={position_ids.shape}, dtype={position_ids.dtype}, device={position_ids.device}")
-        if output_attentions is not None:
-            print(f"output_attentions: {output_attentions}")
-        if output_hidden_states is not None:
-            print(f"output_hidden_states: {output_hidden_states}")
-        if return_dict is not None:
-            print(f"return_dict: {return_dict}")
-        print("---------------------------")
-
-        outputs = super().forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-
-        print(f"--- {self.name} Output ---")
-        last_hidden_state = outputs.last_hidden_state
-        pooler_output = outputs.pooler_output
-        last_hidden_state_nan_count = torch.isnan(last_hidden_state).sum()
-        pooler_output_nan_count = torch.isnan(pooler_output).sum()
-        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
-        print(f"pooler_output: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, nans={pooler_output_nan_count}/{pooler_output.numel()}")
-        print("----------------------------")
-
-        return outputs
-
-class DebugCLIPTextModelWithProjection(CLIPTextModelWithProjection):
-    def __init__(self, config):
-        super().__init__(config)
-        self.name = "CLIP-G Original"
-
-    def forward(
-        self,
-        input_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.Tensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ):
-        print(f"--- {self.name} Input ---")
-        if input_ids is not None:
-            print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
-            print(f"tokens: {input_ids.flatten().tolist()}")
-        if attention_mask is not None:
-            print(f"attention_mask: shape={attention_mask.shape}, dtype={attention_mask.dtype}, device={attention_mask.device}")
-        if position_ids is not None:
-            print(f"position_ids: shape={position_ids.shape}, dtype={position_ids.dtype}, device={position_ids.device}")
-        if output_attentions is not None:
-            print(f"output_attentions: {output_attentions}")
-        if output_hidden_states is not None:
-            print(f"output_hidden_states: {output_hidden_states}")
-        if return_dict is not None:
-            print(f"return_dict: {return_dict}")
-        print("---------------------------")
-
-        outputs = super().forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-
-        print(f"--- {self.name} Output ---")
-        last_hidden_state = outputs.last_hidden_state
-        text_embeds = outputs.text_embeds
-        last_hidden_state_nan_count = torch.isnan(last_hidden_state).sum()
-        text_embeds_nan_count = torch.isnan(text_embeds).sum()
-        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
-        print(f"text_embeds: shape={text_embeds.shape}, dtype={text_embeds.dtype}, device={text_embeds.device}, nans={text_embeds_nan_count}/{text_embeds.numel()}")
-        print("----------------------------")
-        
-        return outputs 

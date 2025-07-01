@@ -56,11 +56,6 @@ class SDXLPipeline:
             print(f"pooled_prompt_embeds: shape={pooled_prompt_embeds.shape}, dtype={pooled_prompt_embeds.dtype}, device={pooled_prompt_embeds.device}, has_nan={torch.isnan(pooled_prompt_embeds).any()}, has_inf={torch.isinf(pooled_prompt_embeds).any()}")
         print("------------------------")
 
-        #print("\n" + "="*40)
-        #print("--- RUNNING ORIGINAL COMPEL ---")
-        #print("="*40)
-        #_, _ = self.compel_original(prompt)
-
         # 2. Prepare latents
         latents = self._prepare_latents(height, width, seed)
 

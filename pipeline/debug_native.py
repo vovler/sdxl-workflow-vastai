@@ -17,16 +17,16 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
     "socks22/sdxl-wai-nsfw-illustriousv14", # Your base model
     torch_dtype=torch.float16,
     use_safetensors=True,
-).to(device)
-pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
-
+)
+pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
+pipe = pipe.to("cuda")
 # Set the exact same scheduler
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
     pipe.scheduler.config, use_karras_sigmas=False
 )
 
 # Prepare latents
-generator = torch.Generator(device=device).manual_seed(seed)
+generator=torch.Generator("cpu").manual_seed(0x7A35D)
 latents = pipe.prepare_latents(1, pipe.unet.config.in_channels, height, width, torch.float16, device, generator)
 
 # Run the pipeline, but intercept the call to the UNet

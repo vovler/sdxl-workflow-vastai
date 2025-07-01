@@ -28,6 +28,12 @@ class SDXLPipeline:
         num_inference_steps: int = 8,
         seed: int = 42,
     ):
+        print("\n" + "="*50)
+        print("--- Starting SDXL Pipeline ---")
+        print(f"Prompt: {prompt}")
+        print(f"Height: {height}, Width: {width}, Steps: {num_inference_steps}, Seed: {seed}")
+        print("="*50)
+
         # 1. Get text embeddings
         print("\n" + "="*40)
         print("--- RUNNING ONNX COMPEL ---")
@@ -61,13 +67,19 @@ class SDXLPipeline:
         # 3. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
         timesteps = self.scheduler.timesteps
+        print(f"\n--- Timesteps ({len(timesteps)}) ---")
+        print(timesteps)
+        print("--------------------")
 
         # 4. Prepare extra inputs for UNet
         time_ids = self._get_time_ids(height, width)
 
         # 5. Denoising loop
-        for t in timesteps:
+        print("\n--- Denoising Loop ---")
+        for i, t in enumerate(timesteps):
+            print(f"\n--- Step {i+1}/{len(timesteps)}, Timestep: {t} ---")
             latent_model_input = self.scheduler.scale_model_input(latents, t)
+            print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, has_nan={torch.isnan(latent_model_input).any()}, has_inf={torch.isinf(latent_model_input).any()}")
 
             noise_pred = self.unet(
                 latent_model_input,
@@ -76,21 +88,34 @@ class SDXLPipeline:
                 pooled_prompt_embeds,
                 time_ids,
             )
+            print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}, has_nan={torch.isnan(noise_pred).any()}, has_inf={torch.isinf(noise_pred).any()}")
             
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
+            print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}, has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
+        print("\n--- Denoising Loop End ---")
         
         # 6. Decode latents
-        image_np = self.vae_decoder(latents / self.vae_scaling_factor)
+        print("\n--- Decoding Latents ---")
+        latents_to_decode = latents / self.vae_scaling_factor
+        print(f"VAE scaling factor: {self.vae_scaling_factor}")
+        print(f"latents_to_decode: shape={latents_to_decode.shape}, dtype={latents_to_decode.dtype}, has_nan={torch.isnan(latents_to_decode).any()}, has_inf={torch.isinf(latents_to_decode).any()}")
+        image_np = self.vae_decoder(latents_to_decode)
+        print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 
         # 7. Post-process image
+        print("\n--- Post-processing Image ---")
         image = self._postprocess_image(image_np)
+        print("--- Post-processing Complete ---")
 
         # 8. Clear memory
         self._clear_memory()
+        print("\n--- Memory Cleared, Pipeline Finished ---")
 
         return image
 
     def _prepare_latents(self, height, width, seed):
+        print("\n--- Preparing Latents ---")
+        print(f"height={height}, width={width}, seed={seed}")
         generator = torch.Generator(device=self.device).manual_seed(seed)
         shape = (
             1,
@@ -98,12 +123,18 @@ class SDXLPipeline:
             height // 8,
             width // 8,
         )
+        print(f"latent shape: {shape}")
         latents = torch.randn(shape, generator=generator, device=self.device, dtype=torch.float16)
+        print(f"initial random latents: has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
+        print(f"scheduler.init_noise_sigma: {self.scheduler.init_noise_sigma}")
         latents = latents * self.scheduler.init_noise_sigma.to(self.device)
+        print(f"scaled latents: shape={latents.shape}, dtype={latents.dtype}, has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
+        print("-------------------------")
         return latents
 
     def _get_time_ids(self, height, width):
-        time_ids = [
+        print("\n--- Getting Time IDs ---")
+        time_ids_list = [
             height,
             width,
             0,
@@ -111,16 +142,28 @@ class SDXLPipeline:
             height,
             width,
         ]
-        return torch.tensor([time_ids], device=self.device, dtype=torch.float16)
+        time_ids = torch.tensor([time_ids_list], device=self.device, dtype=torch.float16)
+        print(f"time_ids: {time_ids}")
+        print(f"time_ids shape: {time_ids.shape}, dtype: {time_ids.dtype}")
+        print("------------------------")
+        return time_ids
 
     def _postprocess_image(self, image: torch.Tensor) -> Image.Image:
-        image = torch.nan_to_num(image)
+        print("--- In _postprocess_image ---")
+        print(f"input image tensor: shape={image.shape}, dtype={image.dtype}, has_nan={torch.isnan(image).any()}, has_inf={torch.isinf(image).any()}")
+        #image = torch.nan_to_num(image)
         image = (image / 2 + 0.5).clamp(0, 1)
+        print(f"image after scaling and clamping: shape={image.shape}, dtype={image.dtype}, has_nan={torch.isnan(image).any()}, has_inf={torch.isinf(image).any()}")
         image = image.permute(0, 2, 3, 1)
+        print(f"image after permute: shape={image.shape}, dtype={image.dtype}")
         image = (image * 255).round().to(torch.uint8)
-        return Image.fromarray(image.cpu().numpy()[0])
+        print(f"image after converting to uint8: shape={image.shape}, dtype={image.dtype}")
+        final_image = Image.fromarray(image.cpu().numpy()[0])
+        print("--- Exiting _postprocess_image ---")
+        return final_image
 
     def _clear_memory(self):
+        print("--- In _clear_memory ---")
         gc.collect()
 
 if __name__ == "__main__":
@@ -135,7 +178,7 @@ if __name__ == "__main__":
     #print("="*40)
     
     #scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
-    #    "socks22/sdxl-wai-nsfw-illustriousv14", subfolder="scheduler"
+    #    "socks22/sdxl-wai-nsfw-illustriousv14", subfolder="scheduler", use_karras_sigmas=False
     #)
     
     #native_pipeline = StableDiffusionXLPipeline.from_pretrained(

@@ -1,4 +1,4 @@
-from diffusers import EulerAncestralDiscreteScheduler, AutoencoderTiny
+from diffusers import EulerAncestralDiscreteScheduler, AutoencoderTiny, VaeImageProcessor
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 import torch
 
@@ -41,6 +41,8 @@ def load_pipeline_components():
     # vae_scaling_factor = vae_config["scaling_factor"]
     
     vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
+    
+    image_processor = VaeImageProcessor(vae_scale_factor=vae.config.scaling_factor)
 
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
@@ -55,6 +57,7 @@ def load_pipeline_components():
         "text_encoder_g": onnx_text_encoder_2,
         # "vae_decoder": vae_decoder,
         "vae": vae,
+        "image_processor": image_processor,
         "unet": unet,
         "scheduler": scheduler,
         # "vae_scaling_factor": vae_scaling_factor,

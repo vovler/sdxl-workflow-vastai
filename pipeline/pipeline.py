@@ -133,15 +133,25 @@ class SDXLPipeline:
         return image
 
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
+        print("\n--- In prepare_latents ---")
+        print(f"batch_size: {batch_size}")
+        print(f"num_channels_latents: {num_channels_latents}")
+        print(f"height: {height}")
+        print(f"width: {width}")
+        print(f"dtype: {dtype}")
+        print(f"device: {device}")
+        print(f"generator: {generator}")
+        print(f"latents (input): {latents}")
+        
         shape = (
             batch_size,
             num_channels_latents,
             int(height) // self.vae_scale_factor,
             int(width) // self.vae_scale_factor,
         )
-        print(f"num_channels_latents in PREPARE_LATENTS: {num_channels_latents}")
-        print(f"vae_scale_factor in PREPARE_LATENTS: {self.vae_scale_factor}")
-        print(f"dtype in PREPARE_LATENTS: {dtype}")
+        print(f"Calculated shape: {shape}")
+        print(f"self.vae_scale_factor: {self.vae_scale_factor}")
+
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
@@ -149,12 +159,23 @@ class SDXLPipeline:
             )
 
         if latents is None:
+            print("latents is None, creating new latents with torch.randn")
             latents = torch.randn(*shape, generator=generator, device=device, dtype=dtype)
         else:
+            print("latents is not None, moving to device")
             latents = latents.to(device)
 
+        print(f"Latents before scaling: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
+        print(f"Latents before scaling | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
+
         # scale the initial noise by the standard deviation required by the scheduler
+        print(f"self.scheduler.init_noise_sigma: {self.scheduler.init_noise_sigma}")
         latents = latents * self.scheduler.init_noise_sigma
+        
+        print(f"Latents after scaling: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
+        print(f"Latents after scaling | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
+        print("--- Exiting prepare_latents ---")
+        
         return latents
 
     def _get_add_time_ids(self, original_size, crops_coords_top_left, target_size, dtype):

@@ -48,7 +48,7 @@ def load_pipeline_components():
 
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
-        defaults.DEFAULT_BASE_MODEL, subfolder="scheduler", use_karras_sigmas=False
+        defaults.DEFAULT_BASE_MODEL, subfolder="scheduler"
     )
 
     return {

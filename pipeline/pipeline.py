@@ -41,7 +41,15 @@ class SDXLPipeline:
         for t in timesteps:
             latent_model_input = self.scheduler.scale_model_input(torch.from_numpy(latents).to("cuda"), t)
 
-            timestep_numpy = np.array(t.item()).astype(np.float16)
+            timestep_numpy = np.array(t.item(), dtype=np.float16)
+
+            print("--- Sending to UNet ---")
+            print(f"latent_model_input: {latent_model_input.cpu().numpy().shape}, {latent_model_input.cpu().numpy().dtype}")
+            print(f"timestep_numpy: {timestep_numpy.shape}, {timestep_numpy.dtype}")
+            print(f"prompt_embeds_np: {prompt_embeds_np.shape}, {prompt_embeds_np.dtype}")
+            print(f"pooled_prompt_embeds_np: {pooled_prompt_embeds_np.shape}, {pooled_prompt_embeds_np.dtype}")
+            print(f"time_ids: {time_ids.shape}, {time_ids.dtype}")
+            print("-----------------------")
 
             noise_pred_np = self.unet(
                 latent_model_input.cpu().numpy(),

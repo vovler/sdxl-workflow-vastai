@@ -21,8 +21,8 @@ def load_pipeline_components():
         defaults.DEFAULT_BASE_MODEL, subfolder="tokenizer_2"
     )
 
-    text_encoder_1 = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_1_PATH, device)
-    text_encoder_2 = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_2_PATH, device)
+    text_encoder_1 = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_1_PATH, device, name="CLIP-L")
+    text_encoder_2 = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_2_PATH, device, name="CLIP-G")
 
     compel_instance = Compel(
         tokenizer=[tokenizer_1, tokenizer_2],

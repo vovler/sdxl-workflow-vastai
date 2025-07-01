@@ -96,8 +96,9 @@ class UNet(ONNXModel):
 
 
 class CLIPTextEncoder(ONNXModel):
-    def __init__(self, model_path: str, device: torch.device):
+    def __init__(self, model_path: str, device: torch.device, name: str = "CLIPTextEncoder"):
         super().__init__(model_path, device)
+        self.name = name
         self.hidden_size = None
         self.pooler_dim = None
         for output in self.session.get_outputs():
@@ -118,7 +119,7 @@ class CLIPTextEncoder(ONNXModel):
 
         input_ids = input_ids.to(torch.int64)
 
-        print("--- CLIPTextEncoder Input ---")
+        print(f"--- {self.name} Input ---")
         print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}, has_nan={torch.isnan(input_ids.float()).any()}, has_inf={torch.isinf(input_ids.float()).any()}")
         print("---------------------------")
 
@@ -138,6 +139,12 @@ class CLIPTextEncoder(ONNXModel):
             self.bind_output(pooler_output_name, pooler_output)
 
         self.session.run_with_iobinding(self.io_binding)
+
+        print(f"--- {self.name} Output ---")
+        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, has_nan={torch.isnan(last_hidden_state).any()}, has_inf={torch.isinf(last_hidden_state).any()}")
+        if pooler_output is not None:
+            print(f"pooler_output: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, has_nan={torch.isnan(pooler_output).any()}, has_inf={torch.isinf(pooler_output).any()}")
+        print("----------------------------")
 
         hidden_states = None
         if output_hidden_states:

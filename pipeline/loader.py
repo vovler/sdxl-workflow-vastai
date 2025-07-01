@@ -44,7 +44,7 @@ def load_pipeline_components():
     #vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
     
     #vae_scale_factor = 2 ** (len(vae.config.decoder_block_out_channels) - 1)
-    image_processor = VaeImageProcessor(vae_scaling_factor)
+    image_processor = VaeImageProcessor(8)
 
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(

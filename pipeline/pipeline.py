@@ -129,7 +129,8 @@ class SDXLPipeline:
         latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
         print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
         
-        image_np = self.vae.decode(latents_to_decode, return_dict=False)[0]
+        #image_np = self.vae.decode(latents_to_decode, return_dict=False)[0]
+        image_np = self.vae_decoder(latents_to_decode)[0]
         
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 

@@ -107,11 +107,12 @@ class CLIPTextEncoder(ONNXModel):
     def __init__(self, model_path: str, device: torch.device, name: str = "CLIPTextEncoder"):
         super().__init__(model_path, device)
         self.name = name
+        self.is_clip_g = "text_encoder_2" in model_path
         self.hidden_size = None
         self.pooler_dim = None
 
         self.last_hidden_state_name = "last_hidden_state"
-        if "text_encoder_2" in model_path: # CLIP-G
+        if self.is_clip_g: # CLIP-G
             self.pooler_output_name = "text_embeds"
         else: # CLIP-L
             self.last_hidden_state_name = "hidden_states.11"
@@ -157,7 +158,7 @@ class CLIPTextEncoder(ONNXModel):
         
         pooler_output = None
         # For CLIP-L, the pooler output is not used, so we don't need to bind it.
-        if self.pooler_dim is not None and "text_encoder_2" in self.session.get_outputs()[0].name:
+        if self.pooler_dim is not None and self.is_clip_g:
             pooler_output_shape = (batch_size, self.pooler_dim)
             print(f"pooler_output_shape: {pooler_output_shape}")
             pooler_output = torch.empty(pooler_output_shape, dtype=torch.float16, device=self.device)

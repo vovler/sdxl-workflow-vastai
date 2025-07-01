@@ -22,7 +22,7 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
 pipe = pipe.to("cuda")
 # Set the exact same scheduler
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
-    pipe.scheduler.config, use_karras_sigmas=False
+    pipe.scheduler.config
 )
 
 # Prepare latents

@@ -66,12 +66,13 @@ class SDXLPipeline:
         print("------------------------")
 
         # 2. Prepare latents
-        generator = torch.Generator(device=self.device).manual_seed(seed)
+        generator = torch.Generator(device="cpu").manual_seed(seed)
         num_channels_latents = self.unet.session.get_inputs()[0].shape[1]
         latents = self.prepare_latents(
-            1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.device, generator
+            1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, "cpu", generator
         )
 
+        latents = latents.to(self.device)
         # 3. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
         timesteps = self.scheduler.timesteps
@@ -138,6 +139,9 @@ class SDXLPipeline:
             int(height) // self.vae_scale_factor,
             int(width) // self.vae_scale_factor,
         )
+        print(f"num_channels_latents in PREPARE_LATENTS: {num_channels_latents}")
+        print(f"vae_scale_factor in PREPARE_LATENTS: {self.vae_scale_factor}")
+        print(f"dtype in PREPARE_LATENTS: {dtype}")
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(
                 f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"

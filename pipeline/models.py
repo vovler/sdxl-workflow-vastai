@@ -154,7 +154,7 @@ class CLIPTextEncoder(ONNXModel):
 
         self.session.run_with_iobinding(self.io_binding)
 
-        print(f"--- {self.name} Output ---")
+        print(f"--- {self.name} ONNX Output ---")
         
         last_hidden_state_nan_count = torch.isnan(last_hidden_state).sum()
         pooler_output_nan_count = torch.isnan(pooler_output).sum() if pooler_output is not None else 0

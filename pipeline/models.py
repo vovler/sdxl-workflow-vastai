@@ -17,11 +17,12 @@ class ONNXModel:
     def __init__(self, model_path: str, device: torch.device):
         self.device = device
         print(f"\\n--- Creating InferenceSession for: {os.path.basename(model_path)} ---")
-        so = ort.SessionOptions()
-        so.log_severity_level = 1
+        #so = ort.SessionOptions()
+        #so.log_severity_level = 1
         provider_options = [{"device_id": self.device.index}]
+        #provider_options
         self.session = ort.InferenceSession(
-            model_path, sess_options=so, providers=[("CUDAExecutionProvider", provider_options)]
+            model_path, sess_options=so, providers=[("CUDAExecutionProvider")]
         )
         self.io_binding = self.session.io_binding()
         self.input_names = [i.name for i in self.session.get_inputs()]

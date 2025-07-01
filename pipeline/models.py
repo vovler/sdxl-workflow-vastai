@@ -141,9 +141,13 @@ class CLIPTextEncoder(ONNXModel):
         self.session.run_with_iobinding(self.io_binding)
 
         print(f"--- {self.name} Output ---")
-        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, has_nan={torch.isnan(last_hidden_state).any()}, has_inf={torch.isinf(last_hidden_state).any()}")
+        
+        last_hidden_state_nan_count = torch.isnan(last_hidden_state).sum()
+        pooler_output_nan_count = torch.isnan(pooler_output).sum() if pooler_output is not None else 0
+        
+        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
         if pooler_output is not None:
-            print(f"pooler_output: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, has_nan={torch.isnan(pooler_output).any()}, has_inf={torch.isinf(pooler_output).any()}")
+            print(f"pooler_output: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, nans={pooler_output_nan_count}/{pooler_output.numel()}")
         print("----------------------------")
 
         hidden_states = None

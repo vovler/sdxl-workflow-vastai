@@ -26,7 +26,7 @@ class SDXLPipeline:
         print("="*68 + "\n")
 
         self.image_processor = self.components["image_processor"]
-        self.vae_scale_factor = self.components["vae_scale_factor"]
+        self.vae_scale_factor = self.components["vae_scaling_factor"]
 
     def __call__(
         self,

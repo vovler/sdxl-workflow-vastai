@@ -61,7 +61,8 @@ class VAEDecoder(ONNXModel):
         self.io_binding.clear_binding_outputs()
         
         print("--- VAEDecoder Input ---")
-        print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}, has_nan={torch.isnan(latent).any()}, has_inf={torch.isinf(latent).any()}")
+        print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}")
+        print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
         print("------------------------")
 
         self.bind_input("latent_sample", latent)
@@ -89,11 +90,15 @@ class UNet(ONNXModel):
         time_ids = time_ids.to(torch.float16)
 
         print("--- UNet Inputs ---")
-        print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}, has_nan={torch.isnan(latent).any()}, has_inf={torch.isinf(latent).any()}")
-        print(f"timestep: shape={timestep.shape}, dtype={timestep.dtype}, device={timestep.device}, has_nan={torch.isnan(timestep).any()}, has_inf={torch.isinf(timestep).any()}")
-        print(f"text_embedding: shape={text_embedding.shape}, dtype={text_embedding.dtype}, device={text_embedding.device}, has_nan={torch.isnan(text_embedding).any()}, has_inf={torch.isinf(text_embedding).any()}")
-        print(f"text_embeds: shape={text_embeds.shape}, dtype={text_embeds.dtype}, device={text_embeds.device}, has_nan={torch.isnan(text_embeds).any()}, has_inf={torch.isinf(text_embeds).any()}")
-        print(f"time_ids: shape={time_ids.shape}, dtype={time_ids.dtype}, device={time_ids.device}, has_nan={torch.isnan(time_ids).any()}, has_inf={torch.isinf(time_ids).any()}")
+        print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}")
+        print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
+        print(f"timestep: shape={timestep.shape}, dtype={timestep.dtype}, device={timestep.device}, value: {timestep.item()}")
+        print(f"text_embedding: shape={text_embedding.shape}, dtype={text_embedding.dtype}, device={text_embedding.device}")
+        print(f"text_embedding | Mean: {text_embedding.mean():.6f} | Std: {text_embedding.std():.6f} | Sum: {text_embedding.sum():.6f}")
+        print(f"text_embeds: shape={text_embeds.shape}, dtype={text_embeds.dtype}, device={text_embeds.device}")
+        print(f"text_embeds | Mean: {text_embeds.mean():.6f} | Std: {text_embeds.std():.6f} | Sum: {text_embeds.sum():.6f}")
+        print(f"time_ids: shape={time_ids.shape}, dtype={time_ids.dtype}, device={time_ids.device}")
+        print(f"time_ids | Mean: {time_ids.mean():.6f} | Std: {time_ids.std():.6f} | Sum: {time_ids.sum():.6f}")
         print("--------------------")
 
         self.bind_input("sample", latent)
@@ -179,8 +184,10 @@ class CLIPTextEncoder(ONNXModel):
         pooler_output_nan_count = torch.isnan(pooler_output).sum() if pooler_output is not None else 0
         
         print(f"{self.last_hidden_state_name}: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
+        print(f"{self.last_hidden_state_name} | Mean: {last_hidden_state.mean():.6f} | Std: {last_hidden_state.std():.6f} | Sum: {last_hidden_state.sum():.6f}")
         if pooler_output is not None:
             print(f"{self.pooler_output_name}: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, nans={pooler_output_nan_count}/{pooler_output.numel()}")
+            print(f"{self.pooler_output_name} | Mean: {pooler_output.mean():.6f} | Std: {pooler_output.std():.6f} | Sum: {pooler_output.sum():.6f}")
         print("----------------------------")
 
         hidden_states = None

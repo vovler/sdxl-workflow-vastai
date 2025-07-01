@@ -56,9 +56,11 @@ class SDXLPipeline:
         prompt_embeds = torch.cat([hidden_states_l, hidden_states_g], dim=-1)
 
         print("--- Final Embeddings ---")
-        print(f"prompt_embeds: shape={prompt_embeds.shape}, dtype={prompt_embeds.dtype}, device={prompt_embeds.device}, has_nan={torch.isnan(prompt_embeds).any()}, has_inf={torch.isinf(prompt_embeds).any()}")
+        print(f"prompt_embeds: shape={prompt_embeds.shape}, dtype={prompt_embeds.dtype}, device={prompt_embeds.device}")
+        print(f"prompt_embeds | Mean: {prompt_embeds.mean():.6f} | Std: {prompt_embeds.std():.6f} | Sum: {prompt_embeds.sum():.6f}")
         if pooled_prompt_embeds is not None:
-            print(f"pooled_prompt_embeds: shape={pooled_prompt_embeds.shape}, dtype={pooled_prompt_embeds.dtype}, device={pooled_prompt_embeds.device}, has_nan={torch.isnan(pooled_prompt_embeds).any()}, has_inf={torch.isinf(pooled_prompt_embeds).any()}")
+            print(f"pooled_prompt_embeds: shape={pooled_prompt_embeds.shape}, dtype={pooled_prompt_embeds.dtype}, device={pooled_prompt_embeds.device}")
+            print(f"pooled_prompt_embeds | Mean: {pooled_prompt_embeds.mean():.6f} | Std: {pooled_prompt_embeds.std():.6f} | Sum: {pooled_prompt_embeds.sum():.6f}")
         print("------------------------")
 
         # 2. Prepare latents
@@ -79,7 +81,8 @@ class SDXLPipeline:
         for i, t in enumerate(timesteps):
             print(f"\n--- Step {i+1}/{len(timesteps)}, Timestep: {t} ---")
             latent_model_input = self.scheduler.scale_model_input(latents, t)
-            print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, has_nan={torch.isnan(latent_model_input).any()}, has_inf={torch.isinf(latent_model_input).any()}")
+            print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}")
+            print(f"latent_model_input | Mean: {latent_model_input.mean():.6f} | Std: {latent_model_input.std():.6f} | Sum: {latent_model_input.sum():.6f}")
 
             noise_pred = self.unet(
                 latent_model_input,
@@ -88,10 +91,12 @@ class SDXLPipeline:
                 pooled_prompt_embeds,
                 time_ids,
             )
-            print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}, has_nan={torch.isnan(noise_pred).any()}, has_inf={torch.isinf(noise_pred).any()}")
+            print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
+            print(f"noise_pred | Mean: {noise_pred.mean():.6f} | Std: {noise_pred.std():.6f} | Sum: {noise_pred.sum():.6f}")
             
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
-            print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}, has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
+            print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}")
+            print(f"latents after step | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
         print("\n--- Denoising Loop End ---")
         
         # 6. Decode latents
@@ -128,9 +133,11 @@ class SDXLPipeline:
         print(f"latent shape: {shape}")
         latents = torch.randn(shape, generator=generator, device=self.device, dtype=torch.float16)
         print(f"initial random latents: has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
+        print(f"initial random latents | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
         print(f"scheduler.init_noise_sigma: {self.scheduler.init_noise_sigma}")
         latents = latents * self.scheduler.init_noise_sigma.to(self.device)
         print(f"scaled latents: shape={latents.shape}, dtype={latents.dtype}, has_nan={torch.isnan(latents).any()}, has_inf={torch.isinf(latents).any()}")
+        print(f"scaled latents | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
         print("-------------------------")
         return latents
 
@@ -147,6 +154,7 @@ class SDXLPipeline:
         time_ids = torch.tensor([time_ids_list], device=self.device, dtype=torch.float16)
         print(f"time_ids: {time_ids}")
         print(f"time_ids shape: {time_ids.shape}, dtype: {time_ids.dtype}")
+        print(f"time_ids | Mean: {time_ids.mean():.6f} | Std: {time_ids.std():.6f} | Sum: {time_ids.sum():.6f}")
         print("------------------------")
         return time_ids
 

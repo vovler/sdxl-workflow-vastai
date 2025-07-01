@@ -16,12 +16,12 @@ class ONNXCLIPTextOutput:
 class ONNXModel:
     def __init__(self, model_path: str, device: torch.device):
         self.device = device
-        print(f"\\n--- Creating InferenceSession for: {os.path.basename(model_path)} ---")
+        subfolder = os.path.basename(os.path.dirname(model_path))
+        filename = os.path.basename(model_path)
+        print(f"\\n--- Creating InferenceSession for: {subfolder}/{filename} ---")
         #so = ort.SessionOptions()
         #so.log_severity_level = 1
         provider_options = [{"device_id": self.device.index}]
-        #provider_options
-        #sess_options=so,
         self.session = ort.InferenceSession(
             model_path, providers=[("CUDAExecutionProvider")]
         )

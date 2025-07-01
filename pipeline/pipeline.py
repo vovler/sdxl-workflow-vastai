@@ -4,6 +4,7 @@ import torch
 from PIL import Image
 
 import loader
+from diffusers import StableDiffusionXLPipeline
 
 class SDXLPipeline:
     def __init__(self):

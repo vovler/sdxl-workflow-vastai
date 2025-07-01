@@ -13,53 +13,82 @@ class ONNXCLIPTextOutput:
     text_embeds: Optional[torch.Tensor] = None
 
 class ONNXModel:
-    def __init__(self, model_path: str):
-        so = ort.SessionOptions()
-        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    def __init__(self, model_path: str, device: torch.device):
+        self.device = device
+        provider_options = [{"device_id": self.device.index}]
         self.session = ort.InferenceSession(
-            model_path, providers=["CUDAExecutionProvider"], sess_options=so
+            model_path, providers=[("CUDAExecutionProvider", provider_options)]
+        )
+        self.io_binding = self.session.io_binding()
+        self.input_names = [i.name for i in self.session.get_inputs()]
+        self.output_names = [o.name for o in self.session.get_outputs()]
+
+    def bind_input(self, name: str, tensor: torch.Tensor):
+        tensor = tensor.contiguous()
+        self.io_binding.bind_input(
+            name=name,
+            device_type='cuda',
+            device_id=self.device.index,
+            element_type=np.float16 if tensor.dtype == torch.float16 else np.float32 if tensor.dtype == torch.float32 else np.int64,
+            shape=tensor.shape,
+            buffer_ptr=tensor.data_ptr(),
         )
 
-    def __call__(self, **kwargs):
-        inputs = {}
-        for input_meta, value in zip(self.session.get_inputs(), kwargs.values()):
-            if isinstance(value, np.ndarray) and value.ndim == 0:
-                inputs[input_meta.name] = value
-            else:
-                inputs[input_meta.name] = np.ascontiguousarray(value)
-
-        return self.session.run(None, inputs)
-
+    def bind_output(self, name: str, tensor: torch.Tensor):
+        tensor = tensor.contiguous()
+        self.io_binding.bind_output(
+            name=name,
+            device_type='cuda',
+            device_id=self.device.index,
+            element_type=np.float16 if tensor.dtype == torch.float16 else np.float32 if tensor.dtype == torch.float32 else np.int64,
+            shape=tensor.shape,
+            buffer_ptr=tensor.data_ptr(),
+        )
 
 class VAEDecoder(ONNXModel):
-    def __init__(self, model_path: str):
-        super().__init__(model_path)
+    def __init__(self, model_path: str, device: torch.device):
+        super().__init__(model_path, device)
 
-    def __call__(self, latent: np.ndarray) -> np.ndarray:
-        return super().__call__(latent_sample=latent.astype(np.float16))[0]
+    def __call__(self, latent: torch.Tensor) -> torch.Tensor:
+        self.io_binding.clear_binding_inputs()
+        self.io_binding.clear_binding_outputs()
+        
+        self.bind_input("latent_sample", latent)
+        
+        output_shape = (latent.shape[0], 3, latent.shape[2] * 8, latent.shape[3] * 8)
+        output_tensor = torch.empty(output_shape, dtype=latent.dtype, device=self.device)
+        self.bind_output("sample", output_tensor)
+        
+        self.session.run_with_iobinding(self.io_binding)
+        return output_tensor
 
 
 class UNet(ONNXModel):
-    def __init__(self, model_path: str):
-        super().__init__(model_path)
+    def __init__(self, model_path: str, device: torch.device):
+        super().__init__(model_path, device)
 
-    def __call__(self, latent: np.ndarray, timestep: np.ndarray, text_embedding: np.ndarray, text_embeds: np.ndarray, time_ids: np.ndarray) -> np.ndarray:
-        return super().__call__(
-            sample=latent.astype(np.float16),
-            timestep=timestep,
-            encoder_hidden_states=text_embedding.astype(np.float16),
-            text_embeds=text_embeds.astype(np.float16),
-            time_ids=time_ids.astype(np.float16),
-        )[0]
+    def __call__(self, latent: torch.Tensor, timestep: torch.Tensor, text_embedding: torch.Tensor, text_embeds: torch.Tensor, time_ids: torch.Tensor) -> torch.Tensor:
+        self.io_binding.clear_binding_inputs()
+        self.io_binding.clear_binding_outputs()
+
+        self.bind_input("sample", latent)
+        self.bind_input("timestep", timestep)
+        self.bind_input("encoder_hidden_states", text_embedding)
+        self.bind_input("text_embeds", text_embeds)
+        self.bind_input("time_ids", time_ids)
+
+        output_tensor = torch.empty(latent.shape, dtype=latent.dtype, device=self.device)
+        self.bind_output("out_sample", output_tensor)
+        
+        self.session.run_with_iobinding(self.io_binding)
+        return output_tensor
 
 
-class CLIPTextEncoder:
-    def __init__(self, model_path: str, device: str = "cuda"):
-        #so = ort.SessionOptions()
-        #so.log_severity_level = 0
-        self.session = ort.InferenceSession(model_path, providers=["CUDAExecutionProvider"])
-        self.device = torch.device(device)
-        self.output_names = [o.name for o in self.session.get_outputs()]
+class CLIPTextEncoder(ONNXModel):
+    def __init__(self, model_path: str, device: torch.device):
+        super().__init__(model_path, device)
+        self.hidden_size = self.session.get_outputs()[0].shape[2]
+        self.pooler_dim = self.session.get_outputs()[1].shape[1]
 
     def __call__(
         self,
@@ -68,28 +97,32 @@ class CLIPTextEncoder:
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
-        input_feed = {"input_ids": input_ids.cpu().numpy().astype(np.int64)}
-        
-        outputs = self.session.run(self.output_names, input_feed)
-        outputs_map = dict(zip(self.output_names, outputs))
+        self.io_binding.clear_binding_inputs()
+        self.io_binding.clear_binding_outputs()
 
-        last_hidden_state = torch.from_numpy(outputs_map['last_hidden_state']).to(self.device)
+        self.bind_input("input_ids", input_ids)
+
+        # Prepare output tensors
+        batch_size, seq_len = input_ids.shape
+        last_hidden_state_shape = (batch_size, seq_len, self.hidden_size)
+        last_hidden_state = torch.empty(last_hidden_state_shape, dtype=torch.float16, device=self.device)
+        self.bind_output("last_hidden_state", last_hidden_state)
         
         pooler_output = None
-        if "pooler_output" in outputs_map and outputs_map['pooler_output'] is not None:
-            pooler_output = torch.from_numpy(outputs_map['pooler_output']).to(self.device)
-        elif "text_embeds" in outputs_map and outputs_map['text_embeds'] is not None:
-            pooler_output = torch.from_numpy(outputs_map['text_embeds']).to(self.device)
+        pooler_output_name = "text_embeds" if "text_embeds" in self.output_names else "pooler_output"
+        pooler_output_shape = (batch_size, self.pooler_dim)
+        pooler_output = torch.empty(pooler_output_shape, dtype=torch.float16, device=self.device)
+        self.bind_output(pooler_output_name, pooler_output)
+
+        self.session.run_with_iobinding(self.io_binding)
 
         hidden_states = None
         if output_hidden_states:
-            # Creating a mock hidden_states tuple for clip-skip compatibility.
-            # It contains the last_hidden_state twice to simulate penultimate and last layers.
             hidden_states = (last_hidden_state, last_hidden_state)
 
         return ONNXCLIPTextOutput(
             last_hidden_state=last_hidden_state,
             pooler_output=pooler_output,
             hidden_states=hidden_states,
-            text_embeds=pooler_output, # For SDXL, compel looks for text_embeds
+            text_embeds=pooler_output,
         ) 

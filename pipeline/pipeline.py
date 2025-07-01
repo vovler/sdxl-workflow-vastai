@@ -7,12 +7,14 @@ import loader
 
 class SDXLPipeline:
     def __init__(self):
+        self.device = "cuda"
         self.components = loader.load_pipeline_components()
         self.compel = self.components["compel"]
         self.vae_decoder = self.components["vae_decoder"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
         self.vae_scaling_factor = self.components["vae_scaling_factor"]
+        self.scheduler.init_noise_sigma = self.scheduler.init_noise_sigma.to(self.device)
 
     def __call__(
         self,
@@ -24,45 +26,38 @@ class SDXLPipeline:
     ):
         # 1. Get text embeddings
         prompt_embeds, pooled_prompt_embeds = self.compel(prompt)
+        prompt_embeds = prompt_embeds.to(dtype=torch.float16)
+        pooled_prompt_embeds = pooled_prompt_embeds.to(dtype=torch.float16)
 
         # 2. Prepare latents
         latents = self._prepare_latents(height, width, seed)
 
         # 3. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps)
+        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
         timesteps = self.scheduler.timesteps
 
         # 4. Prepare extra inputs for UNet
         time_ids = self._get_time_ids(height, width)
 
         # 5. Denoising loop
-        prompt_embeds_np = prompt_embeds.cpu().numpy()
-        pooled_prompt_embeds_np = pooled_prompt_embeds.cpu().numpy()
-
         for t in timesteps:
-            latent_model_input = self.scheduler.scale_model_input(torch.from_numpy(latents).to("cuda"), t)
+            latent_model_input = self.scheduler.scale_model_input(latents, t)
 
-            timestep_numpy = np.array(t.item(), dtype=np.float16)
-
-            noise_pred_np = self.unet(
-                latent_model_input.cpu().numpy(),
-                timestep_numpy,
-                prompt_embeds_np,
-                pooled_prompt_embeds_np,
+            noise_pred = self.unet(
+                latent_model_input,
+                t,
+                prompt_embeds,
+                pooled_prompt_embeds,
                 time_ids,
             )
             
-            noise_pred_torch = torch.from_numpy(noise_pred_np).to("cuda")
-            latents_torch = self.scheduler.step(noise_pred_torch, t, torch.from_numpy(latents).to("cuda")).prev_sample
-            latents = latents_torch.cpu().numpy()
+            latents = self.scheduler.step(noise_pred, t, latents).prev_sample
         
         # 6. Decode latents
-        image = self.vae_decoder(latents / self.vae_scaling_factor)
-
-        print(f"Image before post-processing: shape={image.shape}, dtype={image.dtype}, has_nan={np.isnan(image).any()}, has_inf={np.isinf(image).any()}")
+        image_np = self.vae_decoder(latents / self.vae_scaling_factor)
 
         # 7. Post-process image
-        image = self._postprocess_image(image)
+        image = self._postprocess_image(image_np)
 
         # 8. Clear memory
         self._clear_memory()
@@ -70,16 +65,16 @@ class SDXLPipeline:
         return image
 
     def _prepare_latents(self, height, width, seed):
-        generator = torch.manual_seed(seed)
+        generator = torch.Generator(device=self.device).manual_seed(seed)
         shape = (
             1,
             4,
             height // 8,
             width // 8,
         )
-        latents = torch.randn(shape, generator=generator, dtype=torch.float32).cpu().numpy()
-        latents = latents * self.scheduler.init_noise_sigma.cpu().numpy()
-        return latents.astype(np.float16)
+        latents = torch.randn(shape, generator=generator, device=self.device, dtype=torch.float16)
+        latents = latents * self.scheduler.init_noise_sigma
+        return latents
 
     def _get_time_ids(self, height, width):
         time_ids = [
@@ -90,16 +85,14 @@ class SDXLPipeline:
             height,
             width,
         ]
-        time_ids = np.array([time_ids], dtype=np.float16)
-        return time_ids
+        return torch.tensor([time_ids], device=self.device, dtype=torch.float16)
 
-    def _postprocess_image(self, image: np.ndarray) -> Image.Image:
-        print(f"Image inside post-processing (start): shape={image.shape}, dtype={image.dtype}, has_nan={np.isnan(image).any()}, has_inf={np.isinf(image).any()}")
-        image = np.nan_to_num(image)
-        image = (image / 2 + 0.5).clip(0, 1)
-        image = image.transpose((0, 2, 3, 1))
-        image = (image * 255).round().astype("uint8")
-        return Image.fromarray(image[0])
+    def _postprocess_image(self, image: torch.Tensor) -> Image.Image:
+        image = torch.nan_to_num(image)
+        image = (image / 2 + 0.5).clamp(0, 1)
+        image = image.permute(0, 2, 3, 1)
+        image = (image * 255).round().to(torch.uint8)
+        return Image.fromarray(image.cpu().numpy()[0])
 
     def _clear_memory(self):
         gc.collect()

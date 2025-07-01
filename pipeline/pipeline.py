@@ -16,7 +16,7 @@ class SDXLPipeline:
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
         self.vae_decoder = self.components["vae_decoder"]
-        self.vae = self.components["vae"]
+        #self.vae = self.components["vae"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
 
@@ -126,8 +126,9 @@ class SDXLPipeline:
         print("\n--- Decoding Latents ---")
         
         # Un-scale and un-shift latents for TinyVAE before decoding
-        latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
-        print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
+        #latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
+        #print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
+        latents_to_decode = latents / self.vae_scale_factor
         
         #image_np = self.vae.decode(latents_to_decode, return_dict=False)[0]
         image_np = self.vae_decoder(latents_to_decode)[0]

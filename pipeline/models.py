@@ -179,13 +179,27 @@ class DebugCLIPTextModel(CLIPTextModel):
         super().__init__(config)
         self.name = "CLIP-L Original"
 
-    def forward(self, input_ids: torch.Tensor, **kwargs):
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+    ):
         print(f"--- {self.name} Input ---")
-        print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
-        print(f"tokens: {input_ids.flatten().tolist()}")
+        if input_ids is not None:
+            print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
+            print(f"tokens: {input_ids.flatten().tolist()}")
         print("---------------------------")
 
-        outputs = super().forward(input_ids=input_ids, **kwargs)
+        outputs = super().forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+        )
 
         print(f"--- {self.name} Output ---")
         last_hidden_state = outputs.last_hidden_state
@@ -203,13 +217,27 @@ class DebugCLIPTextModelWithProjection(CLIPTextModelWithProjection):
         super().__init__(config)
         self.name = "CLIP-G Original"
 
-    def forward(self, input_ids: torch.Tensor, **kwargs):
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+    ):
         print(f"--- {self.name} Input ---")
-        print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
-        print(f"tokens: {input_ids.flatten().tolist()}")
+        if input_ids is not None:
+            print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
+            print(f"tokens: {input_ids.flatten().tolist()}")
         print("---------------------------")
 
-        outputs = super().forward(input_ids=input_ids, **kwargs)
+        outputs = super().forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+        )
 
         print(f"--- {self.name} Output ---")
         last_hidden_state = outputs.last_hidden_state

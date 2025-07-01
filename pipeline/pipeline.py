@@ -19,6 +19,12 @@ class SDXLPipeline:
         self.vae = self.components["vae"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
+
+        print("\n" + "="*20 + " PIPELINE SCHEDULER CONFIG " + "="*20)
+        for key, value in self.scheduler.config.items():
+            print(f"{key}: {value}")
+        print("="*68 + "\n")
+
         self.image_processor = self.components["image_processor"]
         self.vae_scale_factor = self.components["vae_scale_factor"]
 

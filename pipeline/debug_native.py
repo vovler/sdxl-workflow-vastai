@@ -10,7 +10,7 @@ num_inference_steps = 8
 seed = 42
 guidance_scale = 1.0 # This is the key to matching your CFG-less setup
 
-device = "cuda"
+device = "cuda:0"
 
 # Load native pipeline
 pipe = StableDiffusionXLPipeline.from_pretrained(
@@ -74,24 +74,25 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
     print(f"NOISE_PRED (final) | Mean: {final_noise_pred.mean():.6f} | Std: {final_noise_pred.std():.6f} | Sum: {final_noise_pred.sum():.6f}")
     print("="*68 + "\n")
     
-    # We only need to run one step, so we can raise an exception to stop the pipeline
-    raise ValueError("Stopping after one step for debugging.")
+    return noise_pred_output
 
 # Patch the UNet
 pipe.unet.forward = new_unet_forward
 
-try:
-    # Run the pipeline. It will stop after the first UNet call.
-    _ = pipe(
-        prompt=prompt,
-        height=height,
-        width=width,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
-        generator=generator,
-        latents=latents,
-    )
-except ValueError as e:
-    print(str(e))
+# Run the pipeline.
+images = pipe(
+    prompt=prompt,
+    height=height,
+    width=width,
+    num_inference_steps=num_inference_steps,
+    guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
+    generator=generator,
+    latents=latents,
+).images
+
+# Restore original unet forward
+pipe.unet.forward = original_unet_forward
+
+images[0].save("debug_native_output.png")
 
 print("Native debug script finished.") 

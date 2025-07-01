@@ -127,8 +127,9 @@ class CLIPTextEncoder(ONNXModel):
 
         input_ids = input_ids.to(torch.int64)
 
-        print(f"--- {self.name} Input ---")
-        print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}, has_nan={torch.isnan(input_ids.float()).any()}, has_inf={torch.isinf(input_ids.float()).any()}")
+        print(f"--- {self.name} ONNX Input ---")
+        print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
+        print(f"tokens: {input_ids.flatten().tolist()}")
         print("---------------------------")
 
         self.bind_input("input_ids", input_ids)

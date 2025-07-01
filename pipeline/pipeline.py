@@ -172,8 +172,16 @@ class SDXLPipeline:
         print(f"Latents before scaling | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
 
         # scale the initial noise by the standard deviation required by the scheduler
-        print(f"self.scheduler.init_noise_sigma: {self.scheduler.init_noise_sigma}")
-        latents = latents * self.scheduler.init_noise_sigma
+        print(f"self.scheduler.init_noise_sigma (unused): {self.scheduler.init_noise_sigma}")
+        #latents = latents * self.scheduler.init_noise_sigma
+        
+        initial_sigma = self.scheduler.sigmas[0] 
+    
+        print(f"Using initial_sigma from scheduler.sigmas[0]: {initial_sigma.item()}")
+    
+        # Scale the initial noise by this correct sigma value
+        latents = latents * initial_sigma.to(self.device)
+        
         
         print(f"Latents after scaling: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
         print(f"Latents after scaling | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")

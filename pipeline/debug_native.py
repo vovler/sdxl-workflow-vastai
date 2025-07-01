@@ -27,7 +27,7 @@ pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
 
 # Prepare latents
 generator=torch.Generator("cpu").manual_seed(0x7A35D)
-latents = pipe.prepare_latents(1, pipe.unet.config.in_channels, height, width, torch.float16, device, generator)
+#latents = pipe.prepare_latents(1, pipe.unet.config.in_channels, height, width, torch.float16, device, generator)
 
 # Run the pipeline, but intercept the call to the UNet
 # We will monkey-patch the unet forward pass to capture the inputs
@@ -87,7 +87,6 @@ images = pipe(
     num_inference_steps=num_inference_steps,
     guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
     generator=generator,
-    latents=latents,
 ).images
 
 # Restore original unet forward

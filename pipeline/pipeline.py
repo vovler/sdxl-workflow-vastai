@@ -64,7 +64,7 @@ class SDXLPipeline:
             latents = latents_torch.cpu().numpy()
         
         # 6. Decode latents
-        image = self.vae_decoder(latents / self.scheduler.config.scaling_factor)
+        image = self.vae_decoder(latents / self.scheduler.config["scaling_factor"])
 
         # 7. Post-process image
         image = self._postprocess_image(image)

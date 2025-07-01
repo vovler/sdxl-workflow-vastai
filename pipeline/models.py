@@ -130,6 +130,10 @@ class CLIPTextEncoder(ONNXModel):
         print(f"--- {self.name} ONNX Input ---")
         print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
         print(f"tokens: {input_ids.flatten().tolist()}")
+        if attention_mask is not None:
+            print(f"attention_mask: shape={attention_mask.shape}, dtype={attention_mask.dtype}, device={attention_mask.device}")
+        if output_hidden_states is not None:
+            print(f"output_hidden_states: {output_hidden_states}")
         print("---------------------------")
 
         self.bind_input("input_ids", input_ids)
@@ -193,6 +197,16 @@ class DebugCLIPTextModel(CLIPTextModel):
         if input_ids is not None:
             print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
             print(f"tokens: {input_ids.flatten().tolist()}")
+        if attention_mask is not None:
+            print(f"attention_mask: shape={attention_mask.shape}, dtype={attention_mask.dtype}, device={attention_mask.device}")
+        if position_ids is not None:
+            print(f"position_ids: shape={position_ids.shape}, dtype={position_ids.dtype}, device={position_ids.device}")
+        if output_attentions is not None:
+            print(f"output_attentions: {output_attentions}")
+        if output_hidden_states is not None:
+            print(f"output_hidden_states: {output_hidden_states}")
+        if return_dict is not None:
+            print(f"return_dict: {return_dict}")
         print("---------------------------")
 
         outputs = super().forward(
@@ -233,6 +247,16 @@ class DebugCLIPTextModelWithProjection(CLIPTextModelWithProjection):
         if input_ids is not None:
             print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
             print(f"tokens: {input_ids.flatten().tolist()}")
+        if attention_mask is not None:
+            print(f"attention_mask: shape={attention_mask.shape}, dtype={attention_mask.dtype}, device={attention_mask.device}")
+        if position_ids is not None:
+            print(f"position_ids: shape={position_ids.shape}, dtype={position_ids.dtype}, device={position_ids.device}")
+        if output_attentions is not None:
+            print(f"output_attentions: {output_attentions}")
+        if output_hidden_states is not None:
+            print(f"output_hidden_states: {output_hidden_states}")
+        if return_dict is not None:
+            print(f"return_dict: {return_dict}")
         print("---------------------------")
 
         outputs = super().forward(

@@ -104,7 +104,7 @@ class SDXLPipeline:
             print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
             print(f"noise_pred | Mean: {noise_pred.mean():.6f} | Std: {noise_pred.std():.6f} | Sum: {noise_pred.sum():.6f}")
             
-            latents = self.scheduler.step(noise_pred, t, latents).prev_sample
+            latents = self.scheduler.step(noise_pred, t, latents)[0]
             print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}")
             print(f"latents after step | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
         print("\n--- Denoising Loop End ---")

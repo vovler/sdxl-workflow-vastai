@@ -9,7 +9,8 @@ class SDXLPipeline:
     def __init__(self):
         self.device = "cuda"
         self.components = loader.load_pipeline_components()
-        self.compel = self.components["compel"]
+        self.compel_onnx = self.components["compel_onnx"]
+        self.compel_original = self.components["compel_original"]
         self.vae_decoder = self.components["vae_decoder"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
@@ -24,7 +25,15 @@ class SDXLPipeline:
         seed: int = 42,
     ):
         # 1. Get text embeddings
-        prompt_embeds, pooled_prompt_embeds = self.compel(prompt)
+        print("\n" + "="*40)
+        print("--- RUNNING ONNX COMPEL ---")
+        print("="*40)
+        prompt_embeds, pooled_prompt_embeds = self.compel_onnx(prompt)
+
+        print("\n" + "="*40)
+        print("--- RUNNING ORIGINAL COMPEL ---")
+        print("="*40)
+        _, _ = self.compel_original(prompt)
 
         # 2. Prepare latents
         latents = self._prepare_latents(height, width, seed)

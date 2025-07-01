@@ -4,6 +4,7 @@ import torch
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import os
+from transformers import CLIPTextModel, CLIPTextModelWithProjection
 
 
 @dataclass
@@ -171,4 +172,52 @@ class CLIPTextEncoder(ONNXModel):
             pooler_output=pooler_output,
             hidden_states=hidden_states,
             text_embeds=pooler_output,
-        ) 
+        )
+
+class DebugCLIPTextModel(CLIPTextModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.name = "CLIP-L Original"
+
+    def forward(self, input_ids: torch.Tensor, **kwargs):
+        print(f"--- {self.name} Input ---")
+        print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
+        print(f"tokens: {input_ids.flatten().tolist()}")
+        print("---------------------------")
+
+        outputs = super().forward(input_ids=input_ids, **kwargs)
+
+        print(f"--- {self.name} Output ---")
+        last_hidden_state = outputs.last_hidden_state
+        pooler_output = outputs.pooler_output
+        last_hidden_state_nan_count = torch.isnan(last_hidden_state).sum()
+        pooler_output_nan_count = torch.isnan(pooler_output).sum()
+        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
+        print(f"pooler_output: shape={pooler_output.shape}, dtype={pooler_output.dtype}, device={pooler_output.device}, nans={pooler_output_nan_count}/{pooler_output.numel()}")
+        print("----------------------------")
+
+        return outputs
+
+class DebugCLIPTextModelWithProjection(CLIPTextModelWithProjection):
+    def __init__(self, config):
+        super().__init__(config)
+        self.name = "CLIP-G Original"
+
+    def forward(self, input_ids: torch.Tensor, **kwargs):
+        print(f"--- {self.name} Input ---")
+        print(f"input_ids: shape={input_ids.shape}, dtype={input_ids.dtype}, device={input_ids.device}")
+        print(f"tokens: {input_ids.flatten().tolist()}")
+        print("---------------------------")
+
+        outputs = super().forward(input_ids=input_ids, **kwargs)
+
+        print(f"--- {self.name} Output ---")
+        last_hidden_state = outputs.last_hidden_state
+        text_embeds = outputs.text_embeds
+        last_hidden_state_nan_count = torch.isnan(last_hidden_state).sum()
+        text_embeds_nan_count = torch.isnan(text_embeds).sum()
+        print(f"last_hidden_state: shape={last_hidden_state.shape}, dtype={last_hidden_state.dtype}, device={last_hidden_state.device}, nans={last_hidden_state_nan_count}/{last_hidden_state.numel()}")
+        print(f"text_embeds: shape={text_embeds.shape}, dtype={text_embeds.dtype}, device={text_embeds.device}, nans={text_embeds_nan_count}/{text_embeds.numel()}")
+        print("----------------------------")
+        
+        return outputs 

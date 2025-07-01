@@ -186,6 +186,7 @@ class DebugCLIPTextModel(CLIPTextModel):
         position_ids: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
     ):
         print(f"--- {self.name} Input ---")
         if input_ids is not None:
@@ -199,6 +200,7 @@ class DebugCLIPTextModel(CLIPTextModel):
             position_ids=position_ids,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
         )
 
         print(f"--- {self.name} Output ---")
@@ -224,6 +226,7 @@ class DebugCLIPTextModelWithProjection(CLIPTextModelWithProjection):
         position_ids: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
     ):
         print(f"--- {self.name} Input ---")
         if input_ids is not None:
@@ -237,6 +240,7 @@ class DebugCLIPTextModelWithProjection(CLIPTextModelWithProjection):
             position_ids=position_ids,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
         )
 
         print(f"--- {self.name} Output ---")

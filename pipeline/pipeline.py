@@ -110,7 +110,7 @@ class SDXLPipeline:
         print("--- Post-processing Complete ---")
 
         # 8. Clear memory
-        self._clear_memory()
+        #self._clear_memory()
         print("\n--- Memory Cleared, Pipeline Finished ---")
 
         return image

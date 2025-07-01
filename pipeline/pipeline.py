@@ -105,7 +105,7 @@ class SDXLPipeline:
         gc.collect()
 
 if __name__ == "__main__":
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, 1boy, aqua(konosuba)"
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer"
     
     #pipeline = SDXLPipeline()
     #image = pipeline(prompt)

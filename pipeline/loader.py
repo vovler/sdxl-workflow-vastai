@@ -58,7 +58,7 @@ def load_pipeline_components():
         "text_encoder_l": onnx_text_encoder_1,
         "text_encoder_g": onnx_text_encoder_2,
         "vae_decoder": vae_decoder,
-        "vae": vae,
+        #"vae": vae,
         "image_processor": image_processor,
         "unet": unet,
         "scheduler": scheduler,

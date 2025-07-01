@@ -161,11 +161,11 @@ class SDXLPipeline:
         shape = (
             batch_size,
             num_channels_latents,
-            int(height) // self.vae_scale_factor,
-            int(width) // self.vae_scale_factor,
+            int(height) // 8,
+            int(width) // 8,
         )
         print(f"Calculated shape: {shape}")
-        print(f"self.vae_scale_factor: {self.vae_scale_factor}")
+        #print(f"self.vae_scale_factor: {self.vae_scale_factor}")
 
         if isinstance(generator, list) and len(generator) != batch_size:
             raise ValueError(

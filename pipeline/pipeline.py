@@ -12,6 +12,7 @@ class SDXLPipeline:
         self.vae_decoder = self.components["vae_decoder"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
+        self.vae_scaling_factor = self.components["vae_scaling_factor"]
 
     def __call__(
         self,
@@ -43,14 +44,6 @@ class SDXLPipeline:
 
             timestep_numpy = np.array(t.item(), dtype=np.float16)
 
-            print("--- Sending to UNet ---")
-            print(f"latent_model_input: {latent_model_input.cpu().numpy().shape}, {latent_model_input.cpu().numpy().dtype}")
-            print(f"timestep_numpy: {timestep_numpy.shape}, {timestep_numpy.dtype}")
-            print(f"prompt_embeds_np: {prompt_embeds_np.shape}, {prompt_embeds_np.dtype}")
-            print(f"pooled_prompt_embeds_np: {pooled_prompt_embeds_np.shape}, {pooled_prompt_embeds_np.dtype}")
-            print(f"time_ids: {time_ids.shape}, {time_ids.dtype}")
-            print("-----------------------")
-
             noise_pred_np = self.unet(
                 latent_model_input.cpu().numpy(),
                 timestep_numpy,
@@ -64,7 +57,7 @@ class SDXLPipeline:
             latents = latents_torch.cpu().numpy()
         
         # 6. Decode latents
-        image = self.vae_decoder(latents / self.scheduler.config["scaling_factor"])
+        image = self.vae_decoder(latents / self.vae_scaling_factor)
 
         # 7. Post-process image
         image = self._postprocess_image(image)

@@ -28,8 +28,6 @@ class ONNXModel:
             else:
                 inputs[input_meta.name] = np.ascontiguousarray(value)
 
-        for name, arr in inputs.items():
-            print(f"Input '{name}': shape={arr.shape}, dtype={arr.dtype}")
         return self.session.run(None, inputs)
 
 

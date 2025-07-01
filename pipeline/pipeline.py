@@ -2,7 +2,6 @@ import gc
 import numpy as np
 import torch
 from PIL import Image
-from diffusers.utils import randn_tensor
 
 import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
@@ -146,7 +145,7 @@ class SDXLPipeline:
             )
 
         if latents is None:
-            latents = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+            latents = torch.randn(*shape, generator=generator, device=device, dtype=dtype)
         else:
             latents = latents.to(device)
 

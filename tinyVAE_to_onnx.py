@@ -1,33 +1,39 @@
 import torch
-from diffusers import StableDiffusionXLPipeline, AutoencoderKL
+from diffusers import AutoencoderTiny
 from torch.export import Dim
 
 
 class VAEDecoderWrapper(torch.nn.Module):
-    def __init__(self, vae_decoder):
+    def __init__(self, vae):
         super().__init__()
-        self.vae_decoder = vae_decoder
+        self.vae_decoder = vae.decoder
+        self.latent_magnitude = vae.latent_magnitude
+        self.latent_shift = vae.latent_shift
+
+    def unscale_latents(self, x: torch.Tensor) -> torch.Tensor:
+        """[0, 1] -> raw latents"""
+        return x.sub(self.latent_shift).mul(2 * self.latent_magnitude)
 
     def forward(self, latent_sample):
-        # The pipeline already scales the latents, so we just call the decoder.
-        # The output dictionary key 'sample' will be the output name in the ONNX graph.
-        sample = self.vae_decoder(latent_sample)
+        # The user of this ONNX model is expected to provide latents in [0, 1] range.
+        unscaled_latents = self.unscale_latents(latent_sample)
+        sample = self.vae_decoder(unscaled_latents)
         return {"sample": sample}
 
 
 def main():
     """
-    Exports the VAE decoder of an SDXL model to ONNX.
+    Exports the Tiny VAE (TAESDXL) decoder to ONNX.
     """
-    model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
-    output_path = "vae_decoder.onnx"
+    model_id = "madebyollin/taesdxl"
+    output_path = "taesdxl_decoder.onnx"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
 
     print(f"Loading VAE from model: {model_id}")
     # We only need the VAE for this script.
-    vae = AutoencoderKL.from_pretrained(
-        model_id, subfolder="vae", torch_dtype=torch.float16
+    vae = AutoencoderTiny.from_pretrained(
+        model_id, torch_dtype=torch.float16
     )
 
     decoder = vae.decoder
@@ -47,7 +53,7 @@ def main():
     model_args = (latent_sample,)
 
     print("Wrapping VAE decoder for ONNX export.")
-    decoder_wrapper = VAEDecoderWrapper(decoder)
+    decoder_wrapper = VAEDecoderWrapper(vae)
 
     print("Exporting VAE decoder to ONNX with TorchDynamo...")
 

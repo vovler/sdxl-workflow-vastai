@@ -5,6 +5,7 @@ from PIL import Image
 
 import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
+from . import utils
 
 class SDXLPipeline:
     def __init__(self):
@@ -78,8 +79,8 @@ class SDXLPipeline:
         # 3. Prepare timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
 
-        latents = self.prepare_latents(
-            1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.device, generator
+        latents = utils._prepare_latents(
+            self.scheduler, 1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.device, generator
         )
 
         latents = latents.to(self.device)
@@ -91,7 +92,7 @@ class SDXLPipeline:
         print("--------------------")
 
         # 4. Prepare extra inputs for UNet
-        time_ids = self._get_add_time_ids(
+        time_ids = utils._get_add_time_ids(
             (height, width), (0, 0), (height, width), dtype=pooled_prompt_embeds.dtype
         )
         time_ids = time_ids.to(self.device)
@@ -142,73 +143,10 @@ class SDXLPipeline:
         print("--- Post-processing Complete ---")
 
         # 8. Clear memory
-        #self._clear_memory()
+        #utils._clear_memory()
         print("\n--- Memory Cleared, Pipeline Finished ---")
 
         return image
-
-    def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
-        print("\n--- In prepare_latents ---")
-        print(f"batch_size: {batch_size}")
-        print(f"num_channels_latents: {num_channels_latents}")
-        print(f"height: {height}")
-        print(f"width: {width}")
-        print(f"dtype: {dtype}")
-        print(f"device: {device}")
-        print(f"generator: {generator}")
-        print(f"latents (input): {latents}")
-        
-        shape = (
-            batch_size,
-            num_channels_latents,
-            int(height) // 8,
-            int(width) // 8,
-        )
-        print(f"Calculated shape: {shape}")
-        #print(f"self.vae_scale_factor: {self.vae_scale_factor}")
-
-        if isinstance(generator, list) and len(generator) != batch_size:
-            raise ValueError(
-                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
-                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
-            )
-
-        if latents is None:
-            print("latents is None, creating new latents with torch.randn")
-            latents = torch.randn(*shape, generator=generator, device=device, dtype=dtype)
-        else:
-            print("latents is not None, moving to device")
-            latents = latents.to(device)
-
-        print(f"Latents before scaling: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
-        print(f"Latents before scaling | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
-
-        # scale the initial noise by the standard deviation required by the scheduler
-        print(f"self.scheduler.init_noise_sigma (unused): {self.scheduler.init_noise_sigma}")
-        #latents = latents * self.scheduler.init_noise_sigma
-        
-        initial_sigma = self.scheduler.sigmas[0] 
-    
-        print(f"Using initial_sigma from scheduler.sigmas[0]: {initial_sigma.item()}")
-    
-        # Scale the initial noise by this correct sigma value
-        latents = latents * initial_sigma.to(self.device)
-        
-        
-        print(f"Latents after scaling: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
-        print(f"Latents after scaling | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
-        print("--- Exiting prepare_latents ---")
-        
-        return latents
-
-    def _get_add_time_ids(self, original_size, crops_coords_top_left, target_size, dtype):
-        add_time_ids = list(original_size + crops_coords_top_left + target_size)
-        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
-        return add_time_ids
-
-    def _clear_memory(self):
-        print("--- In _clear_memory ---")
-        gc.collect()
 
 if __name__ == "__main__":
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
@@ -216,21 +154,3 @@ if __name__ == "__main__":
     pipeline = SDXLPipeline()
     image = pipeline(prompt)
     image.save("output.png") 
-
-    #print("\n" + "="*40)
-    #print("--- RUNNING NATIVE DIFFUSERS PIPELINE ---")
-    #print("="*40)
-    
-    #scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
-    #    "socks22/sdxl-wai-nsfw-illustriousv14", subfolder="scheduler", use_karras_sigmas=False
-    #)
-    
-    #native_pipeline = StableDiffusionXLPipeline.from_pretrained(
-    #    "socks22/sdxl-wai-nsfw-illustriousv14",
-    #    torch_dtype=torch.float16,
-    #    scheduler=scheduler,
-    #    use_safetensors=True,
-    #)
-    #native_pipeline.to("cuda:0")
-    #native_image = native_pipeline(prompt=prompt, num_inference_steps=8, guidance_scale=1.0).images[0]
-    #native_image.save("output_native.png")

@@ -21,8 +21,9 @@ class ONNXModel:
         #so.log_severity_level = 1
         provider_options = [{"device_id": self.device.index}]
         #provider_options
+        #sess_options=so,
         self.session = ort.InferenceSession(
-            model_path, sess_options=so, providers=[("CUDAExecutionProvider")]
+            model_path, providers=[("CUDAExecutionProvider")]
         )
         self.io_binding = self.session.io_binding()
         self.input_names = [i.name for i in self.session.get_inputs()]

@@ -34,7 +34,7 @@ def load_pipeline_components():
     )
 
     # Original Transformers Models
-    original_clip_l = models.DebugCLIPTextModel.from_pretrained(defaults.DEFAULT_BASE_MODEL, subfolder="text_encoder", torch_dtype=torch.float32).to(device)
+    original_clip_l = models.DebugCLIPTextModel.from_pretrained(defaults.DEFAULT_BASE_MODEL, subfolder="text_encoder", torch_dtype=torch.float16).to(device)
     original_clip_g = models.DebugCLIPTextModelWithProjection.from_pretrained(defaults.DEFAULT_BASE_MODEL, subfolder="text_encoder_2", torch_dtype=torch.float16).to(device)
     
     compel_original = Compel(

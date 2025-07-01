@@ -131,7 +131,7 @@ class SDXLPipeline:
         latents_to_decode = latents / self.vae_scale_factor
         
         #image_np = self.vae.decode(latents_to_decode, return_dict=False)[0]
-        image_np = self.vae_decoder(latents_to_decode)[0]
+        image_np = self.vae_decoder(latents_to_decode)
         
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 

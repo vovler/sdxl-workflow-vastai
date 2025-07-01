@@ -90,11 +90,11 @@ class SDXLPipeline:
         print("\n--- Denoising Loop ---")
         for i, t in enumerate(timesteps):
             print(f"\n--- Step {i+1}/{len(timesteps)}, Timestep: {t} ---")
-            print(f"latents before scale_mode_input: shape={latents.shape}, dtype={latents.dtype}")
+            print(f"latents before scale_mode_input: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
             print(f"latents before scale_mode_input | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
 
             latent_model_input = self.scheduler.scale_model_input(latents, t)
-            print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}")
+            print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, device={latent_model_input.device}")
             print(f"latent_model_input | Mean: {latent_model_input.mean():.6f} | Std: {latent_model_input.std():.6f} | Sum: {latent_model_input.sum():.6f}")
 
             noise_pred = self.unet(

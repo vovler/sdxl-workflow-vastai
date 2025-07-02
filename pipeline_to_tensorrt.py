@@ -112,7 +112,7 @@ def build_engine(
         trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
     )
     config.set_tiling_optimization_level(trt.TilingOptimizationLevel.MODERATE)
-    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 2 * 1024 * 1024 * 1024)
+    #config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 2 * 1024 * 1024 * 1024)
 
     profile = builder.create_optimization_profile()
     for name, (min_shape, opt_shape, max_shape) in input_profiles.items():

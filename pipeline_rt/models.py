@@ -15,6 +15,8 @@ def trt_dtype_to_torch(dtype: trt.DataType) -> torch.dtype:
         return torch.float32
     elif dtype == trt.int32:
         return torch.int32
+    elif dtype == trt.int64:
+        return torch.int64
     elif dtype == trt.bfloat16:
         return torch.bfloat16
     else:

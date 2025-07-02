@@ -2,9 +2,23 @@ import torch
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict
 import os
-from transformers import CLIPTextModel, CLIPTextModelWithProjection
-from polygraphy.backend.trt import TrtRunner
+import tensorrt as trt
 
+TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+trt.init_libnvinfer_plugins(TRT_LOGGER, "")
+runtime = trt.Runtime(TRT_LOGGER)
+
+def trt_dtype_to_torch(dtype: trt.DataType) -> torch.dtype:
+    if dtype == trt.float16:
+        return torch.float16
+    elif dtype == trt.float32:
+        return torch.float32
+    elif dtype == trt.int32:
+        return torch.int32
+    elif dtype == trt.bfloat16:
+        return torch.bfloat16
+    else:
+        raise TypeError(f"Unsupported TensorRT data type: {dtype}")
 
 @dataclass
 class CLIPTextOutput:
@@ -18,18 +32,49 @@ class TensorRTModel:
         self.device = device
         subfolder = os.path.basename(os.path.dirname(engine_path))
         filename = os.path.basename(engine_path)
-        print(f"\n--- Creating InferenceSession for: {subfolder}/{filename} ---")
+        print(f"\n--- Loading TensorRT engine for: {subfolder}/{filename} ---")
+
+        with open(engine_path, "rb") as f:
+            self.engine = runtime.deserialize_cuda_engine(f.read())
         
-        self.runner = TrtRunner(engine_path)
-        self.runner.activate()
+        self.context = self.engine.create_execution_context()
+        
+        self.input_map = {}
+        self.output_map = {}
+        
+        for i in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(i)
+            dtype = trt_dtype_to_torch(self.engine.get_tensor_dtype(name))
+            
+            is_input = self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
+            if is_input:
+                self.input_map[name] = {'dtype': dtype}
+            else:
+                self.output_map[name] = {'dtype': dtype}
 
     def __call__(self, feed_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        # Convert input tensors to contiguous and ensure they are on the correct device
+        bindings = {}
+        
         for name, tensor in feed_dict.items():
-            feed_dict[name] = tensor.contiguous().to(self.device)
+            if name not in self.input_map:
+                continue
+            self.context.set_input_shape(name, tensor.shape)
+            bindings[name] = tensor.contiguous().to(device=self.device, dtype=self.input_map[name]['dtype'])
 
-        # Run inference
-        outputs = self.runner.infer(feed_dict)
+        outputs = {}
+        for name, properties in self.output_map.items():
+            shape = self.context.get_tensor_shape(name)
+            outputs[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
+            bindings[name] = outputs[name]
+        
+        stream = torch.cuda.current_stream().cuda_stream
+
+        for name, tensor in bindings.items():
+            self.context.set_tensor_address(name, tensor.data_ptr())
+
+        self.context.execute_async_v3(stream_handle=stream)
+        torch.cuda.current_stream().synchronize()
+        
         return outputs
 
 
@@ -44,7 +89,7 @@ class VAEDecoder(TensorRTModel):
         print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
         print("------------------------")
 
-        feed_dict = {"latent_sample": latent.to(torch.float16)}
+        feed_dict = {"latent_sample": latent}
         outputs = super().__call__(feed_dict)
         return outputs["sample"]
 
@@ -55,20 +100,14 @@ class UNet(TensorRTModel):
         super().__init__(engine_path, device)
 
     def __call__(self, latent: torch.Tensor, timestep: torch.Tensor, text_embedding: torch.Tensor, text_embeds: torch.Tensor, time_ids: torch.Tensor) -> torch.Tensor:
-        latent = latent.to(torch.float16)
-        timestep = timestep.unsqueeze(0).to(torch.float16) # Add batch dimension for TRT
-        text_embedding = text_embedding.to(torch.float16)
-        text_embeds = text_embeds.to(torch.float16)
-        time_ids = time_ids.to(torch.float16)
+        timestep = timestep.unsqueeze(0) # Add batch dimension for TRT
 
         print("--- UNet Inputs ---")
         print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}")
         print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
         print(f"timestep: shape={timestep.shape}, dtype={timestep.dtype}, device={timestep.device}, value: {timestep.item()}")
         print(f"text_embedding: shape={text_embedding.shape}, dtype={text_embedding.dtype}, device={text_embedding.device}")
-        print(f"text_embedding | Mean: {text_embedding.mean():.6f} | Std: {text_embedding.std():.6f} | Sum: {text_embedding.sum():.6f}")
         print(f"text_embeds: shape={text_embeds.shape}, dtype={text_embeds.dtype}, device={text_embeds.device}")
-        print(f"text_embeds | Mean: {text_embeds.mean():.6f} | Std: {text_embeds.std():.6f} | Sum: {text_embeds.sum():.6f}")
         print(f"time_ids: shape={time_ids.shape}, dtype={time_ids.dtype}, device={time_ids.device}")
         print(f"time_ids | Mean: {time_ids.mean():.6f} | Std: {time_ids.std():.6f} | Sum: {time_ids.sum():.6f}")
         print("--------------------")

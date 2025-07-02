@@ -95,7 +95,6 @@ def build_engine(
     builder = trt.Builder(TRT_LOGGER)
     network = builder.create_network(
         (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-        | (1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
     )
     parser = trt.OnnxParser(network, TRT_LOGGER)
 
@@ -120,6 +119,8 @@ def build_engine(
 
     config.add_optimization_profile(profile)
 
+    if fp16:
+        config.set_flag(trt.BuilderFlag.FP16)
     config.progress_monitor = TQDMProgressMonitor()
 
     print("Building engine...")

@@ -120,9 +120,6 @@ def build_engine(
 
     config.add_optimization_profile(profile)
 
-    if fp16:
-        config.set_flag(trt.BuilderFlag.FP16)
-
     config.progress_monitor = TQDMProgressMonitor()
 
     print("Building engine...")

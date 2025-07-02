@@ -35,7 +35,7 @@ def get_percentilequant_config(model, quant_level, percentile, alpha):
     return quant_config
 
 
-def forward_loop(model, prompts, num_inference_steps=20):
+def forward_loop(model, prompts, num_inference_steps=8):
     """A basic forward loop for calibration."""
     with torch.no_grad():
         for batch_prompts in tqdm(prompts, desc="Calibrating"):

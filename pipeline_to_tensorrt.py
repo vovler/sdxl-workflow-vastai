@@ -94,7 +94,8 @@ def build_engine(
 
     builder = trt.Builder(TRT_LOGGER)
     network = builder.create_network(
-        1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        | (1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
     )
     parser = trt.OnnxParser(network, TRT_LOGGER)
 
@@ -105,6 +106,12 @@ def build_engine(
         raise RuntimeError(f"Failed to parse ONNX file: {onnx_path}")
 
     config = builder.create_builder_config()
+    config.builder_optimization_level = 5
+    config.set_preview_feature(trt.PreviewFeature.RUNTIME_ACTIVATION_RESIZE_10_10, True)
+    config.set_hardware_compatibility_level(
+        trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
+    )
+    config.set_tiling_optimization_level(trt.TilingOptimizationLevel.MODERATE)
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 2 * 1024 * 1024 * 1024)
 
     profile = builder.create_optimization_profile()

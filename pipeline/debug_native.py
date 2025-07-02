@@ -4,7 +4,7 @@ import torch.fft as fft
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
 
 # Ensure you use the exact same settings as your pipeline
-prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
+prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), anal sex, ahegao, heart shaped eyes"
 height = 1024
 width = 1024
 num_inference_steps = 8

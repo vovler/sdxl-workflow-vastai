@@ -12,8 +12,7 @@ import utils
 
 class SDXLPipeline:
     def __init__(self):
-        self.cpu_device = torch.device("cpu")
-        self.cuda_device = torch.device("cuda:0")
+        self.device = "cuda"
         self.components = loader.load_pipeline_components()
         self.tokenizer_l = self.components["tokenizer_1"]
         self.tokenizer_g = self.components["tokenizer_2"]
@@ -41,7 +40,6 @@ class SDXLPipeline:
         if not is_warmup:
             torch.cuda.reset_peak_memory_stats()
             torch.cuda.synchronize()
-            total_start_time = time.time()
             print("\n" + "="*50)
             print("--- Starting SDXL Pipeline (Monitored Run) ---")
             print(f"Prompt: {prompt}")
@@ -65,19 +63,12 @@ class SDXLPipeline:
         tokenized_l = self.tokenizer_l(prompt, padding="max_length", max_length=self.tokenizer_l.model_max_length, truncation=True, return_tensors="pt")
         tokenized_g = self.tokenizer_g(prompt, padding="max_length", max_length=self.tokenizer_g.model_max_length, truncation=True, return_tensors="pt")
 
-        input_ids_l = tokenized_l.input_ids
-        input_ids_g = tokenized_g.input_ids
+        input_ids_l = tokenized_l.input_ids.to(self.device)
+        input_ids_g = tokenized_g.input_ids.to(self.device)
 
         # Get embeddings
-        self.text_encoder_l.to(self.cuda_device)
-        self.text_encoder_g.to(self.cuda_device)
-        
-        hidden_states_l = self.text_encoder_l(input_ids=input_ids_l.to(self.cuda_device)).last_hidden_state
-        output_g = self.text_encoder_g(input_ids=input_ids_g.to(self.cuda_device))
-        
-        self.text_encoder_l.to(self.cpu_device)
-        self.text_encoder_g.to(self.cpu_device)
-
+        hidden_states_l = self.text_encoder_l(input_ids=input_ids_l).last_hidden_state
+        output_g = self.text_encoder_g(input_ids=input_ids_g)
         hidden_states_g = output_g.last_hidden_state
         pooled_prompt_embeds = output_g.pooler_output
 
@@ -101,17 +92,18 @@ class SDXLPipeline:
             print("------------------------")
 
         # 2. Prepare latents
-        generator = torch.Generator(device=self.cuda_device).manual_seed(seed)
-        
-        self.unet.to(self.cuda_device)
+        generator = torch.Generator(device=self.device).manual_seed(seed)
         num_channels_latents = self.unet.session.get_inputs()[0].shape[1]
-        
+
         # 3. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=self.cuda_device)
+        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
 
         latents = utils._prepare_latents(
-            self.scheduler, 1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.cuda_device, generator
+            self.scheduler, 1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.device, generator
         )
+
+        latents = latents.to(self.device)
+        
         
         timesteps = self.scheduler.timesteps
         if not is_warmup:
@@ -122,7 +114,8 @@ class SDXLPipeline:
         # 4. Prepare extra inputs for UNet
         time_ids = utils._get_add_time_ids(
             (height, width), (0, 0), (height, width), dtype=pooled_prompt_embeds.dtype
-        ).to(self.cuda_device)
+        )
+        time_ids = time_ids.to(self.device)
 
         # 5. Denoising loop
         if not is_warmup:
@@ -138,7 +131,8 @@ class SDXLPipeline:
                 print(f"latents before scale_mode_input: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
                 print(f"latents before scale_mode_input | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
 
-            latent_model_input = self.scheduler.scale_model_input(latents, t)
+            #cast t to int
+            latent_model_input = self.scheduler.scale_model_input(latents, t.to(torch.int32))
             if not is_warmup:
                 print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, device={latent_model_input.device}")
                 print(f"latent_model_input | Mean: {latent_model_input.mean():.6f} | Std: {latent_model_input.std():.6f} | Sum: {latent_model_input.sum():.6f}")
@@ -146,12 +140,12 @@ class SDXLPipeline:
             noise_pred = self.unet(
                 latent_model_input,
                 t,
-                prompt_embeds.to(self.cuda_device),
-                pooled_prompt_embeds.to(self.cuda_device),
+                prompt_embeds,
+                pooled_prompt_embeds,
                 time_ids,
             )
             if not is_warmup:
-                print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
+             .to(self.cuda_device)   print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
                 print(f"noise_pred | Mean: {noise_pred.mean():.6f} | Std: {noise_pred.std():.6f} | Sum: {noise_pred.sum():.6f}")
             
             scheduler_step_start_time = 0
@@ -168,7 +162,6 @@ class SDXLPipeline:
                 print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}")
                 print(f"latents after step | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
         
-        self.unet.to(self.cpu_device)
         if not is_warmup:
             torch.cuda.synchronize()
             unet_loop_end_time = time.time()
@@ -186,9 +179,7 @@ class SDXLPipeline:
             vae_start_time = time.time()
             vae_start_ram = self.process.memory_info().rss
         
-        self.onnx_vae.to(self.cuda_device)
         image_np = self.onnx_vae(latents)
-        self.onnx_vae.to(self.cpu_device)
 
         if not is_warmup:
             torch.cuda.synchronize()
@@ -211,12 +202,6 @@ class SDXLPipeline:
         #utils._clear_memory()
         if not is_warmup:
             torch.cuda.synchronize()
-            total_end_time = time.time()
-            total_duration = total_end_time - total_start_time
-            peak_vram = torch.cuda.max_memory_allocated("cuda:0") / (1024 * 1024)
-            print(f"--- Peak VRAM usage: {peak_vram:.2f} MB ---")
-            print(f"\n--- Total Pipeline Time: {total_duration:.2f}s ---")
-            print("\n--- Memory Cleared, Pipeline Finished ---")
 
         return image
 
@@ -227,10 +212,8 @@ if __name__ == "__main__":
     # Warmup run
     _ = pipeline(prompt, is_warmup=True)
     # Monitored run
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night, nude"
-    
-    start_time = time.time()
-    image = pipeline(prompt)
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nigstart_time = time.time()rt_time = time.time()
+    im)
     end_time = time.time()
-    print(f"Time taken: {end_time - start_time:.2f} seconds")
+    print(f"Time taken: {end_time - start_time:.2f} seconds"rt_time:.2f} seconds")
     image.save("output.png") 

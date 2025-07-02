@@ -1,4 +1,3 @@
-import gc
 import onnxruntime as ort
 import numpy as np
 import torch
@@ -17,51 +16,21 @@ class ONNXCLIPTextOutput:
 
 class ONNXModel:
     def __init__(self, model_path: str, device: torch.device):
-        self.model_path = model_path
-        self.session = None
-        self.device = None
-        self.io_binding = None
-        self.input_names = None
-        self.output_names = None
-        self.to(device)
-
-    def to(self, device: torch.device):
-        if self.device and self.device.type == device.type:
-            if device.type == "cpu" or (device.type == "cuda" and self.device.index == device.index):
-                return self
-
-        old_device_type = self.device.type if self.device else None
         self.device = device
-        
-        subfolder = os.path.basename(os.path.dirname(self.model_path))
-        filename = os.path.basename(self.model_path)
-        print(f"\n--- Moving model {subfolder}/{filename} to {self.device} ---")
-
-        if self.device.type == 'cuda':
-            providers = [("CUDAExecutionProvider", {"device_id": self.device.index})]
-        else: # cpu
-            providers = ["CPUExecutionProvider"]
-        
-        # Explicitly delete old session before creating new one
-        if self.session:
-            del self.session
-
-        self.session = ort.InferenceSession(self.model_path, providers=providers)
-        
-        if old_device_type == 'cuda' and self.device.type == 'cpu':
-            print("--- Clearing CUDA memory ---")
-            gc.collect()
-            torch.cuda.empty_cache()
-            
+        subfolder = os.path.basename(os.path.dirname(model_path))
+        filename = os.path.basename(model_path)
+        print(f"\\n--- Creating InferenceSession for: {subfolder}/{filename} ---")
+        #so = ort.SessionOptions()
+        #so.log_severity_level = 1
+        provider_options = [{"device_id": self.device.index}]
+        self.session = ort.InferenceSession(
+            model_path, providers=[("CUDAExecutionProvider")]
+        )
         self.io_binding = self.session.io_binding()
         self.input_names = [i.name for i in self.session.get_inputs()]
         self.output_names = [o.name for o in self.session.get_outputs()]
-        
-        return self
 
     def bind_input(self, name: str, tensor: torch.Tensor):
-        if self.device.type != 'cuda':
-            raise RuntimeError(f"ONNXModel is on CPU. Call .to('cuda') before running inference.")
         tensor = tensor.contiguous()
         self.io_binding.bind_input(
             name=name,
@@ -73,8 +42,6 @@ class ONNXModel:
         )
 
     def bind_output(self, name: str, tensor: torch.Tensor):
-        if self.device.type != 'cuda':
-            raise RuntimeError(f"ONNXModel is on CPU. Call .to('cuda') before running inference.")
         tensor = tensor.contiguous()
         self.io_binding.bind_output(
             name=name,

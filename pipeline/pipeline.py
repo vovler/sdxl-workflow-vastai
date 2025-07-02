@@ -121,8 +121,7 @@ class SDXLPipeline:
         print("\n--- Decoding Latents ---")
         
         # The ONNX VAE expects latents in the [0, 1] range.
-        #latents_to_decode = latents / self.vae.latent_magnitude + self.vae.latent_shift
-        latents_to_decode = latents
+        latents_to_decode = latents / self.vae.latent_magnitude + self.vae.latent_shift
         
         print(f"latents_to_decode before VAE | Mean: {latents_to_decode.mean():.6f} | Std: {latents_to_decode.std():.6f} | Sum: {latents_to_decode.sum():.6f}")
         

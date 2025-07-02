@@ -144,8 +144,9 @@ class SDXLPipeline:
                 pooled_prompt_embeds,
                 time_ids,
             )
+            
             if not is_warmup:
-             .to(self.cuda_device)   print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
+                print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
                 print(f"noise_pred | Mean: {noise_pred.mean():.6f} | Std: {noise_pred.std():.6f} | Sum: {noise_pred.sum():.6f}")
             
             scheduler_step_start_time = 0
@@ -214,7 +215,6 @@ if __name__ == "__main__":
 
     # Monitored run
     start_time = time.time()
-    print(f"Time taken: {end_time - start_time:.2f} seconds")
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nude"
     image = pipeline(prompt)
     end_time = time.time()

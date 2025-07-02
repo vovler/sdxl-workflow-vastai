@@ -11,20 +11,14 @@ class SDXLPipeline:
     def __init__(self):
         self.device = "cuda"
         self.components = loader.load_pipeline_components()
-        self.compel_onnx = self.components["compel_onnx"]
         self.tokenizer_l = self.components["tokenizer_1"]
         self.tokenizer_g = self.components["tokenizer_2"]
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
-        self.vae_decoder = self.components["vae_decoder"]
-        #self.vae = self.components["vae"]
+        #self.vae_decoder = self.components["vae_decoder"]
+        self.vae = self.components["vae"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
-
-        print("\n" + "="*20 + " PIPELINE SCHEDULER CONFIG " + "="*20)
-        for key, value in self.scheduler.config.items():
-            print(f"{key}: {value}")
-        print("="*68 + "\n")
 
         self.image_processor = self.components["image_processor"]
         self.vae_scale_factor = self.components["vae_scaling_factor"]
@@ -45,9 +39,8 @@ class SDXLPipeline:
 
         # 1. Get text embeddings
         print("\n" + "="*40)
-        print("--- RUNNING ONNX COMPEL ---")
+        print("--- RUNNING ONNX ---")
         print("="*40)
-        #prompt_embeds, pooled_prompt_embeds = self.compel_onnx(prompt)
         
         # Tokenize prompt
         tokenized_l = self.tokenizer_l(prompt, padding="max_length", max_length=self.tokenizer_l.model_max_length, truncation=True, return_tensors="pt")
@@ -129,10 +122,10 @@ class SDXLPipeline:
         # Un-scale and un-shift latents for TinyVAE before decoding
         #latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
         #print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
-        latents_to_decode = latents / self.vae_scale_factor
-        
-        #image_np = self.vae.decode(latents_to_decode, return_dict=False)[0]
-        image_np = self.vae_decoder(latents_to_decode)
+        #latents_to_decode = latents / self.vae_scale_factor
+        latents_to_decode = latents / 0.18215
+
+        image_np = self.vae.decode(latents_to_decode)
         
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 

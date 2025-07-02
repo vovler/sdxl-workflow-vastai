@@ -2,6 +2,9 @@ import gc
 import numpy as np
 import torch
 from PIL import Image
+import time
+import psutil
+import os
 
 import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
@@ -23,6 +26,7 @@ class SDXLPipeline:
 
         self.image_processor = self.components["image_processor"]
         self.vae_scale_factor = self.components["vae_scale_factor"]
+        self.process = psutil.Process(os.getpid())
 
     def __call__(
         self,
@@ -31,17 +35,30 @@ class SDXLPipeline:
         width: int = 1024,
         num_inference_steps: int = 8,
         seed: int = 42,
+        is_warmup: bool = False,
     ):
-        print("\n" + "="*50)
-        print("--- Starting SDXL Pipeline ---")
-        print(f"Prompt: {prompt}")
-        print(f"Height: {height}, Width: {width}, Steps: {num_inference_steps}, Seed: {seed}")
-        print("="*50)
+        if not is_warmup:
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.synchronize()
+            total_start_time = time.time()
+            print("\n" + "="*50)
+            print("--- Starting SDXL Pipeline (Monitored Run) ---")
+            print(f"Prompt: {prompt}")
+            print(f"Height: {height}, Width: {width}, Steps: {num_inference_steps}, Seed: {seed}")
+            print("="*50)
+        else:
+            print("\n" + "="*50)
+            print("--- Starting SDXL Pipeline (Warmup Run) ---")
+            print("="*50)
 
         # 1. Get text embeddings
-        print("\n" + "="*40)
-        print("--- RUNNING ONNX ---")
-        print("="*40)
+        if not is_warmup:
+            print("\n" + "="*40)
+            print("--- RUNNING CLIP ---")
+            print("="*40)
+            torch.cuda.synchronize()
+            clip_start_time = time.time()
+            clip_start_ram = self.process.memory_info().rss
         
         # Tokenize prompt
         tokenized_l = self.tokenizer_l(prompt, padding="max_length", max_length=self.tokenizer_l.model_max_length, truncation=True, return_tensors="pt")
@@ -58,13 +75,22 @@ class SDXLPipeline:
 
         prompt_embeds = torch.cat([hidden_states_l, hidden_states_g], dim=-1)
 
-        print("--- Final Embeddings ---")
-        print(f"prompt_embeds: shape={prompt_embeds.shape}, dtype={prompt_embeds.dtype}, device={prompt_embeds.device}")
-        print(f"prompt_embeds | Mean: {prompt_embeds.mean():.6f} | Std: {prompt_embeds.std():.6f} | Sum: {prompt_embeds.sum():.6f}")
-        if pooled_prompt_embeds is not None:
-            print(f"pooled_prompt_embeds: shape={pooled_prompt_embeds.shape}, dtype={pooled_prompt_embeds.dtype}, device={pooled_prompt_embeds.device}")
-            print(f"pooled_prompt_embeds | Mean: {pooled_prompt_embeds.mean():.6f} | Std: {pooled_prompt_embeds.std():.6f} | Sum: {pooled_prompt_embeds.sum():.6f}")
-        print("------------------------")
+        if not is_warmup:
+            torch.cuda.synchronize()
+            clip_end_time = time.time()
+            clip_end_ram = self.process.memory_info().rss
+            clip_duration = clip_end_time - clip_start_time
+            clip_ram_delta = (clip_end_ram - clip_start_ram) / (1024 * 1024)
+            print(f"CLIP: took {clip_duration * 1000:.0f}ms - RAM Delta: {clip_ram_delta:.0f}MB")
+
+        if not is_warmup:
+            print("--- Final Embeddings ---")
+            print(f"prompt_embeds: shape={prompt_embeds.shape}, dtype={prompt_embeds.dtype}, device={prompt_embeds.device}")
+            print(f"prompt_embeds | Mean: {prompt_embeds.mean():.6f} | Std: {prompt_embeds.std():.6f} | Sum: {prompt_embeds.sum():.6f}")
+            if pooled_prompt_embeds is not None:
+                print(f"pooled_prompt_embeds: shape={pooled_prompt_embeds.shape}, dtype={pooled_prompt_embeds.dtype}, device={pooled_prompt_embeds.device}")
+                print(f"pooled_prompt_embeds | Mean: {pooled_prompt_embeds.mean():.6f} | Std: {pooled_prompt_embeds.std():.6f} | Sum: {pooled_prompt_embeds.sum():.6f}")
+            print("------------------------")
 
         # 2. Prepare latents
         generator = torch.Generator(device=self.device).manual_seed(seed)
@@ -81,9 +107,10 @@ class SDXLPipeline:
         
         
         timesteps = self.scheduler.timesteps
-        print(f"\n--- Timesteps ({len(timesteps)}) ---")
-        print(timesteps)
-        print("--------------------")
+        if not is_warmup:
+            print(f"\n--- Timesteps ({len(timesteps)}) ---")
+            print(timesteps)
+            print("--------------------")
 
         # 4. Prepare extra inputs for UNet
         time_ids = utils._get_add_time_ids(
@@ -92,16 +119,24 @@ class SDXLPipeline:
         time_ids = time_ids.to(self.device)
 
         # 5. Denoising loop
-        print("\n--- Denoising Loop ---")
+        if not is_warmup:
+            print("\n--- Denoising Loop ---")
+            torch.cuda.synchronize()
+            unet_loop_start_time = time.time()
+            unet_loop_start_ram = self.process.memory_info().rss
+            total_scheduler_time = 0
+
         for i, t in enumerate(timesteps):
-            print(f"\n--- Step {i+1}/{len(timesteps)}, Timestep: {t} ---")
-            print(f"latents before scale_mode_input: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
-            print(f"latents before scale_mode_input | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
+            if not is_warmup:
+                print(f"\n--- Step {i+1}/{len(timesteps)}, Timestep: {t} ---")
+                print(f"latents before scale_mode_input: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
+                print(f"latents before scale_mode_input | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
 
             #cast t to int
             latent_model_input = self.scheduler.scale_model_input(latents, t.to(torch.int32))
-            print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, device={latent_model_input.device}")
-            print(f"latent_model_input | Mean: {latent_model_input.mean():.6f} | Std: {latent_model_input.std():.6f} | Sum: {latent_model_input.sum():.6f}")
+            if not is_warmup:
+                print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, device={latent_model_input.device}")
+                print(f"latent_model_input | Mean: {latent_model_input.mean():.6f} | Std: {latent_model_input.std():.6f} | Sum: {latent_model_input.sum():.6f}")
 
             noise_pred = self.unet(
                 latent_model_input,
@@ -110,38 +145,70 @@ class SDXLPipeline:
                 pooled_prompt_embeds,
                 time_ids,
             )
-            print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
-            print(f"noise_pred | Mean: {noise_pred.mean():.6f} | Std: {noise_pred.std():.6f} | Sum: {noise_pred.sum():.6f}")
+            if not is_warmup:
+                print(f"noise_pred: shape={noise_pred.shape}, dtype={noise_pred.dtype}")
+                print(f"noise_pred | Mean: {noise_pred.mean():.6f} | Std: {noise_pred.std():.6f} | Sum: {noise_pred.sum():.6f}")
             
+            scheduler_step_start_time = 0
+            if not is_warmup:
+                torch.cuda.synchronize()
+                scheduler_step_start_time = time.time()
+
             latents = self.scheduler.step(noise_pred, t, latents)[0]
-            print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}")
-            print(f"latents after step | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
-        print("\n--- Denoising Loop End ---")
+
+            if not is_warmup:
+                torch.cuda.synchronize()
+                scheduler_step_end_time = time.time()
+                total_scheduler_time += scheduler_step_end_time - scheduler_step_start_time
+                print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}")
+                print(f"latents after step | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
         
+        if not is_warmup:
+            torch.cuda.synchronize()
+            unet_loop_end_time = time.time()
+            unet_loop_end_ram = self.process.memory_info().rss
+            unet_loop_duration = unet_loop_end_time - unet_loop_start_time
+            unet_time = unet_loop_duration - total_scheduler_time
+            unet_loop_ram_delta = (unet_loop_end_ram - unet_loop_start_ram) / (1024 * 1024)
+            print("\n--- Denoising Loop End ---")
+            print(f"UNET: took {unet_loop_duration:.2f}s - on unet: {unet_time:.2f}s - on scheduler: {total_scheduler_time:.2f}s - RAM Delta: {unet_loop_ram_delta:.0f}MB")
+
         # 6. Decode latents
-        print("\n--- Decoding Latents ---")
+        if not is_warmup:
+            print("\n--- Decoding Latents ---")
+            torch.cuda.synchronize()
+            vae_start_time = time.time()
+            vae_start_ram = self.process.memory_info().rss
         
-        # The ONNX VAE expects latents in the [0, 1] range.
-        # We scale the latents from the raw UNet output to [0, 1].
-        #latents_to_decode = latents / (2 * self.vae.latent_magnitude) + self.vae.latent_shift
-        #latents_to_decode = latents_to_decode.clamp(0, 1)
-        #latents_to_decode = latents
-        
-        #print(f"latents_to_decode before VAE | Mean: {latents_to_decode.mean():.6f} | Std: {latents_to_decode.std():.6f} | Sum: {latents_to_decode.sum():.6f}")
         image_np = self.onnx_vae(latents)
-        #image_np = self.vae.decode(latents_to_decode).sample
-        
-        print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
+
+        if not is_warmup:
+            torch.cuda.synchronize()
+            vae_end_time = time.time()
+            vae_end_ram = self.process.memory_info().rss
+            vae_duration = vae_end_time - vae_start_time
+            vae_ram_delta = (vae_end_ram - vae_start_ram) / (1024 * 1024)
+            print(f"VAE: took {vae_duration * 1000:.0f}ms - RAM Delta: {vae_ram_delta:.0f}MB")
+            print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 
         # 7. Post-process image
-        print("\n--- Post-processing Image ---")
+        if not is_warmup:
+            print("\n--- Post-processing Image ---")
         image = self.image_processor.postprocess(image_np.detach().cpu(), output_type="pil")[0]
-        print(f"Post-processed image: {image}")
-        print("--- Post-processing Complete ---")
+        if not is_warmup:
+            print(f"Post-processed image: {image}")
+            print("--- Post-processing Complete ---")
 
         # 8. Clear memory
         #utils._clear_memory()
-        print("\n--- Memory Cleared, Pipeline Finished ---")
+        if not is_warmup:
+            torch.cuda.synchronize()
+            total_end_time = time.time()
+            total_duration = total_end_time - total_start_time
+            peak_vram = torch.cuda.max_memory_allocated() / (1024 * 1024)
+            print(f"--- Peak VRAM usage: {peak_vram:.2f} MB ---")
+            print(f"\n--- Total Pipeline Time: {total_duration:.2f}s ---")
+            print("\n--- Memory Cleared, Pipeline Finished ---")
 
         return image
 
@@ -149,5 +216,8 @@ if __name__ == "__main__":
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
     
     pipeline = SDXLPipeline()
+    # Warmup run
+    _ = pipeline(prompt, is_warmup=True)
+    # Monitored run
     image = pipeline(prompt)
     image.save("output.png") 

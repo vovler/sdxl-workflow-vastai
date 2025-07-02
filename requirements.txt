@@ -30,3 +30,6 @@ colored
 python-multipart==0.0.6
 tqdm
 Pillow
+
+scipy==1.13.0
+psutil

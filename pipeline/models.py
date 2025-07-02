@@ -65,11 +65,11 @@ class VAEDecoder(ONNXModel):
         print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
         print("------------------------")
 
-        self.bind_input("latent_sample", latent)
+        self.bind_input("latent_sample", latent.to(torch.float16))
         
         output_shape = (latent.shape[0], 3, latent.shape[2] * 8, latent.shape[3] * 8)
-        output_tensor = torch.empty(output_shape, dtype=latent.dtype, device=self.device)
-        self.bind_output("sample", output_tensor)
+        output_tensor = torch.empty(output_shape, dtype=torch.float16, device=self.device)
+        self.bind_output("sub_171", output_tensor)
         
         self.session.run_with_iobinding(self.io_binding)
         return output_tensor

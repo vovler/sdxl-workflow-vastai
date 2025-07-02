@@ -16,6 +16,7 @@ class SDXLPipeline:
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
         #self.vae_decoder = self.components["vae_decoder"]
+        self.onnx_vae = self.components["onnx_vae"]
         self.vae = self.components["vae"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
@@ -119,14 +120,12 @@ class SDXLPipeline:
         # 6. Decode latents
         print("\n--- Decoding Latents ---")
         
-        # Un-scale and un-shift latents for TinyVAE before decoding
-        #latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
-        latents_to_decode = latents
-        print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
-        #latents_to_decode = latents / self.vae_scale_factor
-        #latents_to_decode = latents / 0.18215
+        # The ONNX VAE expects latents in the [0, 1] range.
+        latents_to_decode = latents / self.vae.latent_magnitude + self.vae.latent_shift
         
-        image_np = self.vae.decode(latents_to_decode).sample
+        print(f"latents_to_decode before VAE | Mean: {latents_to_decode.mean():.6f} | Std: {latents_to_decode.std():.6f} | Sum: {latents_to_decode.sum():.6f}")
+        
+        image_np = self.onnx_vae(latents_to_decode)
         
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
 

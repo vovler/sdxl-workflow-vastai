@@ -211,9 +211,13 @@ if __name__ == "__main__":
     pipeline = SDXLPipeline()
     # Warmup run
     _ = pipeline(prompt, is_warmup=True)
+    
     # Monitored run
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nigstart_time = time.time()rt_time = time.time()
-    im)
+    start_time = time.time()
+    print(f"Time taken: {end_time - start_time:.2f} seconds")
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nigim)
+    image = pipeline(prompt)
     end_time = time.time()
+
     print(f"Time taken: {end_time - start_time:.2f} seconds"rt_time:.2f} seconds")
     image.save("output.png") 

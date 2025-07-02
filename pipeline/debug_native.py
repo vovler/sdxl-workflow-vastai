@@ -110,48 +110,48 @@ print("Saved native image to debug_native_output_native.png")
 
 
 # --- Run 2: With qint8 Weight Quantization ---
-#print("\n" + "="*20 + " RUNNING WITH QUANTIZED UNET (qint8) " + "="*20 + "\n")
+print("\n" + "="*20 + " RUNNING WITH QUANTIZED UNET (qint8) " + "="*20 + "\n")
 
 # Reload the pipeline to start fresh before quantizing
-#pipe = StableDiffusionXLPipeline.from_pretrained(
-#    "socks22/sdxl-wai-nsfw-illustriousv14",
-#    torch_dtype=torch.float16,
-#    use_safetensors=True,
-#)
-#pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
-#pipe = pipe.to("cuda")
-#pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
-#    pipe.scheduler.config
-#)
+pipe = StableDiffusionXLPipeline.from_pretrained(
+    "socks22/sdxl-wai-nsfw-illustriousv14",
+    torch_dtype=torch.float16,
+    use_safetensors=True,
+)
+pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
+pipe = pipe.to("cuda")
+pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+    pipe.scheduler.config
+)
 
-#print("Quantizing UNet with qint8 weights...")
-#quantize(pipe.unet, weights=qint8, activations=None)
-#freeze(pipe.unet)
-#print("Quantization complete.")
+print("Quantizing UNet with qint8 weights...")
+quantize(pipe.unet, weights=qint8, activations=None)
+freeze(pipe.unet)
+print("Quantization complete.")
 
 # Patch the UNet again for the second run
-#pipe.unet.forward = new_unet_forward
+pipe.unet.forward = new_unet_forward
 
 # Run the pipeline, resetting the generator to get the same initial noise
-#generator=torch.Generator("cpu").manual_seed(0x7A35D)
-#start_time = time.time()
-#images_quantized = pipe(
-#    prompt=prompt,
-#    height=height,
-#    width=width,
-#    num_inference_steps=num_inference_steps,
-#    guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
-#    generator=generator,
-#).images
-#end_time = time.time()
-#print(f"Quantized pipeline execution time: {end_time - start_time:.2f} seconds")
+generator=torch.Generator("cpu").manual_seed(0x7A35D)
+start_time = time.time()
+images_quantized = pipe(
+    prompt=prompt,
+    height=height,
+    width=width,
+    num_inference_steps=num_inference_steps,
+    guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
+    generator=generator,
+).images
+end_time = time.time()
+print(f"Quantized pipeline execution time: {end_time - start_time:.2f} seconds")
 
 
 # Restore original unet forward
-#pipe.unet.forward = original_unet_forward
+pipe.unet.forward = original_unet_forward
 
-#images_quantized[0].save("debug_native_output_quantized.png")
-#print("Saved quantized image to debug_native_output_quantized.png")
+images_quantized[0].save("debug_native_output_quantized.png")
+print("Saved quantized image to debug_native_output_quantized.png")
 
 
 print("\nNative debug script finished.") 

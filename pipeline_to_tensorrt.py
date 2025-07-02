@@ -27,7 +27,6 @@ def build_engine(
         profile.add(name, min=min_shape, opt=opt_shape, max=max_shape)
 
     config = CreateConfig(
-        trt_logger=TRT_LOGGER,
         fp16=fp16,
         memory_pool_limits={trt.MemoryPoolType.WORKSPACE: 2 * 1024 * 1024 * 1024},  # 2GB
         profiles=[profile]

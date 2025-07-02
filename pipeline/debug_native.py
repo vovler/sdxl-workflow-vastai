@@ -2,7 +2,7 @@
 import torch
 import time
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
-from optimum.quanto import quantize, freeze
+from optimum.quanto import quantize, freeze, qint8
 
 # Ensure you use the exact same settings as your pipeline
 prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), anal sex, ahegao, heart shaped eyes"
@@ -125,7 +125,7 @@ pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
 )
 
 print("Quantizing UNet with qint8 weights...")
-quantize(pipe.unet, weights=torch.qint8, activations=None)
+quantize(pipe.unet, weights=qint8, activations=None)
 freeze(pipe.unet)
 print("Quantization complete.")
 

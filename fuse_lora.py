@@ -4,7 +4,7 @@ from huggingface_hub import snapshot_download
 import os
 
 # Base model and LoRA configuration
-base_model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
+base_model_id = "vovler/w-tiny"
 lora_model_id = "tianweiy/DMD2"
 lora_weight_name = "dmd2_sdxl_4step_lora_fp16.safetensors"
 

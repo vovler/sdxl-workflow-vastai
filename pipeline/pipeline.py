@@ -205,7 +205,7 @@ class SDXLPipeline:
             torch.cuda.synchronize()
             total_end_time = time.time()
             total_duration = total_end_time - total_start_time
-            peak_vram = torch.cuda.max_memory_allocated() / (1024 * 1024)
+            peak_vram = torch.cuda.max_memory_allocated("cuda:0") / (1024 * 1024)
             print(f"--- Peak VRAM usage: {peak_vram:.2f} MB ---")
             print(f"\n--- Total Pipeline Time: {total_duration:.2f}s ---")
             print("\n--- Memory Cleared, Pipeline Finished ---")

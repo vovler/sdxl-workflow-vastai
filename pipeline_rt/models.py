@@ -102,7 +102,7 @@ class UNet(TensorRTModel):
         super().__init__(engine_path, device)
 
     def __call__(self, latent: torch.Tensor, timestep: torch.Tensor, text_embedding: torch.Tensor, text_embeds: torch.Tensor, time_ids: torch.Tensor) -> torch.Tensor:
-        timestep = timestep.unsqueeze(0) # Add batch dimension for TRT
+        
 
         print("--- UNet Inputs ---")
         print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}")

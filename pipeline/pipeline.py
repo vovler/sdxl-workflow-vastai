@@ -120,10 +120,10 @@ class SDXLPipeline:
         print("\n--- Decoding Latents ---")
         
         # Un-scale and un-shift latents for TinyVAE before decoding
-        #latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
-        #print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
+        latents_to_decode = (latents - self.vae.config.latent_shift) / self.vae.config.latent_magnitude
+        print(f"TinyVAE latent_shift: {self.vae.config.latent_shift}, latent_magnitude: {self.vae.config.latent_magnitude}")
         #latents_to_decode = latents / self.vae_scale_factor
-        latents_to_decode = latents / 0.18215
+        #latents_to_decode = latents / 0.18215
         
         image_np = self.vae.decode(latents_to_decode).sample
         

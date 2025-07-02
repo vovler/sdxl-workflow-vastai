@@ -3,8 +3,8 @@ from diffusers.image_processor import VaeImageProcessor
 from transformers import CLIPTokenizer
 import torch
 
-from . import models
-from . import defaults
+import models
+import defaults
 
 def load_pipeline_components():
     """

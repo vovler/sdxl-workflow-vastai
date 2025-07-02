@@ -6,9 +6,9 @@ import time
 import psutil
 import os
 
-from . import loader
+import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
-from . import utils
+import utils
 
 class SDXLPipeline:
     def __init__(self):

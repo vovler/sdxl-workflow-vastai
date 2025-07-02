@@ -32,7 +32,7 @@ class TensorRTModel:
         self.device = device
         subfolder = os.path.basename(os.path.dirname(engine_path))
         filename = os.path.basename(engine_path)
-        print(f"\n--- Loading TensorRT engine for: {subfolder}/{filename} ---")
+        print(f"\n--- Loading TensorRT engine for: {engine_path} ---")
 
         with open(engine_path, "rb") as f:
             self.engine = runtime.deserialize_cuda_engine(f.read())

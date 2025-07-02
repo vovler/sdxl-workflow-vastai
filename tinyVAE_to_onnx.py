@@ -18,14 +18,14 @@ class VAEDecoderWrapper(torch.nn.Module):
         # The user of this ONNX model is expected to provide latents in [0, 1] range.
         unscaled_latents = self.unscale_latents(latent_sample)
         sample = self.vae_decoder(unscaled_latents)
-        return {"sample": sample}
+        return sample
 
 
 def main():
     """
     Exports the Tiny VAE (TAESDXL) decoder to ONNX.
     """
-    model_id = "madebyollin/taesdxl"
+    model_id = "cqyan/hybrid-sd-tinyvae-xl"
     output_path = "taesdxl_decoder.onnx"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
@@ -72,6 +72,8 @@ def main():
     onnx_program = torch.onnx.export(
         decoder_wrapper,
         model_args,
+        input_names=["latent_sample"],
+        output_names=["sample"],
         dynamo=True,
         dynamic_shapes=dynamic_shapes,
         opset_version=18,

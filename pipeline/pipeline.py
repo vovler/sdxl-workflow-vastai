@@ -21,7 +21,7 @@ class SDXLPipeline:
         self.scheduler = self.components["scheduler"]
 
         self.image_processor = self.components["image_processor"]
-        self.vae_scale_factor = self.components["vae_scaling_factor"]
+        self.vae_scale_factor = self.components["vae_scale_factor"]
 
     def __call__(
         self,

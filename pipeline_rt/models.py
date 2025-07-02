@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Dict
 import os
 import tensorrt as trt
+from cuda import cudart
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 trt.init_libnvinfer_plugins(TRT_LOGGER, "")
@@ -54,6 +55,7 @@ class TensorRTModel:
             else:
                 self.output_map[name] = {'dtype': dtype}
         
+        err, self.stream = cudart.cudaStreamCreate()
         self.graph = None
         self.graph_instance = None
         self.input_tensors_for_graph = {}
@@ -77,21 +79,24 @@ class TensorRTModel:
             shape = self.context.get_tensor_shape(name)
             self.output_tensors_for_graph[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
             
-        bindings = {}
         for name, tensor in self.input_tensors_for_graph.items():
-            bindings[name] = tensor
+            self.context.set_tensor_address(name, tensor.data_ptr())
         for name, tensor in self.output_tensors_for_graph.items():
-            bindings[name] = tensor
-            
-        stream = torch.cuda.current_stream().cuda_stream
-        for name, tensor in bindings.items():
             self.context.set_tensor_address(name, tensor.data_ptr())
 
-        self.graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(self.graph):
-            self.context.execute_async_v3(stream_handle=stream)
+        # Warm-up run
+        self.context.execute_async_v3(stream_handle=self.stream)
+        cudart.cudaStreamSynchronize(self.stream)
+
+        # Capture graph
+        cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
+        self.context.execute_async_v3(stream_handle=self.stream)
+        err, graph = cudart.cudaStreamEndCapture(self.stream)
+        self.graph = graph
         
-        self.graph_instance = self.graph.instantiate()
+        err, instance = cudart.cudaGraphInstantiate(self.graph, 0)
+        self.graph_instance = instance
+        
         print(f"CUDA graph captured for {self.__class__.__name__}")
 
     def __call__(self, feed_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -100,8 +105,8 @@ class TensorRTModel:
                 if name in self.input_tensors_for_graph:
                     self.input_tensors_for_graph[name].copy_(tensor)
             
-            self.graph_instance.replay()
-            torch.cuda.current_stream().synchronize()
+            cudart.cudaGraphLaunch(self.graph_instance, self.stream)
+            cudart.cudaStreamSynchronize(self.stream)
             return {name: tensor.clone() for name, tensor in self.output_tensors_for_graph.items()}
 
         bindings = {}
@@ -118,13 +123,11 @@ class TensorRTModel:
             outputs[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
             bindings[name] = outputs[name]
         
-        stream = torch.cuda.current_stream().cuda_stream
-
         for name, tensor in bindings.items():
             self.context.set_tensor_address(name, tensor.data_ptr())
 
-        self.context.execute_async_v3(stream_handle=stream)
-        torch.cuda.current_stream().synchronize()
+        self.context.execute_async_v3(stream_handle=self.stream)
+        cudart.cudaStreamSynchronize(self.stream)
         
         return outputs
 

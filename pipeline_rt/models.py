@@ -134,7 +134,7 @@ class TensorRTModel:
 
 class VAEDecoder(TensorRTModel):
     def __init__(self, model_path: str, device: torch.device):
-        engine_path = os.path.splitext(model_path)[0] + ".plan"
+        engine_path = os.path.splitext(model_path)[0] + "_int8.plan"
         super().__init__(engine_path, device)
 
     def __call__(self, latent: torch.Tensor) -> torch.Tensor:

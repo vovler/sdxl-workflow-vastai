@@ -1,11 +1,81 @@
 import os
 import torch
 import tensorrt as trt
-from polygraphy.backend.trt import CreateConfig, Profile, TrtRunner, engine_from_network, network_from_onnx_path, save_engine
 from collections import OrderedDict
 from pipeline import defaults
+from tqdm import tqdm
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+
+class TQDMProgressMonitor(trt.IProgressMonitor):
+    def __init__(self):
+        trt.IProgressMonitor.__init__(self)
+        self._active_phases = {}
+        self._step_result = True
+        self.max_indent = 5
+
+    def phase_start(self, phase_name, parent_phase, num_steps):
+        leave = False
+        try:
+            if parent_phase is not None:
+                nbIndents = (
+                    self._active_phases.get(parent_phase, {}).get(
+                        "nbIndents", self.max_indent
+                    )
+                    + 1
+                )
+                if nbIndents >= self.max_indent:
+                    return
+            else:
+                nbIndents = 0
+                leave = True
+            self._active_phases[phase_name] = {
+                "tq": tqdm(
+                    total=num_steps, desc=phase_name, leave=leave, position=nbIndents
+                ),
+                "nbIndents": nbIndents,
+                "parent_phase": parent_phase,
+            }
+        except KeyboardInterrupt:
+            # The phase_start callback cannot directly cancel the build, so request the cancellation from within step_complete.
+            self._step_result = False
+
+    def phase_finish(self, phase_name):
+        try:
+            if phase_name in self._active_phases.keys():
+                self._active_phases[phase_name]["tq"].update(
+                    self._active_phases[phase_name]["tq"].total
+                    - self._active_phases[phase_name]["tq"].n
+                )
+
+                parent_phase = self._active_phases[phase_name].get("parent_phase", None)
+                while parent_phase is not None:
+                    self._active_phases[parent_phase]["tq"].refresh()
+                    parent_phase = self._active_phases[parent_phase].get(
+                        "parent_phase", None
+                    )
+                if (
+                    self._active_phases[phase_name]["parent_phase"]
+                    in self._active_phases.keys()
+                ):
+                    self._active_phases[
+                        self._active_phases[phase_name]["parent_phase"]
+                    ]["tq"].refresh()
+                del self._active_phases[phase_name]
+            pass
+        except KeyboardInterrupt:
+            self._step_result = False
+
+    def step_complete(self, phase_name, step):
+        try:
+            if phase_name in self._active_phases.keys():
+                self._active_phases[phase_name]["tq"].update(
+                    step - self._active_phases[phase_name]["tq"].n
+                )
+            return self._step_result
+        except KeyboardInterrupt:
+            # There is no need to propagate this exception to TensorRT. We can simply cancel the build.
+            return False
 
 def get_abs_path(path):
     return os.path.abspath(os.path.join(os.path.dirname(__file__), path))
@@ -22,19 +92,43 @@ def build_engine(
         print("Engine already exists, skipping build.")
         return
 
-    profile = Profile()
-    for name, (min_shape, opt_shape, max_shape) in input_profiles.items():
-        profile.add(name, min=min_shape, opt=opt_shape, max=max_shape)
-
-    config = CreateConfig(
-        fp16=fp16,
-        memory_pool_limits={trt.MemoryPoolType.WORKSPACE: 2 * 1024 * 1024 * 1024},  # 2GB
-        profiles=[profile]
+    builder = trt.Builder(TRT_LOGGER)
+    network = builder.create_network(
+        1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
     )
+    parser = trt.OnnxParser(network, TRT_LOGGER)
 
-    network = network_from_onnx_path(onnx_path)
-    engine = engine_from_network(network, config=config)
-    save_engine(engine, path=engine_path)
+    success = parser.parse_from_file(onnx_path)
+    if not success:
+        for idx in range(parser.num_errors):
+            print(parser.get_error(idx))
+        raise RuntimeError(f"Failed to parse ONNX file: {onnx_path}")
+
+    config = builder.create_builder_config()
+    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 2 * 1024 * 1024 * 1024)
+
+    profile = builder.create_optimization_profile()
+    for name, (min_shape, opt_shape, max_shape) in input_profiles.items():
+        profile.set_shape(name, min=min_shape, opt=opt_shape, max=max_shape)
+
+    config.add_optimization_profile(profile)
+
+    if fp16:
+        config.set_flag(trt.BuilderFlag.FP16)
+
+    config.progress_monitor = TQDMProgressMonitor()
+
+    print("Building engine...")
+    serialized_engine = builder.build_serialized_network(network, config)
+
+    if serialized_engine is None:
+        raise RuntimeError("Failed to build TensorRT engine.")
+
+    print("Engine built successfully.")
+
+    with open(engine_path, "wb") as f:
+        f.write(serialized_engine)
+
     print(f"TensorRT engine saved to {engine_path}")
 
 def get_engine_path(onnx_path: str):

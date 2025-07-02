@@ -3,24 +3,6 @@ from diffusers import AutoencoderTiny
 from torch.export import Dim
 
 
-class VAEDecoderWrapper(torch.nn.Module):
-    def __init__(self, vae):
-        super().__init__()
-        self.vae_decoder = vae.decoder
-        self.latent_magnitude = vae.latent_magnitude
-        self.latent_shift = vae.latent_shift
-
-    def unscale_latents(self, x: torch.Tensor) -> torch.Tensor:
-        """[0, 1] -> raw latents"""
-        return x.sub(self.latent_shift).mul(2 * self.latent_magnitude)
-
-    def forward(self, latent_sample):
-        # The user of this ONNX model is expected to provide latents in [0, 1] range.
-        unscaled_latents = self.unscale_latents(latent_sample)
-        sample = self.vae_decoder(unscaled_latents)
-        return {"sample": sample}
-
-
 def main():
     """
     Exports the Tiny VAE (TAESDXL) decoder to ONNX.
@@ -52,9 +34,6 @@ def main():
 
     model_args = (latent_sample,)
 
-    print("Wrapping VAE decoder for ONNX export.")
-    decoder_wrapper = VAEDecoderWrapper(vae)
-
     print("Exporting VAE decoder to ONNX with TorchDynamo...")
 
     # Define dynamic axes for the model inputs.
@@ -70,7 +49,7 @@ def main():
     }
 
     onnx_program = torch.onnx.export(
-        decoder_wrapper,
+        decoder,
         model_args,
         input_names=["latent_sample"],
         output_names=["sample"],

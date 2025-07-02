@@ -121,14 +121,8 @@ class SDXLPipeline:
         # 6. Decode latents
         print("\n--- Decoding Latents ---")
         
-        # The ONNX VAE expects latents in the [0, 1] range.
-        # We scale the latents from the raw UNet output to [0, 1].
-        latents_to_decode = latents / (2 * self.vae.latent_magnitude) + self.vae.latent_shift
-        latents_to_decode = latents_to_decode.clamp(0, 1)
-        #latents_to_decode = latents
-        
-        #print(f"latents_to_decode before VAE | Mean: {latents_to_decode.mean():.6f} | Std: {latents_to_decode.std():.6f} | Sum: {latents_to_decode.sum():.6f}")
-        image_np = self.onnx_vae(latents_to_decode)
+        # The ONNX VAE now expects raw latents directly from the UNet.
+        image_np = self.onnx_vae(latents)
         #image_np = self.vae.decode(latents_to_decode).sample
         
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")

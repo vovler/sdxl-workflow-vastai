@@ -1,6 +1,7 @@
 # debug_native.py
 import torch
 import torch.fft as fft
+import time
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
 
 # Ensure you use the exact same settings as your pipeline
@@ -118,6 +119,8 @@ pipe.unet.forward = new_unet_forward
 
 # Run the pipeline, resetting the generator to get the same initial noise
 generator=torch.Generator("cpu").manual_seed(0x7A35D)
+
+start_time = time.time()
 images_freeu = pipe(
     prompt=prompt,
     height=height,
@@ -126,6 +129,8 @@ images_freeu = pipe(
     guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
     generator=generator,
 ).images
+end_time = time.time()
+print(f"FreeU pipeline execution time: {end_time - start_time:.2f} seconds")
 
 # Restore original unet forward and disable FreeU
 pipe.unet.forward = original_unet_forward

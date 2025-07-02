@@ -13,7 +13,7 @@ ONNX_MODELS_DIR = "/workflow/wai_dmd2_onnx"
 VAE_DECODER_PATH = os.path.join(ONNX_MODELS_DIR, "tiny_vae_decoder", "model3.onnx")
 
 # UNet
-UNET_PATH = os.path.join(ONNX_MODELS_DIR, "unet", "model2.onnx")
+UNET_PATH = os.path.join(ONNX_MODELS_DIR, "unet", "model_opt.onnx")
 
 # Text Encoders
 CLIP_TEXT_ENCODER_1_PATH = os.path.join(ONNX_MODELS_DIR, "text_encoder", "model.onnx")

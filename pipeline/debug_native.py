@@ -1,8 +1,8 @@
 # debug_native.py
 import torch
-import torch.fft as fft
 import time
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
+from optimum.quanto import quantize, freeze
 
 # Ensure you use the exact same settings as your pipeline
 prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), anal sex, ahegao, heart shaped eyes"
@@ -83,45 +83,15 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
     
     return noise_pred_output
 
-# --- Run 1: Without FreeU ---
-print("\n" + "="*30 + " RUNNING WITHOUT FreeU " + "="*30 + "\n")
+# --- Run 1: Native (un-quantized) ---
+print("\n" + "="*30 + " RUNNING NATIVE (FP16) " + "="*30 + "\n")
 # Patch the UNet
 pipe.unet.forward = new_unet_forward
 
 # Run the pipeline.
 generator=torch.Generator("cpu").manual_seed(0x7A35D)
-images_no_freeu = pipe(
-    prompt=prompt,
-    height=height,
-    width=width,
-    num_inference_steps=num_inference_steps,
-    guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
-    generator=generator,
-).images
-
-# Restore original unet forward
-pipe.unet.forward = original_unet_forward
-
-images_no_freeu[0].save("debug_native_output_no_freeu.png")
-print("Saved image without FreeU to debug_native_output_no_freeu.png")
-
-
-# --- Run 2: With FreeU ---
-print("\n" + "="*30 + " RUNNING WITH FreeU " + "="*30 + "\n")
-# Enable FreeU. Using standard params for SDXL.
-# s1/s2 control the frequency filtering on skip features
-# b1/b2 control the scaling of backbone features
-pipe.enable_freeu(s1=0.9, s2=0.2, b1=1.2, b2=1.4)
-print("FreeU enabled with parameters: s1=0.9, s2=0.2, b1=1.2, b2=1.4")
-
-# Patch the UNet again for the second run
-pipe.unet.forward = new_unet_forward
-
-# Run the pipeline, resetting the generator to get the same initial noise
-generator=torch.Generator("cpu").manual_seed(0x7A35D)
-
 start_time = time.time()
-images_freeu = pipe(
+images_native = pipe(
     prompt=prompt,
     height=height,
     width=width,
@@ -130,14 +100,58 @@ images_freeu = pipe(
     generator=generator,
 ).images
 end_time = time.time()
-print(f"FreeU pipeline execution time: {end_time - start_time:.2f} seconds")
+print(f"Native pipeline execution time: {end_time - start_time:.2f} seconds")
 
-# Restore original unet forward and disable FreeU
+# Restore original unet forward
 pipe.unet.forward = original_unet_forward
-pipe.disable_freeu()
 
-images_freeu[0].save("debug_native_output_freeu.png")
-print("Saved image with FreeU to debug_native_output_freeu.png")
+images_native[0].save("debug_native_output_native.png")
+print("Saved native image to debug_native_output_native.png")
+
+
+# --- Run 2: With qint8 Weight Quantization ---
+print("\n" + "="*20 + " RUNNING WITH QUANTIZED UNET (qint8) " + "="*20 + "\n")
+
+# Reload the pipeline to start fresh before quantizing
+pipe = StableDiffusionXLPipeline.from_pretrained(
+    "socks22/sdxl-wai-nsfw-illustriousv14",
+    torch_dtype=torch.float16,
+    use_safetensors=True,
+)
+pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
+pipe = pipe.to("cuda")
+pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+    pipe.scheduler.config
+)
+
+print("Quantizing UNet with qint8 weights...")
+quantize(pipe.unet, weights=torch.qint8, activations=None)
+freeze(pipe.unet)
+print("Quantization complete.")
+
+# Patch the UNet again for the second run
+pipe.unet.forward = new_unet_forward
+
+# Run the pipeline, resetting the generator to get the same initial noise
+generator=torch.Generator("cpu").manual_seed(0x7A35D)
+start_time = time.time()
+images_quantized = pipe(
+    prompt=prompt,
+    height=height,
+    width=width,
+    num_inference_steps=num_inference_steps,
+    guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
+    generator=generator,
+).images
+end_time = time.time()
+print(f"Quantized pipeline execution time: {end_time - start_time:.2f} seconds")
+
+
+# Restore original unet forward
+pipe.unet.forward = original_unet_forward
+
+images_quantized[0].save("debug_native_output_quantized.png")
+print("Saved quantized image to debug_native_output_quantized.png")
 
 
 print("\nNative debug script finished.") 

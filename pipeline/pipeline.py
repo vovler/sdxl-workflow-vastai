@@ -5,7 +5,7 @@ from PIL import Image
 
 import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
-from . import utils
+import utils
 
 class SDXLPipeline:
     def __init__(self):

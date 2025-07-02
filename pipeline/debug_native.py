@@ -1,5 +1,6 @@
 # debug_native.py
 import torch
+import torch.fft as fft
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
 
 # Ensure you use the exact same settings as your pipeline
@@ -31,11 +32,10 @@ for key, value in pipe.scheduler.config.items():
 print("="*67 + "\n")
 
 
-# Prepare latents
-generator=torch.Generator("cpu").manual_seed(0x7A35D)
+# Prepare latents - we will reset the generator for each run to ensure consistency
+#generator=torch.Generator("cpu").manual_seed(0x7A35D)
 #latents = pipe.prepare_latents(1, pipe.unet.config.in_channels, height, width, torch.float16, device, generator)
 
-# Run the pipeline, but intercept the call to the UNet
 # We will monkey-patch the unet forward pass to capture the inputs
 original_unet_forward = pipe.unet.forward
 
@@ -82,11 +82,14 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
     
     return noise_pred_output
 
+# --- Run 1: Without FreeU ---
+print("\n" + "="*30 + " RUNNING WITHOUT FreeU " + "="*30 + "\n")
 # Patch the UNet
 pipe.unet.forward = new_unet_forward
 
 # Run the pipeline.
-images = pipe(
+generator=torch.Generator("cpu").manual_seed(0x7A35D)
+images_no_freeu = pipe(
     prompt=prompt,
     height=height,
     width=width,
@@ -98,6 +101,38 @@ images = pipe(
 # Restore original unet forward
 pipe.unet.forward = original_unet_forward
 
-images[0].save("debug_native_output.png")
+images_no_freeu[0].save("debug_native_output_no_freeu.png")
+print("Saved image without FreeU to debug_native_output_no_freeu.png")
 
-print("Native debug script finished.") 
+
+# --- Run 2: With FreeU ---
+print("\n" + "="*30 + " RUNNING WITH FreeU " + "="*30 + "\n")
+# Enable FreeU. Using standard params for SDXL.
+# s1/s2 control the frequency filtering on skip features
+# b1/b2 control the scaling of backbone features
+pipe.enable_freeu(s1=0.9, s2=0.2, b1=1.2, b2=1.4)
+print("FreeU enabled with parameters: s1=0.9, s2=0.2, b1=1.2, b2=1.4")
+
+# Patch the UNet again for the second run
+pipe.unet.forward = new_unet_forward
+
+# Run the pipeline, resetting the generator to get the same initial noise
+generator=torch.Generator("cpu").manual_seed(0x7A35D)
+images_freeu = pipe(
+    prompt=prompt,
+    height=height,
+    width=width,
+    num_inference_steps=num_inference_steps,
+    guidance_scale=guidance_scale, # Set to 1.0 to mimic your pipeline
+    generator=generator,
+).images
+
+# Restore original unet forward and disable FreeU
+pipe.unet.forward = original_unet_forward
+pipe.disable_freeu()
+
+images_freeu[0].save("debug_native_output_freeu.png")
+print("Saved image with FreeU to debug_native_output_freeu.png")
+
+
+print("\nNative debug script finished.") 

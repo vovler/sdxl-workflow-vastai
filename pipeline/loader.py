@@ -26,7 +26,7 @@ def load_pipeline_components():
     onnx_text_encoder_1 = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_1_PATH, device, name="CLIP-L")
     onnx_text_encoder_2 = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_2_PATH, device, name="CLIP-G")
     
-    vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16).to(device)
+    vae = AutoencoderTiny.from_pretrained("cqyan/hybrid-sd-tinyvae-xl", torch_dtype=torch.float16).to(device)
     
     vae_scale_factor = 2 ** (len(vae.config.decoder_block_out_channels) - 1)
     image_processor = VaeImageProcessor(vae_scale_factor=vae_scale_factor)

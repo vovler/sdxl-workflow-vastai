@@ -3,6 +3,16 @@ from diffusers import AutoencoderTiny
 from torch.export import Dim
 
 
+class VAEDecoderWrapper(torch.nn.Module):
+    def __init__(self, vae):
+        super().__init__()
+        self.vae_decoder = vae.decoder
+
+    def forward(self, latent_sample):
+        sample = self.vae_decoder(latent_sample)
+        return {"sample": sample}
+
+
 def main():
     """
     Exports the Tiny VAE (TAESDXL) decoder to ONNX.

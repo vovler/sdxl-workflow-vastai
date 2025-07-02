@@ -12,7 +12,8 @@ import utils
 
 class SDXLPipeline:
     def __init__(self):
-        self.device = "cuda"
+        self.cpu_device = torch.device("cpu")
+        self.cuda_device = torch.device("cuda:0")
         self.components = loader.load_pipeline_components()
         self.tokenizer_l = self.components["tokenizer_1"]
         self.tokenizer_g = self.components["tokenizer_2"]
@@ -64,12 +65,19 @@ class SDXLPipeline:
         tokenized_l = self.tokenizer_l(prompt, padding="max_length", max_length=self.tokenizer_l.model_max_length, truncation=True, return_tensors="pt")
         tokenized_g = self.tokenizer_g(prompt, padding="max_length", max_length=self.tokenizer_g.model_max_length, truncation=True, return_tensors="pt")
 
-        input_ids_l = tokenized_l.input_ids.to(self.device)
-        input_ids_g = tokenized_g.input_ids.to(self.device)
+        input_ids_l = tokenized_l.input_ids
+        input_ids_g = tokenized_g.input_ids
 
         # Get embeddings
-        hidden_states_l = self.text_encoder_l(input_ids=input_ids_l).last_hidden_state
-        output_g = self.text_encoder_g(input_ids=input_ids_g)
+        self.text_encoder_l.to(self.cuda_device)
+        self.text_encoder_g.to(self.cuda_device)
+        
+        hidden_states_l = self.text_encoder_l(input_ids=input_ids_l.to(self.cuda_device)).last_hidden_state
+        output_g = self.text_encoder_g(input_ids=input_ids_g.to(self.cuda_device))
+        
+        self.text_encoder_l.to(self.cpu_device)
+        self.text_encoder_g.to(self.cpu_device)
+
         hidden_states_g = output_g.last_hidden_state
         pooled_prompt_embeds = output_g.pooler_output
 
@@ -93,18 +101,17 @@ class SDXLPipeline:
             print("------------------------")
 
         # 2. Prepare latents
-        generator = torch.Generator(device=self.device).manual_seed(seed)
+        generator = torch.Generator(device=self.cuda_device).manual_seed(seed)
+        
+        self.unet.to(self.cuda_device)
         num_channels_latents = self.unet.session.get_inputs()[0].shape[1]
-
+        
         # 3. Prepare timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=self.device)
+        self.scheduler.set_timesteps(num_inference_steps, device=self.cuda_device)
 
         latents = utils._prepare_latents(
-            self.scheduler, 1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.device, generator
+            self.scheduler, 1, num_channels_latents, height, width, pooled_prompt_embeds.dtype, self.cuda_device, generator
         )
-
-        latents = latents.to(self.device)
-        
         
         timesteps = self.scheduler.timesteps
         if not is_warmup:
@@ -115,8 +122,7 @@ class SDXLPipeline:
         # 4. Prepare extra inputs for UNet
         time_ids = utils._get_add_time_ids(
             (height, width), (0, 0), (height, width), dtype=pooled_prompt_embeds.dtype
-        )
-        time_ids = time_ids.to(self.device)
+        ).to(self.cuda_device)
 
         # 5. Denoising loop
         if not is_warmup:
@@ -132,8 +138,7 @@ class SDXLPipeline:
                 print(f"latents before scale_mode_input: shape={latents.shape}, dtype={latents.dtype}, device={latents.device}")
                 print(f"latents before scale_mode_input | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
 
-            #cast t to int
-            latent_model_input = self.scheduler.scale_model_input(latents, t.to(torch.int32))
+            latent_model_input = self.scheduler.scale_model_input(latents, t)
             if not is_warmup:
                 print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, device={latent_model_input.device}")
                 print(f"latent_model_input | Mean: {latent_model_input.mean():.6f} | Std: {latent_model_input.std():.6f} | Sum: {latent_model_input.sum():.6f}")
@@ -141,8 +146,8 @@ class SDXLPipeline:
             noise_pred = self.unet(
                 latent_model_input,
                 t,
-                prompt_embeds,
-                pooled_prompt_embeds,
+                prompt_embeds.to(self.cuda_device),
+                pooled_prompt_embeds.to(self.cuda_device),
                 time_ids,
             )
             if not is_warmup:
@@ -163,6 +168,7 @@ class SDXLPipeline:
                 print(f"latents after step: shape={latents.shape}, dtype={latents.dtype}")
                 print(f"latents after step | Mean: {latents.mean():.6f} | Std: {latents.std():.6f} | Sum: {latents.sum():.6f}")
         
+        self.unet.to(self.cpu_device)
         if not is_warmup:
             torch.cuda.synchronize()
             unet_loop_end_time = time.time()
@@ -180,7 +186,9 @@ class SDXLPipeline:
             vae_start_time = time.time()
             vae_start_ram = self.process.memory_info().rss
         
+        self.onnx_vae.to(self.cuda_device)
         image_np = self.onnx_vae(latents)
+        self.onnx_vae.to(self.cpu_device)
 
         if not is_warmup:
             torch.cuda.synchronize()

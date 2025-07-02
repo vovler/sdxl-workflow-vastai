@@ -18,9 +18,6 @@ class ONNXCLIPTextOutput:
 class ONNXModel:
     def __init__(self, model_path: str, device: torch.device):
         self.model_path = model_path
-        with open(self.model_path, "rb") as f:
-            self.model_bytes = f.read()
-
         self.session = None
         self.device = None
         self.io_binding = None
@@ -49,7 +46,7 @@ class ONNXModel:
         if self.session:
             del self.session
 
-        self.session = ort.InferenceSession(self.model_bytes, providers=providers)
+        self.session = ort.InferenceSession(self.model_path, providers=providers)
         
         if old_device_type == 'cuda' and self.device.type == 'cpu':
             print("--- Clearing CUDA memory ---")

@@ -219,5 +219,7 @@ if __name__ == "__main__":
     # Warmup run
     _ = pipeline(prompt, is_warmup=True)
     # Monitored run
+    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night, nude"
+    
     image = pipeline(prompt)
     image.save("output.png") 

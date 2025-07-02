@@ -29,8 +29,8 @@ class SDXLPipeline:
     def __call__(
         self,
         prompt: str,
-        height: int = 1024,
-        width: int = 1024,
+        height: int = 768,
+        width: int = 1152,
         num_inference_steps: int = 8,
         seed: int = 42,
         is_warmup: bool = False,

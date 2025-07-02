@@ -205,11 +205,6 @@ class SDXLPipeline:
         return image
 
 if __name__ == "__main__":
-    # Adjust the import to point to the new pipeline directory
-    import sys
-    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-    from pipeline_rt.pipeline import SDXLPipeline
-
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
     
     pipeline = SDXLPipeline()

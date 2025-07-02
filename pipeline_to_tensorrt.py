@@ -53,12 +53,12 @@ def main():
 
     # UNet
     print("\n--- Building UNet Engine ---")
-    latent_heights = [768 // 8, 1152 // 8, 944 // 8] # 96, 144, 118
-    latent_widths = [1152 // 8, 768 // 8, 944 // 8]  # 144, 96, 118
+    latent_heights = [768 // 8, 1152 // 8, 960 // 8] # 96, 144, 120
+    latent_widths = [1152 // 8, 768 // 8, 960 // 8]  # 144, 96, 120
     
     min_h, max_h = min(latent_heights), max(latent_heights)
     min_w, max_w = min(latent_widths), max(latent_widths)
-    opt_h, opt_w = 944 // 8, 944 // 8
+    opt_h, opt_w = 960 // 8, 960 // 8
 
     unet_input_profiles = {
         "sample": (

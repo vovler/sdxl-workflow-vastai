@@ -18,7 +18,7 @@ class VAEDecoderWrapper(torch.nn.Module):
         # The user of this ONNX model is expected to provide latents in [0, 1] range.
         unscaled_latents = self.unscale_latents(latent_sample)
         sample = self.vae_decoder(unscaled_latents)
-        return sample
+        return {"sample": sample}
 
 
 def main():

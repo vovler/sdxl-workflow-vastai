@@ -10,10 +10,10 @@ DEFAULT_BASE_MODEL = "socks22/sdxl-wai-nsfw-illustriousv14"
 ONNX_MODELS_DIR = "/workflow/wai_dmd2_onnx"
 
 # VAE
-VAE_DECODER_PATH = os.path.join(ONNX_MODELS_DIR, "tiny_vae_decoder", "model.onnx")
+VAE_DECODER_PATH = os.path.join(ONNX_MODELS_DIR, "tiny_vae_decoder", "model3.onnx")
 
 # UNet
-UNET_PATH = os.path.join(ONNX_MODELS_DIR, "unet", "model.onnx")
+UNET_PATH = os.path.join(ONNX_MODELS_DIR, "unet", "model2.onnx")
 
 # Text Encoders
 CLIP_TEXT_ENCODER_1_PATH = os.path.join(ONNX_MODELS_DIR, "text_encoder", "model.onnx")

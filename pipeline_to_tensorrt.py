@@ -108,10 +108,10 @@ def build_engine(
     config = builder.create_builder_config()
     config.builder_optimization_level = 5
     config.set_preview_feature(trt.PreviewFeature.RUNTIME_ACTIVATION_RESIZE_10_10, True)
-    config.set_hardware_compatibility_level(
+    config.hardware_compatibility_level = (
         trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
     )
-    config.set_tiling_optimization_level(trt.TilingOptimizationLevel.MODERATE)
+    config.tiling_optimization_level = trt.TilingOptimizationLevel.MODERATE
     #config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 2 * 1024 * 1024 * 1024)
 
     profile = builder.create_optimization_profile()

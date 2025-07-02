@@ -7,7 +7,6 @@ import os
 import modelopt.torch.quantization as mtq
 import modelopt.torch.opt as mto
 from modelopt.torch.quantization.config import (
-    QUANT_CONFIG_BY_KEY,
     QuantizationConfig,
     TensorQuantizer,
 )
@@ -67,9 +66,6 @@ def get_percentilequant_config(model, quant_level, percentile, alpha):
         """
         Get the quantization config for a module.
         """
-        quant_config = QUANT_CONFIG_BY_KEY.get(module_name)
-        if quant_config is not None:
-            return quant_config
         return quant_config_by_module.get(
             module_type, quant_config_by_module.get("default")
         )

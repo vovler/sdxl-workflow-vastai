@@ -221,5 +221,8 @@ if __name__ == "__main__":
     # Monitored run
     prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night, nude"
     
+    start_time = time.time()
     image = pipeline(prompt)
+    end_time = time.time()
+    print(f"Time taken: {end_time - start_time:.2f} seconds")
     image.save("output.png") 

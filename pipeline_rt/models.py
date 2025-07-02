@@ -53,8 +53,57 @@ class TensorRTModel:
                 self.input_map[name] = {'dtype': dtype}
             else:
                 self.output_map[name] = {'dtype': dtype}
+        
+        self.graph = None
+        self.graph_instance = None
+        self.input_tensors_for_graph = {}
+        self.output_tensors_for_graph = {}
+
+    def capture_graph(self, feed_dict: Dict[str, torch.Tensor]):
+        print(f"Capturing CUDA graph for {self.__class__.__name__}")
+        
+        for name, tensor in feed_dict.items():
+            if name not in self.input_map:
+                continue
+            self.context.set_input_shape(name, tensor.shape)
+        
+        for name, tensor in feed_dict.items():
+            if name not in self.input_map:
+                continue
+            self.input_tensors_for_graph[name] = tensor.clone().contiguous().to(device=self.device, dtype=self.input_map[name]['dtype'])
+        
+        self.output_tensors_for_graph = {}
+        for name, properties in self.output_map.items():
+            shape = self.context.get_tensor_shape(name)
+            self.output_tensors_for_graph[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
+            
+        bindings = {}
+        for name, tensor in self.input_tensors_for_graph.items():
+            bindings[name] = tensor
+        for name, tensor in self.output_tensors_for_graph.items():
+            bindings[name] = tensor
+            
+        stream = torch.cuda.current_stream().cuda_stream
+        for name, tensor in bindings.items():
+            self.context.set_tensor_address(name, tensor.data_ptr())
+
+        self.graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(self.graph):
+            self.context.execute_async_v3(stream_handle=stream)
+        
+        self.graph_instance = self.graph.instantiate()
+        print(f"CUDA graph captured for {self.__class__.__name__}")
 
     def __call__(self, feed_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        if self.graph_instance:
+            for name, tensor in feed_dict.items():
+                if name in self.input_tensors_for_graph:
+                    self.input_tensors_for_graph[name].copy_(tensor)
+            
+            self.graph_instance.replay()
+            torch.cuda.current_stream().synchronize()
+            return {name: tensor.clone() for name, tensor in self.output_tensors_for_graph.items()}
+
         bindings = {}
         
         for name, tensor in feed_dict.items():

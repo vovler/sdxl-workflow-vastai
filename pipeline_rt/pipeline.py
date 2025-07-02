@@ -72,6 +72,10 @@ class SDXLPipeline:
 
         prompt_embeds = torch.cat([hidden_states_l, hidden_states_g], dim=-1)
 
+        if is_warmup:
+            self.text_encoder_l.capture_graph({"input_ids": input_ids_l})
+            self.text_encoder_g.capture_graph({"input_ids": input_ids_g})
+
         if not is_warmup:
             torch.cuda.synchronize()
             clip_end_time = time.time()
@@ -135,6 +139,15 @@ class SDXLPipeline:
                 print(f"latent_model_input: shape={latent_model_input.shape}, dtype={latent_model_input.dtype}, device={latent_model_input.device}")
                 print(f"latent_model_input | Mean: {latent_model_input.mean():.6f} | Std: {latent_model_input.std():.6f} | Sum: {latent_model_input.sum():.6f}")
 
+            if is_warmup and i == 0:
+                self.unet.capture_graph({
+                    "sample": latent_model_input,
+                    "timestep": t,
+                    "encoder_hidden_states": prompt_embeds,
+                    "text_embeds": pooled_prompt_embeds,
+                    "time_ids": time_ids,
+                })
+
             noise_pred = self.unet(
                 latent_model_input,
                 t,
@@ -178,6 +191,9 @@ class SDXLPipeline:
             vae_start_time = time.time()
             vae_start_ram = self.process.memory_info().rss
         
+        if is_warmup:
+            self.trt_vae.capture_graph({"latent_sample": latents})
+
         image_np = self.trt_vae(latents)
 
         if not is_warmup:

@@ -6,10 +6,6 @@ import os
 # Add necessary imports for quantization
 import modelopt.torch.quantization as mtq
 import modelopt.torch.opt as mto
-from modelopt.torch.quantization.config import (
-    QuantizationConfig,
-    TensorQuantizer,
-)
 from functools import partial
 from tqdm import tqdm
 
@@ -28,49 +24,15 @@ def get_percentilequant_config(model, quant_level, percentile, alpha):
     """
     Get the percentile quantization config for a model.
     """
-    quant_config_by_module = {
-        "default": QuantizationConfig(num_bits=(8, 8), axis=None)
+    quant_config = {
+        "quant_cfg": {
+            "*weight_quantizer": {"num_bits": 8, "axis": 0},
+            "*input_quantizer": {"num_bits": 8, "axis": None},
+        },
+        "algorithm": {"method": "smoothquant", "alpha": alpha},
     }
-    # Enable INT8 quantizers for all linear layers
-    print("Using INT8 quantization")
-    quant_config_by_module["aten.linear"] = QuantizationConfig(
-        num_bits=(8, 8),
-        axis=(0),
-        quantizer_type=TensorQuantizer.QuantizerType.INT,
-    )
-
-    # Percentile quantization
-    if percentile is not None and percentile < 1.0:
-        # Use percentile quantization for activations
-        print(f"Using percentile quantization with percentile={percentile}")
-        quant_config_by_module["default"].update(
-            {
-                "a_percentile": percentile,
-                "w_percentile": percentile,
-            }
-        )
-        quant_config_by_module["aten.linear"].update(
-            {
-                "a_percentile": percentile,
-                "w_percentile": percentile,
-            }
-        )
-
-    # Alpha-based quantization
-    if alpha is not None:
-        print(f"Setting alpha to {alpha}")
-        quant_config_by_module["default"]["a_method"] = "max"
-        quant_config_by_module["default"]["w_method"] = "max"
-
-    def get_module_quant_config(module_name, module_type):
-        """
-        Get the quantization config for a module.
-        """
-        return quant_config_by_module.get(
-            module_type, quant_config_by_module.get("default")
-        )
-
-    return partial(get_module_quant_config)
+    print(f"Using SmoothQuant with alpha={alpha}")
+    return quant_config
 
 
 def forward_loop(model, prompts, num_inference_steps=20):

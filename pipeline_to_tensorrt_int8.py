@@ -191,6 +191,7 @@ def build_engine(
 
     # Configure for INT8 mode
     config.set_flag(trt.BuilderFlag.INT8)
+    config.set_calibration_profile(profile)
     config.int8_calibrator = calibrator
 
     config.progress_monitor = TQDMProgressMonitor()

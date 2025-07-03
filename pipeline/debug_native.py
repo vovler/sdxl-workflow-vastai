@@ -140,19 +140,9 @@ model_path = snapshot_download(base_model_id)
 int8_unet_path = os.path.join(model_path, "unet_int8.safetensors")
 print(f"Loading INT8 UNet from: {int8_unet_path}")
 
-# In-place quantization of the UNet.
-# This prepares the model structure to accept quantized weights.
-# We don't need a calibration loop here since we are loading pre-calibrated weights.
-quant_config = {
-    "quant_cfg": {
-        "*weight_quantizer": {"num_bits": 8, "axis": 0},
-        "*input_quantizer": {"num_bits": 8, "axis": None},
-    },
-    "algorithm": {"method": "smoothquant", "alpha": 0.8},
-}
-pipe.unet = mtq.quantize(pipe.unet, quant_config)
-
-# Load the quantized weights
+# Load the quantized weights.
+# mto.restore modifies the UNet in-place, swapping layers with their
+# quantized counterparts and loading the INT8 weights.
 mto.restore(pipe.unet, int8_unet_path)
 print("INT8 UNet loaded and restored successfully.")
 

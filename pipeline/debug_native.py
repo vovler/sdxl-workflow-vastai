@@ -1,8 +1,14 @@
 # debug_native.py
 import torch
 import time
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
-from optimum.quanto import quantize, freeze, qint8
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny, UNet2DConditionModel
+from huggingface_hub import snapshot_download
+import os
+
+# Add necessary imports for modelopt quantization
+import modelopt.torch.quantization as mtq
+import modelopt.torch.opt as mto
+
 
 # Ensure you use the exact same settings as your pipeline
 prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), anal sex, ahegao, heart shaped eyes"
@@ -13,10 +19,12 @@ seed = 42
 guidance_scale = 1.0 # This is the key to matching your CFG-less setup
 
 device = "cuda:0"
+base_model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
+
 
 # Load native pipeline
 pipe = StableDiffusionXLPipeline.from_pretrained(
-    "socks22/sdxl-wai-nsfw-illustriousv14", # Your base model
+    base_model_id, # Your base model
     torch_dtype=torch.float16,
     use_safetensors=True,
 )
@@ -32,10 +40,6 @@ for key, value in pipe.scheduler.config.items():
     print(f"{key}: {value}")
 print("="*67 + "\n")
 
-
-# Prepare latents - we will reset the generator for each run to ensure consistency
-#generator=torch.Generator("cpu").manual_seed(0x7A35D)
-#latents = pipe.prepare_latents(1, pipe.unet.config.in_channels, height, width, torch.float16, device, generator)
 
 # We will monkey-patch the unet forward pass to capture the inputs
 original_unet_forward = pipe.unet.forward
@@ -75,7 +79,13 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
     print("\n" + "="*20 + f" NATIVE DIFFUSERS - CAPTURING UNET OUTPUT " + "="*20)
     # In CFG-less mode (guidance_scale=1.0), the UNet output is the final noise prediction
     # The UNet can return a tuple, so we take the first element.
-    final_noise_pred = noise_pred_output[0] if isinstance(noise_pred_output, tuple) else noise_pred_output.sample
+    # Diffusers `UNet2DConditionOutput`, `Quantizedunetoutput` from modelopt... let's check for `.sample`
+    if hasattr(noise_pred_output, "sample"):
+        final_noise_pred = noise_pred_output.sample
+    elif isinstance(noise_pred_output, tuple):
+        final_noise_pred = noise_pred_output[0]
+    else:
+        final_noise_pred = noise_pred_output
     
     print(f"NOISE_PRED (final) | Shape: {final_noise_pred.shape} | Dtype: {final_noise_pred.dtype}")
     print(f"NOISE_PRED (final) | Mean: {final_noise_pred.mean():.6f} | Std: {final_noise_pred.std():.6f} | Sum: {final_noise_pred.sum():.6f}")
@@ -109,12 +119,12 @@ images_native[0].save("debug_native_output_native.png")
 print("Saved native image to debug_native_output_native.png")
 
 
-# --- Run 2: With qint8 Weight Quantization ---
-print("\n" + "="*20 + " RUNNING WITH QUANTIZED UNET (qint8) " + "="*20 + "\n")
+# --- Run 2: With modelopt INT8 Quantized UNET ---
+print("\n" + "="*20 + " RUNNING WITH MODELOPT INT8 UNET " + "="*20 + "\n")
 
-# Reload the pipeline to start fresh before quantizing
+# Reload the pipeline to start fresh
 pipe = StableDiffusionXLPipeline.from_pretrained(
-    "socks22/sdxl-wai-nsfw-illustriousv14",
+    base_model_id,
     torch_dtype=torch.float16,
     use_safetensors=True,
 )
@@ -124,10 +134,28 @@ pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
     pipe.scheduler.config
 )
 
-print("Quantizing UNet with qint8 weights...")
-quantize(pipe.unet, weights=qint8, activations=None)
-freeze(pipe.unet)
-print("Quantization complete.")
+
+# Path to the quantized UNet
+model_path = snapshot_download(base_model_id)
+int8_unet_path = os.path.join(model_path, "unet_int8.safetensors")
+print(f"Loading INT8 UNet from: {int8_unet_path}")
+
+# In-place quantization of the UNet.
+# This prepares the model structure to accept quantized weights.
+# We don't need a calibration loop here since we are loading pre-calibrated weights.
+quant_config = {
+    "quant_cfg": {
+        "*weight_quantizer": {"num_bits": 8, "axis": 0},
+        "*input_quantizer": {"num_bits": 8, "axis": None},
+    },
+    "algorithm": {"method": "smoothquant", "alpha": 0.8},
+}
+pipe.unet = mtq.quantize(pipe.unet, quant_config)
+
+# Load the quantized weights
+mto.restore(pipe.unet, int8_unet_path)
+print("INT8 UNet loaded and restored successfully.")
+
 
 # Patch the UNet again for the second run
 pipe.unet.forward = new_unet_forward
@@ -144,14 +172,14 @@ images_quantized = pipe(
     generator=generator,
 ).images
 end_time = time.time()
-print(f"Quantized pipeline execution time: {end_time - start_time:.2f} seconds")
+print(f"INT8 Quantized pipeline execution time: {end_time - start_time:.2f} seconds")
 
 
 # Restore original unet forward
 pipe.unet.forward = original_unet_forward
 
-images_quantized[0].save("debug_native_output_quantized.png")
-print("Saved quantized image to debug_native_output_quantized.png")
+images_quantized[0].save("debug_native_output_int8.png")
+print("Saved INT8 quantized image to debug_native_output_int8.png")
 
 
 print("\nNative debug script finished.") 

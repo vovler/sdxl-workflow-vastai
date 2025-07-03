@@ -65,10 +65,6 @@ model_path = snapshot_download(base_model_id)
 unet_path = os.path.join(model_path, "unet")
 int8_unet_path = os.path.join(model_path, "unet_int8.safetensors")
 
-print(f"Saving fused UNet to: {unet_path}")
-# Save the fused UNet
-pipeline.unet.save_pretrained(unet_path)
-
 print("Fused UNet saved successfully.")
 
 # Quantize the UNet

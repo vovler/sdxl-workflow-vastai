@@ -7,6 +7,7 @@ import modelopt.torch.opt as mto
 from tqdm import tqdm
 import argparse
 import onnx
+from torch.export import Dim
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
@@ -236,27 +237,42 @@ def main():
         
         input_names = ["sample", "timestep", "encoder_hidden_states", "text_embeds", "time_ids"]
         output_names = ["out_sample"]
-        dynamic_axes = {
-            "sample": {0: "batch_size", 2: "height", 3: "width"},
-            "encoder_hidden_states": {0: "batch_size"},
-            "text_embeds": {0: "batch_size"},
-            "time_ids": {0: "batch_size"},
+        
+        batch_dim = Dim("batch_size")
+        height_dim = Dim("height")
+        width_dim = Dim("width")
+
+        dynamic_shapes = {
+            "sample": {
+                0: batch_dim,
+                2: height_dim,
+                3: width_dim,
+            },
+            "encoder_hidden_states": {
+                0: batch_dim,
+            },
+            "text_embeds": {
+                0: batch_dim,
+            },
+            "time_ids": {
+                0: batch_dim,
+            },
         }
         
         with torch.no_grad():
-            torch.onnx.export(
+            onnx_program = torch.onnx.export(
                 unet_wrapper,
                 (sample, timestep, encoder_hidden_states, text_embeds, time_ids),
-                onnx_output_path,
                 input_names=input_names,
                 output_names=output_names,
-                dynamic_axes=dynamic_axes,
+                dynamic_shapes=dynamic_shapes,
                 opset_version=18,
-                export_params=True,
+                dynamo=True,
             )
+        onnx_program.save(onnx_output_path)
         print("ONNX export complete.")
 
-        consolidate_onnx_model(onnx_output_path)
+        #consolidate_onnx_model(onnx_output_path)
 
     if args.only_onnx:
         print("Successfully exported ONNX model. Exiting as requested by --only-onnx.")

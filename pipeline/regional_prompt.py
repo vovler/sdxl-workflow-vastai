@@ -59,6 +59,11 @@ prompt_embeds_center, pooled_prompt_embeds_center = encode_prompt_cfg_less(promp
 prompt_embeds_right, pooled_prompt_embeds_right = encode_prompt_cfg_less(prompt_right)
 
 print("Prompts encoded.")
+# Move CLIP models to CPU to save VRAM.
+print("Moving text encoders to CPU...")
+pipe.text_encoder.to("cpu")
+pipe.text_encoder_2.to("cpu")
+torch.cuda.empty_cache()
 
 
 # --- 4. PREPARE LATENTS AND MASKS ---

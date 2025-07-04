@@ -90,9 +90,9 @@ if __name__ == "__main__":
     ).to("cuda")
 
     # Define regional prompts and negative prompt
-    prompt_left = "1girl, aqua (konosuba), blue hair, smiling, masterpiece, best quality"
-    prompt_right = "1girl, megumin (konosuba), brown hair, eyepatch, sad, masterpiece, best quality"
-    negative_prompt = "blurry, ugly, deformed, text, watermark, worst quality, low quality, (bad anatomy)"
+    prompt_left = "masterpiece,best quality,amazing quality, 1girl, aqua_(konosuba)"
+    prompt_right = "masterpiece,best quality,amazing quality, 1girl, megumin"
+    negative_prompt = "bad quality,worst quality,worst detail,sketch,censor,"
     width, height = 1024, 768
     
     # --- Encode each prompt SEPARATELY ---

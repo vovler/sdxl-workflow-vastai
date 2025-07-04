@@ -1,122 +1,86 @@
 import torch
+import torch.nn.functional as F
 from diffusers import StableDiffusionXLPipeline, AutoencoderKL
 from PIL import Image
 import numpy as np
 from typing import List, Dict, Tuple
+import math
 
-# --- 1. Helper Function to Find Token Indices ---
-# This is crucial for knowing which tokens in the full prompt correspond to our regional prompts.
+# --- 1. Helper Functions ---
 def find_token_indices(tokenizer, prompt: str, sub_prompt: str) -> List[int]:
-    """Finds the indices of a sub-prompt's tokens within a larger prompt."""
-    # Tokenize the full prompt and the sub-prompt
     tokens_prompt = tokenizer.tokenize(prompt)
     tokens_sub_prompt = tokenizer.tokenize(sub_prompt)
-
-    # Find the starting index of the sub-prompt sequence
     for i in range(len(tokens_prompt) - len(tokens_sub_prompt) + 1):
         if tokens_prompt[i:i + len(tokens_sub_prompt)] == tokens_sub_prompt:
-            # We must account for the starting BOS (Beginning of Sequence) token
-            # which is always at index 0.
+            # +1 to account for the starting BOS token
             return list(range(i + 1, i + len(tokens_sub_prompt) + 1))
     raise ValueError(f"Sub-prompt '{sub_prompt}' not found in prompt '{prompt}'.")
 
-# --- 2. The Core Logic: Custom Attention Processor ---
-class RegionalAttnProcessor:
-    """
-    A custom attention processor that applies different prompt parts to different image regions.
-    """
-    def __init__(self, regions: Dict[str, Dict]):
-        self.regions = regions
-        # Store the original attention processor to restore it later
-        self.original_attn_processor = None
-
+# This is a helper function from sd-forge-couple's attention_masks.py
+# It is needed to correctly downsample the mask to the latent's resolution.
+def repeat_div(value: int, iterations: int) -> int:
+    for _ in range(iterations):
+        value = math.ceil(value / 2)
+    return value
+    
+# --- 2. The Core Logic: Corrected Custom Attention Processor ---
+class RegionalAttnProcessorV2:
+    def __init__(self, regions_config: Dict, full_prompt_embeds: torch.Tensor):
+        self.regions_config = regions_config
+        self.num_regions = len(regions_config)
+        self.device = full_prompt_embeds.device
+        self.dtype = full_prompt_embeds.dtype
+        
+        self.uncond_embeds, self.cond_embeds = full_prompt_embeds.chunk(2)
+        
+        self.regional_cond_embeds = []
+        for region_data in self.regions_config.values():
+            indices = torch.tensor(region_data["indices"]).to(self.device)
+            region_embed = torch.index_select(self.cond_embeds, 1, indices)
+            self.regional_cond_embeds.append(region_embed)
+            
     def __call__(self, attn, hidden_states, encoder_hidden_states=None, attention_mask=None):
         batch_size, sequence_length, _ = hidden_states.shape
-        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)
-        query = attn.to_q(hidden_states)
+        hidden_states_uncond, hidden_states_cond = hidden_states.chunk(2)
+        encoder_hidden_states_uncond, encoder_hidden_states_cond = encoder_hidden_states.chunk(2)
 
-        # Let the UNet use the full, combined prompt embeddings
-        encoder_hidden_states = encoder_hidden_states if encoder_hidden_states is not None else hidden_states
-        key = attn.to_k(encoder_hidden_states)
-        value = attn.to_v(encoder_hidden_states)
+        # 1. Process Unconditional Pass (standard attention)
+        output_uncond = F.scaled_dot_product_attention(
+            attn.to_q(hidden_states_uncond), attn.to_k(encoder_hidden_states_uncond), attn.to_v(encoder_hidden_states_uncond),
+        )
 
-        # Reshape for attention calculation
-        query = attn.head_to_batch_dim(query)
-        key = attn.head_to_batch_dim(key)
-        value = attn.head_to_batch_dim(value)
-        
-        # This is the standard attention score calculation
-        attention_probs = attn.get_attention_scores(query, key, attention_mask)
-        
-        # ------------------------------------------------------------------
-        # --- ATTENTION COUPLING MODIFICATION ---
-        # ------------------------------------------------------------------
-        
-        # `attention_probs` has shape (batch_size * num_heads, sequence_length, num_tokens)
-        # `sequence_length` corresponds to the flattened latent image patches (e.g., 64*64=4096 for a 512x512 image)
-        # `num_tokens` is the length of the tokenized prompt (e.g., 77 for SD 1.5)
+        # 2. Process Conditional Pass (regional attention)
+        hidden_states_cond_repeated = hidden_states_cond.repeat(self.num_regions, 1, 1)
+        regional_prompts_stacked = torch.cat(self.regional_cond_embeds, dim=0)
 
-        # Get the latent shape (e.g., 64x64)
-        latent_h = int(np.sqrt(attention_probs.shape[1]))
+        q = attn.to_q(hidden_states_cond_repeated)
+        k = attn.to_k(regional_prompts_stacked)
+        v = attn.to_v(regional_prompts_stacked)
+        regional_outputs = F.scaled_dot_product_attention(q, k, v)
+
+        latent_h = int(np.sqrt(sequence_length))
         latent_w = latent_h
-
-        # Clone the original probabilities to modify them
-        modified_attention_probs = torch.zeros_like(attention_probs)
-
-        # Get all token indices that are part of any regional prompt
-        all_regional_indices = set()
-        for region_data in self.regions.values():
-            all_regional_indices.update(region_data["indices"])
-
-        # Get "global" token indices (e.g., for style, quality, connectors like 'AND')
-        num_tokens = attention_probs.shape[-1]
-        global_indices = [i for i in range(num_tokens) if i not in all_regional_indices]
-
-        # First, apply the global prompt tokens to the entire image
-        modified_attention_probs[:, :, global_indices] = attention_probs[:, :, global_indices]
         
-        # Now, apply regional prompts to their designated areas
-        for region_data in self.regions.values():
-            mask = region_data["mask"]
-            indices = region_data["indices"]
-
-            # Resize the user-provided mask (e.g., 1024x1024) to the latent space size (e.g., 32x32 for SDXL)
-            # and flatten it to match the `sequence_length` dimension of the attention map.
-            resized_mask = F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(latent_h, latent_w), mode='bilinear')
-            resized_mask = resized_mask.squeeze().view(-1).to(attention_probs.device) # Shape: (sequence_length,)
+        final_cond_output = torch.zeros_like(hidden_states_cond)
+        for i, region_data in enumerate(self.regions_config.values()):
+            mask = region_data["mask"].to(self.device, self.dtype)
+            mask_downsampled = F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(latent_h, latent_w), mode='bilinear', align_corners=False)
+            mask_downsampled = mask_downsampled.squeeze().view(sequence_length, 1)
             
-            # Select the pixels (rows) that correspond to this mask
-            mask_rows = resized_mask > 0.5
-            
-            # For the masked pixels, copy the attention scores but ONLY for the tokens of the regional prompt
-            modified_attention_probs[:, mask_rows, indices] = attention_probs[:, mask_rows, indices]
-            
-        # Re-normalize the attention probabilities so each row sums to 1 again
-        # This is a critical step to ensure the output is valid.
-        row_sums = modified_attention_probs.sum(dim=-1, keepdim=True)
-        # Avoid division by zero for rows that might have all-zero attention
-        row_sums[row_sums == 0] = 1.0
-        normalized_attention_probs = modified_attention_probs / row_sums
-        # ------------------------------------------------------------------
-        # --- END OF MODIFICATION ---
-        # ------------------------------------------------------------------
+            region_output = regional_outputs[i].unsqueeze(0)
+            final_cond_output += region_output * mask_downsampled
 
-        # Compute the final hidden states using the modified attention map
-        hidden_states = torch.bmm(normalized_attention_probs, value)
-        hidden_states = attn.batch_to_head_dim(hidden_states)
-
-        # linear proj
-        hidden_states = attn.to_out[0](hidden_states)
-        # dropout
-        hidden_states = attn.to_out[1](hidden_states)
-
-        return hidden_states
-
+        # 3. Combine Unconditional and Conditional Outputs
+        output = torch.cat([output_uncond, final_cond_output], dim=0)
+        output = attn.batch_to_head_dim(output)
+        output = attn.to_out[0](output)
+        output = attn.to_out[1](output)
+        
+        return output
 
 # --- 3. Main Script Setup and Execution ---
 if __name__ == "__main__":
     # --- Configuration ---
-    # Use a faster VAE for SDXL
     vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
     pipe = StableDiffusionXLPipeline.from_pretrained(
         "socks22/sdxl-wai-nsfw-illustriousv14",
@@ -126,40 +90,46 @@ if __name__ == "__main__":
         use_safetensors=True
     ).to("cuda")
 
-    # Define our regional prompts
-    prompt_left = "masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, aqua_(konosuba), smiling"
-    prompt_right = "masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, megumin, sad"
+    prompt_left = "1girl, aqua (konosuba), blue hair, smiling, masterpiece, best quality"
+    prompt_right = "1girl, megumin (konosuba), brown hair, eyepatch, sad, masterpiece, best quality"
     
-    # A global prompt can add style but is not strictly necessary. The 'AND' acts as a separator.
-    # The key is that the full prompt must contain the regional prompts verbatim.
-    full_prompt = f"{prompt_left} AND {prompt_right}, cinematic, 8k, masterpiece"
-    negative_prompt = "blurry, ugly, deformed, text, watermark"
+    # The full prompt MUST contain the regional prompts verbatim.
+    full_prompt = f"{prompt_left} AND {prompt_right}"
+    negative_prompt = "blurry, ugly, deformed, text, watermark, worst quality, low quality"
     
-    width, height = 1024, 1024
+    width, height = 1024, 768
     
+    # --- Encode prompts to get embeddings (needed for the processor) ---
+    print("Encoding prompts...")
+    prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = pipe.encode_prompt(
+        prompt=full_prompt,
+        negative_prompt=negative_prompt,
+        device="cuda",
+        num_images_per_prompt=1,
+        do_classifier_free_guidance=True
+    )
+    # The processor needs both cond and uncond embeds
+    full_prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
+
     # --- Find Token Indices for each region ---
     print("Finding token indices...")
-    # SDXL uses two tokenizers, we'll use the first one which is standard.
-    tokenizer = pipe.tokenizer
+    # SDXL uses two tokenizers, we care about the first one for cross-attention
+    tokenizer1 = pipe.tokenizer
     
-    indices_left = find_token_indices(tokenizer, full_prompt, prompt_left)
-    indices_right = find_token_indices(tokenizer, full_prompt, prompt_right)
-
-    print(f"Left prompt '{prompt_left}' indices: {indices_left}")
-    print(f"Right prompt '{prompt_right}' indices: {indices_right}")
+    indices_left = find_token_indices(tokenizer1, full_prompt, prompt_left)
+    indices_right = find_token_indices(tokenizer1, full_prompt, prompt_right)
+    print(f"Left prompt indices: {indices_left}")
+    print(f"Right prompt indices: {indices_right}")
 
     # --- Create Spatial Masks ---
-    # These masks define which pixels are controlled by which prompt.
-    # They should be the same size as the final image.
     print("Creating spatial masks...")
     mask_left = torch.zeros((height, width))
-    mask_left[:, :width // 2] = 1.0  # Left half of the image
+    mask_left[:, :width // 2] = 1.0
 
     mask_right = torch.zeros((height, width))
-    mask_right[:, width // 2:] = 1.0 # Right half of the image
+    mask_right[:, width // 2:] = 1.0
     
     # --- Prepare for Injection ---
-    # This dictionary will be passed to our custom attention processor
     regions_config = {
         "left": {"mask": mask_left, "indices": indices_left},
         "right": {"mask": mask_right, "indices": indices_right}
@@ -167,35 +137,29 @@ if __name__ == "__main__":
 
     # --- Inject the Custom Attention Processor ---
     print("Injecting custom attention processor...")
-    # The UNet has many attention blocks. We'll replace all of them.
-    # We need to import torch.nn.functional to be used inside the processor
-    import torch.nn.functional as F
-    
-    original_processors = {}
-    for name, module in pipe.unet.named_modules():
-        if "attn2" in name and "processor" in name: # Target cross-attention blocks
-            original_processors[name] = module.processor
-            module.processor = RegionalAttnProcessor(regions=regions_config)
+    attn_procs = {}
+    for name in pipe.unet.attn_processors.keys():
+        if "attn2" in name: # Target cross-attention blocks
+            attn_procs[name] = RegionalAttnProcessorV2(regions_config, full_prompt_embeds)
+        else: # Use default for self-attention
+            attn_procs[name] = pipe.unet.attn_processors[name]
+    pipe.unet.set_attn_processor(attn_procs)
 
     # --- Generate the Image ---
     print("Generating image with attention coupling...")
-    generator = torch.Generator("cuda").manual_seed(42)
+    generator = torch.Generator("cuda").manual_seed(12345)
     image = pipe(
-        prompt=full_prompt,
-        negative_prompt=negative_prompt,
+        prompt_embeds=prompt_embeds,
+        negative_prompt_embeds=negative_prompt_embeds,
+        pooled_prompt_embeds=pooled_prompt_embeds,
+        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
         width=width,
         height=height,
-        guidance_scale=7.5,
-        num_inference_steps=30,
+        guidance_scale=7.0,
+        num_inference_steps=28,
         generator=generator,
     ).images[0]
     
     print("Image generation complete.")
-    image.save("multi_character_composition_sdxl.png")
-    print("Saved image to 'multi_character_composition_sdxl.png'")
-    
-    # --- Restore Original Processors (Good Practice) ---
-    print("Restoring original attention processors...")
-    for name, module in pipe.unet.named_modules():
-        if "attn2" in name and "processor" in name:
-            module.processor = original_processors[name]
+    image.save("multi_character_composition_sdxl_fixed.png")
+    print("Saved image to 'multi_character_composition_sdxl_fixed.png'")

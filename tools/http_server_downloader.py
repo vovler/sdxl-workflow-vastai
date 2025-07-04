@@ -89,8 +89,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Set the global BASE_DIR variable, which is used by the request handler.
-    global BASE_DIR
+
     BASE_DIR = Path(args.directory)
 
     # Before starting the server, check if the target directory exists and is a directory.

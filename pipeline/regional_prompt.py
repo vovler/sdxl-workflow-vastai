@@ -101,10 +101,11 @@ for i, t in enumerate(pipe.progress_bar(timesteps)):
     # --- A. CONDITIONAL PASSES (Global + Each Region) ---
     # We no longer need to duplicate the latent or run an unconditional pass.
     text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
-    add_time_ids_kwargs = {"text_embeds": None, "time_ids": pipe._get_add_time_ids(
+    time_ids = pipe._get_add_time_ids(
             (height, width), (0,0), (height, width), dtype=torch.float16,
             text_encoder_projection_dim=text_encoder_projection_dim
-        )}
+        ).to(device)
+    add_time_ids_kwargs = {"time_ids": time_ids}
     
     # Global prompt prediction
     add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_global

@@ -12,10 +12,8 @@ import modelopt.torch.opt as mto
 
 
 # Ensure you use the exact same settings as your pipeline
-prompt = '("masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, 3girls, facing_the_viewer, shiny clothes",\
-"aqua_(konosuba), hands_up, arms_up, happy, joyful",\
-"megumin, hands_behind_back, smug",\
-"darkness_(konosuba), annoyed").and()'
+prompt = 'masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, 3girls, ((aqua_(konosuba) hands_up, arms_up, happy, joyful)), ((megumin, hands_behind_back, smug)), (((darkness_(konosuba), annoyed)), facing_the_viewer, shiny clothes'
+
 height = 832
 width = 1216
 num_inference_steps = 12

@@ -19,11 +19,7 @@ def main():
     print("Model and tokenizer loaded successfully.")
 
     natural_text = (
-        "A beautiful illustration of Aqua from the anime series Konosuba. "
-        "She is depicted dancing gracefully and joyfully in the middle of a heavy downpour at night on a city street. "
-        "Rain is splashing all around her, catching the glow from the streetlights. "
-        "She has a radiant smile on her face, with her long blue hair and signature outfit soaked with rain. "
-        "The overall mood is cheerful and magical."
+        "Aqua is smiling and dancing in the rain in Tokyo steets at night"
     )
 
     print("\nNatural text description:")

@@ -1,9 +1,9 @@
 import torch
 import torch.nn.functional as F
-from diffusers import StableDiffusionXLPipeline, AutoencoderKL
+from diffusers import StableDiffusionXLPipeline
 from PIL import Image
 import numpy as np
-from typing import List, Dict, Tuple
+from typing import List
 import math
 
 # --- 1. Helper Functions (Unchanged) ---
@@ -17,7 +17,7 @@ def lcm_for_list(numbers):
         result = lcm(result, numbers[i])
     return result
 
-# --- 2. The Core Logic: The Architecturally Correct Processor (Unchanged) ---
+# --- 2. Attention Processor (Unchanged, it's now correct and generic) ---
 class RegionalAttnProcessorV6:
     def __init__(self, region_masks: List[torch.Tensor], region_token_counts: List[int], width: int, height: int):
         self.region_masks = region_masks
@@ -77,17 +77,28 @@ if __name__ == "__main__":
         use_safetensors=True
     ).to("cuda")
 
-    prompt_left = "masterpiece, best quality, sharp focus, intricate details, 1girl, aqua (konosuba), smiling"
-    prompt_right = "masterpiece, best quality, sharp focus, intricate details, 1girl, megumin (konosuba), sad, eyepatch"
+    # --- DEFINE PROMPTS (BACKGROUND + REGIONS) ---
+    prompt_background = "masterpiece, best quality, sharp focus, intricate details, cinematic lighting, indoors, tavern"
+    prompt_region_1 = "1girl, aqua (konosuba), smiling, upper body"
+    prompt_region_2 = "1girl, megumin (konosuba), sad, eyepatch, upper body"
+    
     negative_prompt = "blurry, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, artist name"
     width, height = 1024, 768
     
-    print("Encoding regional prompts separately...")
-    cond_embeds_left, _, pooled_embeds_left, _ = pipe.encode_prompt(prompt=prompt_left, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
-    cond_embeds_right, _, pooled_embeds_right, _ = pipe.encode_prompt(prompt=prompt_right, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
+    # --- ENCODE EACH PROMPT SEPARATELY ---
+    print("Encoding prompts...")
+    # Background prompt (this one provides the main pooled_embeds)
+    cond_embeds_bg, _, pooled_embeds_bg, _ = pipe.encode_prompt(prompt=prompt_background, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
+    
+    # Regional prompts
+    cond_embeds_r1, _, _, _ = pipe.encode_prompt(prompt=prompt_region_1, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
+    cond_embeds_r2, _, _, _ = pipe.encode_prompt(prompt=prompt_region_2, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
+    
+    # Negative prompt
     _, uncond_embeds, _, uncond_pooled_embeds = pipe.encode_prompt(prompt="", negative_prompt=negative_prompt, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=True)
     
-    regional_cond_embeds = [cond_embeds_left, cond_embeds_right]
+    # --- PREPARE EMBEDDINGS FOR PIPELINE ---
+    regional_cond_embeds = [cond_embeds_bg, cond_embeds_r1, cond_embeds_r2]
     regional_token_counts = [embed.shape[1] for embed in regional_cond_embeds]
     common_len = lcm_for_list(regional_token_counts)
     
@@ -102,7 +113,7 @@ if __name__ == "__main__":
     final_cond_embeds = torch.cat(padded_regional_cond_embeds, dim=1)
     padded_token_counts = [common_len] * len(regional_cond_embeds)
     
-    # --- CRITICAL FIX: Pad the negative prompt to match the positive prompt's length ---
+    # Pad the negative prompt to match the concatenated positive prompt's length
     if uncond_embeds.shape[1] < final_cond_embeds.shape[1]:
         padding_shape = (1, final_cond_embeds.shape[1] - uncond_embeds.shape[1], uncond_embeds.shape[2])
         padding = torch.zeros(padding_shape, dtype=uncond_embeds.dtype, device=uncond_embeds.device)
@@ -110,14 +121,17 @@ if __name__ == "__main__":
     else:
         padded_uncond_embeds = uncond_embeds
 
-    avg_pooled_embeds = torch.mean(torch.stack([pooled_embeds_left, pooled_embeds_right]), dim=0)
-
-    mask_left = torch.zeros((height, width), device="cuda", dtype=torch.float16)
-    mask_left[:, :width // 2] = 1.0
-    mask_right = torch.zeros((height, width), device="cuda", dtype=torch.float16)
-    mask_right[:, width // 2:] = 1.0
-    region_masks = [mask_left, mask_right]
+    # --- CREATE MASKS ---
+    device, dtype = "cuda", torch.float16
+    mask_background = torch.ones((height, width), device=device, dtype=dtype)
+    mask_region_1 = torch.zeros((height, width), device=device, dtype=dtype)
+    mask_region_1[:, :width // 2] = 1.0
+    mask_region_2 = torch.zeros((height, width), device=device, dtype=dtype)
+    mask_region_2[:, width // 2:] = 1.0
     
+    region_masks = [mask_background, mask_region_1, mask_region_2]
+    
+    # --- INJECT PROCESSOR ---
     print("Injecting custom attention processor...")
     attn_procs = {}
     for name in pipe.unet.attn_processors.keys():
@@ -127,17 +141,18 @@ if __name__ == "__main__":
             attn_procs[name] = pipe.unet.attn_processors[name]
     pipe.unet.set_attn_processor(attn_procs)
 
-    print("Generating image with attention coupling...")
+    # --- GENERATE IMAGE ---
+    print("Generating image...")
     generator = torch.Generator("cuda").manual_seed(12345)
     
     image = pipe(
         prompt_embeds=final_cond_embeds,
-        negative_prompt_embeds=padded_uncond_embeds, # Use the padded negative prompt
-        pooled_prompt_embeds=avg_pooled_embeds,
+        negative_prompt_embeds=padded_uncond_embeds,
+        pooled_prompt_embeds=pooled_embeds_bg, # Use background pooled embeds for global style
         negative_pooled_prompt_embeds=uncond_pooled_embeds,
         width=width, height=height, guidance_scale=7.0, num_inference_steps=28, generator=generator
     ).images[0]
     
     print("Image generation complete.")
-    image.save("multi_character_composition_sdxl_final_final_final_final_fix.png")
-    print("Saved image to 'multi_character_composition_sdxl_final_final_final_final_fix.png'")
+    image.save("final_image.png")
+    print("Saved image to final_image.png")

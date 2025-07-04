@@ -36,6 +36,7 @@ pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=to
 # The scheduler choice is still important. Euler A is a good default.
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 pipe = pipe.to(device)
+pipe.enable_xformers_memory_efficient_attention()
 
 
 # --- 3. ENCODE ALL PROMPTS (SIMPLIFIED) ---

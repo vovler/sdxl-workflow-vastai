@@ -75,14 +75,16 @@ class RegionalAttnProcessorV8:
         final_cond_output = torch.zeros_like(query_cond)
         
         # Prepare masks using forge-couple method
-        original_shape = (batch_size, 3, self.height, self.width)
+        original_shape = (1, 3, self.height, self.width)  # Use batch size 1 for mask calculation
         all_masks = torch.stack([mask for mask, _ in self.region_masks_and_weights])
         
         # Get properly downsampled masks
         mask_downsample = get_mask(all_masks, batch_size, sequence_length, original_shape)
         
-        # Normalize masks so they sum to 1 at each pixel to prevent over-amplification
-        total_weights = torch.zeros_like(mask_downsample[0])
+        # Initialize total_weights with correct batch dimension
+        total_weights = torch.zeros_like(mask_downsample[0:batch_size])
+        
+        # Calculate total weights for normalization
         for i in range(self.num_regions):
             _, weight = self.region_masks_and_weights[i]
             start_idx = i * batch_size

@@ -6,9 +6,8 @@ import numpy as np
 from typing import List, Dict, Tuple
 import math
 
-# --- 1. Helper Functions ---
+# --- 1. Helper Functions (Unchanged) ---
 def find_token_indices(tokenizer, prompt: str, sub_prompt: str) -> List[int]:
-    # (Same as before, no changes needed)
     tokens_prompt = tokenizer.tokenize(prompt)
     tokens_sub_prompt = tokenizer.tokenize(sub_prompt)
     for i in range(len(tokens_prompt) - len(tokens_sub_prompt) + 1):
@@ -20,17 +19,14 @@ def lcm(a, b):
     return abs(a * b) // math.gcd(a, b) if a != 0 and b != 0 else 0
 
 def lcm_for_list(numbers):
-    # (Same as before, no changes needed)
-    if not numbers:
-        return 0
+    if not numbers: return 0
     result = numbers[0]
     for i in range(1, len(numbers)):
         result = lcm(result, numbers[i])
     return result
 
-# --- 2. The Core Logic: Corrected Custom Attention Processor ---
-class RegionalAttnProcessorV2:
-    # MODIFICATION: Added width and height to __init__
+# --- 2. The Core Logic: Architecturally Correct Attention Processor ---
+class RegionalAttnProcessorV3:
     def __init__(self, regions_config: Dict, full_prompt_embeds: torch.Tensor, width: int, height: int):
         self.regions_config = regions_config
         self.num_regions = len(regions_config)
@@ -48,70 +44,80 @@ class RegionalAttnProcessorV2:
             regional_cond_embeds.append(region_embed)
             
         regional_token_counts = [embed.shape[1] for embed in regional_cond_embeds]
-
-        if len(regional_token_counts) > 1:
-            self.common_len = lcm_for_list(regional_token_counts)
-        elif regional_token_counts:
-            self.common_len = regional_token_counts[0]
-        else:
-            self.common_len = 0 # Handle case with no regions
+        self.common_len = lcm_for_list(regional_token_counts) if regional_token_counts else 0
         
         self.padded_regional_cond_embeds = []
         for embed in regional_cond_embeds:
             if embed.shape[1] == self.common_len:
                 self.padded_regional_cond_embeds.append(embed)
-            else:
+            elif self.common_len != 0:
                 repeat_factor = self.common_len // embed.shape[1]
                 padded_embed = embed.repeat(1, repeat_factor, 1)
                 self.padded_regional_cond_embeds.append(padded_embed)
             
-    def __call__(self, attn, hidden_states, encoder_hidden_states=None, attention_mask=None):
-        batch_size, sequence_length, _ = hidden_states.shape
-        hidden_states_uncond, hidden_states_cond = hidden_states.chunk(2)
-        encoder_hidden_states_uncond, encoder_hidden_states_cond = encoder_hidden_states.chunk(2)
+    def __call__(self, attn, hidden_states, encoder_hidden_states=None, attention_mask=None, **kwargs):
+        residual = hidden_states
+        
+        # --- Start of diffusers AttentionProcessor flow ---
+        # 1. Reshape inputs to `(batch_size * num_heads, ...)`
+        query = attn.head_to_batch_dim(attn.to_q(hidden_states))
+        
+        # Split into uncond and cond parts *after* reshaping
+        query_uncond, query_cond = query.chunk(2)
 
-        output_uncond = F.scaled_dot_product_attention(
-            attn.to_q(hidden_states_uncond), attn.to_k(encoder_hidden_states_uncond), attn.to_v(encoder_hidden_states_uncond),
-        )
+        # --- Process Unconditional Pass ---
+        key_uncond = attn.head_to_batch_dim(attn.to_k(encoder_hidden_states.chunk(2)[0]))
+        value_uncond = attn.head_to_batch_dim(attn.to_v(encoder_hidden_states.chunk(2)[0]))
+        output_uncond = F.scaled_dot_product_attention(query_uncond, key_uncond, value_uncond)
 
-        hidden_states_cond_repeated = hidden_states_cond.repeat(self.num_regions, 1, 1)
+        # --- Process Conditional Pass (Regional Logic) ---
+        # Project and reshape the stacked regional prompts
         regional_prompts_stacked = torch.cat(self.padded_regional_cond_embeds, dim=0)
+        key_regional = attn.head_to_batch_dim(attn.to_k(regional_prompts_stacked))
+        value_regional = attn.head_to_batch_dim(attn.to_v(regional_prompts_stacked))
 
-        q = attn.to_q(hidden_states_cond_repeated)
-        k = attn.to_k(regional_prompts_stacked)
-        v = attn.to_v(regional_prompts_stacked)
-        regional_outputs = F.scaled_dot_product_attention(q, k, v)
+        # The query_cond already has shape `(1*heads, seq_len, inner_dim)`.
+        # We need to repeat it for each region.
+        query_cond_repeated = query_cond.repeat(self.num_regions, 1, 1)
 
-        # --- START: ASPECT-RATIO-CORRECT SHAPE CALCULATION ---
-        # This is the key fix for non-square images.
+        # Perform attention for all regions at once
+        regional_outputs = F.scaled_dot_product_attention(query_cond_repeated, key_regional, value_regional)
+
+        # Correctly calculate latent shape
+        sequence_length = hidden_states.shape[1]
         image_ratio = self.height / self.width
-        # We solve a system of equations:
-        # 1) latent_h * latent_w = sequence_length
-        # 2) latent_h / latent_w = image_ratio
-        # From (2), latent_h = latent_w * image_ratio. Substitute into (1):
-        # (latent_w * image_ratio) * latent_w = sequence_length
-        # latent_w^2 = sequence_length / image_ratio
         latent_w = int(math.sqrt(sequence_length / image_ratio))
         latent_h = sequence_length // latent_w
-        # --- END: ASPECT-RATIO-CORRECT SHAPE CALCULATION ---
         
-        final_cond_output = torch.zeros_like(hidden_states_cond)
+        # Recombine regional outputs using masks
+        # The output must have the same shape as query_cond: `(1*heads, seq_len, inner_dim)`
+        final_cond_output = torch.zeros_like(query_cond)
+        
+        # Each chunk of regional_outputs has shape `(1*heads, seq_len, inner_dim)`
+        regional_outputs_chunked = regional_outputs.chunk(self.num_regions, dim=0)
+
         for i, region_data in enumerate(self.regions_config.values()):
             mask = region_data["mask"].to(self.device, self.dtype)
             mask_downsampled = F.interpolate(mask.unsqueeze(0).unsqueeze(0), size=(latent_h, latent_w), mode='bilinear', align_corners=False)
-            mask_downsampled = mask_downsampled.squeeze().view(sequence_length, 1)
+            mask_downsampled = mask_downsampled.view(1, sequence_length, 1) # Reshape for broadcasting
             
-            region_output = regional_outputs[i].unsqueeze(0)
-            final_cond_output += region_output * mask_downsampled
+            final_cond_output += regional_outputs_chunked[i] * mask_downsampled
 
+        # --- Combine and Reshape Back ---
+        # Concatenate along the batch*heads dimension
         output = torch.cat([output_uncond, final_cond_output], dim=0)
-        output = attn.batch_to_head_dim(output)
-        output = attn.to_out[0](output)
-        output = attn.to_out[1](output)
         
+        # 5. Reshape back to `(batch_size, ...)`
+        output = attn.batch_to_head_dim(output)
+        
+        # 6. Final projection and residual
+        output = attn.to_out[0](output)
+        output = attn.to_out[1](output) # Dropout
+        output = output + residual
+
         return output
 
-# --- 3. Main Script Setup and Execution ---
+# --- 3. Main Script Setup and Execution (Unchanged from last version) ---
 if __name__ == "__main__":
     vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
     pipe = StableDiffusionXLPipeline.from_pretrained(
@@ -123,19 +129,11 @@ if __name__ == "__main__":
 
     prompt_left = "1girl, aqua (konosuba), blue hair, smiling, masterpiece, best quality"
     prompt_right = "1girl, megumin (konosuba), brown hair, eyepatch, sad, masterpiece, best quality"
-    
     full_prompt = f"{prompt_left} AND {prompt_right}"
     negative_prompt = "blurry, ugly, deformed, text, watermark, worst quality, low quality, (bad anatomy)"
-    
     width, height = 1024, 768
     
-    prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = pipe.encode_prompt(
-        prompt=full_prompt,
-        negative_prompt=negative_prompt,
-        device="cuda",
-        num_images_per_prompt=1,
-        do_classifier_free_guidance=True
-    )
+    prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = pipe.encode_prompt(prompt=full_prompt, negative_prompt=negative_prompt, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=True)
     full_prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
 
     tokenizer1 = pipe.tokenizer
@@ -146,21 +144,15 @@ if __name__ == "__main__":
 
     mask_left = torch.zeros((height, width))
     mask_left[:, :width // 2] = 1.0
-
     mask_right = torch.zeros((height, width))
     mask_right[:, width // 2:] = 1.0
-    
-    regions_config = {
-        "left": {"mask": mask_left, "indices": indices_left},
-        "right": {"mask": mask_right, "indices": indices_right}
-    }
+    regions_config = {"left": {"mask": mask_left, "indices": indices_left}, "right": {"mask": mask_right, "indices": indices_right}}
 
     print("Injecting custom attention processor...")
     attn_procs = {}
     for name in pipe.unet.attn_processors.keys():
         if "attn2" in name:
-            # MODIFICATION: Pass width and height to the processor
-            attn_procs[name] = RegionalAttnProcessorV2(regions_config, full_prompt_embeds, width, height)
+            attn_procs[name] = RegionalAttnProcessorV3(regions_config, full_prompt_embeds, width, height)
         else:
             attn_procs[name] = pipe.unet.attn_processors[name]
     pipe.unet.set_attn_processor(attn_procs)
@@ -168,17 +160,11 @@ if __name__ == "__main__":
     print("Generating image with attention coupling...")
     generator = torch.Generator("cuda").manual_seed(12345)
     image = pipe(
-        prompt_embeds=prompt_embeds,
-        negative_prompt_embeds=negative_prompt_embeds,
-        pooled_prompt_embeds=pooled_prompt_embeds,
-        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-        width=width,
-        height=height,
-        guidance_scale=7.0,
-        num_inference_steps=28,
-        generator=generator,
+        prompt_embeds=prompt_embeds, negative_prompt_embeds=negative_prompt_embeds,
+        pooled_prompt_embeds=pooled_prompt_embeds, negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+        width=width, height=height, guidance_scale=7.0, num_inference_steps=28, generator=generator
     ).images[0]
     
     print("Image generation complete.")
-    image.save("multi_character_composition_sdxl_final_final_fix.png")
-    print("Saved image to 'multi_character_composition_sdxl_final_final_fix.png'")
+    image.save("multi_character_composition_sdxl_final_final_final_fix.png")
+    print("Saved image to 'multi_character_composition_sdxl_final_final_final_fix.png'")

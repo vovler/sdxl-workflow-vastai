@@ -12,7 +12,7 @@ import modelopt.torch.opt as mto
 
 
 # Ensure you use the exact same settings as your pipeline
-prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), anal sex, ahegao, heart shaped eyes"
+prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), anal sex, ahegao, heart shaped eyes, (tree:0.2)"
 height = 1024
 width = 1024
 num_inference_steps = 8

@@ -1,7 +1,7 @@
 # regional_prompting_distilled.py
 import torch
 import time
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 import numpy as np
 from PIL import Image
 
@@ -32,7 +32,6 @@ base_model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
 # --- 2. PIPELINE SETUP ---
 print("Loading pipeline...")
 pipe = StableDiffusionXLPipeline.from_pretrained(base_model_id, torch_dtype=torch.float16, use_safetensors=True)
-pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
 # The scheduler choice is still important. Euler A is a good default.
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 pipe = pipe.to(device)

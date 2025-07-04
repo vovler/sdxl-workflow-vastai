@@ -68,6 +68,22 @@ normalized_masks_np = blurred_masks_np / (mask_sum + 1e-6)
 masks = torch.from_numpy(normalized_masks_np).to(device, dtype=torch.float16)
 
 
+# --- Calculate shifts for regional prompts ---
+latent_center_col = latent_width // 2
+
+# Center of left mask
+left_mask_center_col = (latent_width // 3) // 2
+shift_left = left_mask_center_col - latent_center_col
+
+# Center of right mask
+right_mask_start_col = (latent_width // 3) * 2
+right_mask_width = latent_width - right_mask_start_col
+right_mask_center_col = right_mask_start_col + (right_mask_width // 2)
+shift_right = right_mask_center_col - latent_center_col
+
+print(f"Shifting left by {shift_left} and right by {shift_right}")
+
+
 # --- 5. THE CUSTOM DENOISING LOOP (Identical) ---
 print("Starting custom denoising loop...")
 pipe.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -93,9 +109,12 @@ with torch.no_grad():
         add_kwargs["text_embeds"] = pooled_embeds_right
         pred_right = pipe.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds_right, added_cond_kwargs=add_kwargs).sample
         
-        noise_pred = (pred_left * masks[0] + 
-                      pred_center * masks[1] + 
-                      pred_right * masks[2])
+        pred_left_shifted = torch.roll(pred_left, shifts=shift_left, dims=3)
+        pred_right_shifted = torch.roll(pred_right, shifts=shift_right, dims=3)
+
+        noise_pred = (pred_left_shifted * masks[0] +
+                      pred_center * masks[1] +
+                      pred_right_shifted * masks[2])
         
         latents = pipe.scheduler.step(noise_pred, t, latents).prev_sample
 end_time = time.time()

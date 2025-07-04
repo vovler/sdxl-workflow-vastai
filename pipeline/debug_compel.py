@@ -12,7 +12,7 @@ import modelopt.torch.opt as mto
 
 
 # Ensure you use the exact same settings as your pipeline
-prompt = 'masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, 3girls, (((darkness_(konosuba))), hands on face), (megumin, hands_behind_back, smug), (aqua_\\(konosuba\\), hands_up, arms_up, happy, joyful), facing_the_viewer, shiny clothes'
+prompt = 'masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, 3girls, multple_girls, (((darkness_(konosuba))), hands on face), (megumin, hands_behind_back, smug), (aqua_\\(konosuba\\), hands_up, arms_up, happy, joyful), facing_the_viewer, shiny clothes'
 
 height = 832
 width = 1216

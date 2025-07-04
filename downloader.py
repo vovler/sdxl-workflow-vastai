@@ -9,7 +9,7 @@ from urllib.parse import quote
 # environment variable `WAI_DMD2_ONNX_DIR` for flexibility across different
 # operating systems (like Windows for development and Linux for production).
 # If the environment variable is not set, it defaults to the Linux production path.
-BASE_DIR_PATH = os.environ.get("WAI_DMD2_ONNX_DIR", "/workflow/wai_dmd_2_onnx")
+BASE_DIR_PATH = os.environ.get("WAI_DMD2_ONNX_DIR", "/workflow/wai_dmd2_onnx")
 BASE_DIR = Path(BASE_DIR_PATH)
 
 app = FastAPI()

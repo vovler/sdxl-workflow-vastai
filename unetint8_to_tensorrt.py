@@ -151,21 +151,26 @@ def consolidate_onnx_model(onnx_path):
     if not os.path.exists(onnx_path):
         print(f"Error: ONNX file not found at {onnx_path}")
         return
-
     # Load the model
     model = onnx.load(onnx_path, load_external_data=True)
 
     # Convert to FP16
     model_fp16 = float16.convert_float_to_float16(model)
 
-    # Save the FP16 model
+    # Create new path with "_mono" suffix
+    base_name = os.path.splitext(onnx_path)[0]  # Remove .onnx extension
+    extension = os.path.splitext(onnx_path)[1]   # Get .onnx extension
+    new_onnx_path = f"{base_name}_mono{extension}"
+
+    # Save the FP16 model with new name
     onnx.save(
         model_fp16,
-        onnx_path,
+        new_onnx_path,
         save_as_external_data=True,
         all_tensors_to_one_file=True,
-        location=os.path.basename(onnx_path) + ".data",
+        location=os.path.basename(new_onnx_path) + ".data",
     )
+    
     print("ONNX model consolidated.")
 
 def main():

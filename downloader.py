@@ -20,23 +20,34 @@ async def serve_path(file_path: str = ""):
     Serves a file or provides a browsable directory listing.
     This single endpoint handles both file downloads and directory browsing.
     """
+    print(f"--- New Request ---")
+    print(f"Received request for path: '{file_path}'")
     try:
         # Construct the full, absolute path for the requested file or directory.
         requested_path = BASE_DIR.joinpath(file_path).resolve()
+        print(f"Resolved requested path to: {requested_path}")
 
         # Security check: Prevent directory traversal attacks.
         # Ensure the resolved path is within the designated BASE_DIR.
+        print(f"Checking if {requested_path} is within {BASE_DIR.resolve()}")
         if BASE_DIR.resolve() not in requested_path.parents and requested_path != BASE_DIR.resolve():
+             print("Security check FAILED: Path is outside the base directory.")
              raise HTTPException(status_code=403, detail="Forbidden: Access denied.")
+        print("Security check PASSED.")
 
-    except Exception:
+    except Exception as e:
+         print(f"Error resolving path or security check failed: {e}")
          # Broad exception to catch potential resolution errors.
          raise HTTPException(status_code=404, detail="File or directory not found.")
 
+    print(f"Checking existence of: {requested_path}")
     if not requested_path.exists():
+        print("Path does NOT exist.")
         raise HTTPException(status_code=404, detail="File or directory not found")
+    print("Path exists.")
 
     if requested_path.is_dir():
+        print("Path is a directory. Generating directory listing.")
         # Generate an HTML page with a list of directory contents.
         # The page will be titled with the current directory path.
         html_content = f"<html><head><title>Index of /{file_path}</title></head><body><h1>Index of /{file_path}</h1><ul>"
@@ -59,10 +70,12 @@ async def serve_path(file_path: str = ""):
         return HTMLResponse(content=html_content)
     
     elif requested_path.is_file():
+        print("Path is a file. Serving file for download.")
         # Serve the file for download.
         return FileResponse(requested_path)
     
     else:
+        print("Path is not a file or directory (e.g., symlink).")
         # This case handles other path types, like symlinks, which are not supported.
         raise HTTPException(status_code=400, detail="Unsupported path type.")
 

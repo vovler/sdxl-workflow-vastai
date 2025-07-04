@@ -103,7 +103,7 @@ with torch.no_grad():
         ).sample
         
         add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_center
-        pred_right = pipe.unet(
+        pred_center = pipe.unet(
             latent_model_input, t,
             encoder_hidden_states=prompt_embeds_center,
             added_cond_kwargs=add_time_ids_kwargs

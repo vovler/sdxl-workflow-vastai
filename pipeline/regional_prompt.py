@@ -123,7 +123,7 @@ if __name__ == "__main__":
 
     # --- DEFINE PROMPTS AND WEIGHTS ---
     prompt_background = "masterpiece, best quality, sharp focus, intricate details, cinematic lighting, indoors, tavern"
-    prompt_region_1 = "1girl, aqua (konosuba), smiling, upper body"
+    prompt_region_1 = "1girl, aqua_(konosuba), smiling, upper body"
     prompt_region_2 = "1girl, megumin (konosuba), sad, eyepatch, upper body"
     
     # These weights follow sd-forge-couple defaults

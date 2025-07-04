@@ -5,6 +5,7 @@ from diffusers import UNet2DConditionModel
 from huggingface_hub import snapshot_download
 import modelopt.torch.opt as mto
 from tqdm import tqdm
+import argparse
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
@@ -143,6 +144,16 @@ def build_engine(
     print(f"TensorRT engine saved to {engine_path}")
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Export INT8 UNet to ONNX and/or build TensorRT engine."
+    )
+    parser.add_argument(
+        "--only-onnx",
+        action="store_true",
+        help="Only export the ONNX model, skip building the TensorRT engine.",
+    )
+    args = parser.parse_args()
+
     base_model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
     model_dir = snapshot_download(base_model_id)
     int8_checkpoint_path = os.path.join(model_dir, "unet_int8.safetensors")
@@ -203,6 +214,10 @@ def main():
                 export_params=True,
             )
         print("ONNX export complete.")
+
+    if args.only_onnx:
+        print("Successfully exported ONNX model. Exiting as requested by --only-onnx.")
+        return
 
     print("Building INT8 TensorRT engine...")
     latent_heights = [768 // 8, 1152 // 8, 960 // 8]

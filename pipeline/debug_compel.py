@@ -16,7 +16,7 @@ prompt = '("masterpiece, best quality, absurdres, cinematic lighting, ultra-deta
 height = 832
 width = 1216
 num_inference_steps = 8
-seed = 42
+seed = 43
 guidance_scale = 1.0 # This is the key to matching your CFG-less setup
 
 device = "cuda:0"

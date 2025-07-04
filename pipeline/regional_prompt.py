@@ -36,7 +36,7 @@ pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=to
 # The scheduler choice is still important. Euler A is a good default.
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 pipe = pipe.to(device)
-pipe.enable_attention_slicing()
+pipe.enable_xformers_memory_efficient_attention()
 
 
 # --- 3. ENCODE ALL PROMPTS (SIMPLIFIED) ---
@@ -102,72 +102,69 @@ latents = latents * pipe.scheduler.init_noise_sigma
 
 start_time = time.time()
 
-# Main loop is now simpler
-for i, t in enumerate(pipe.progress_bar(timesteps)):
-    # --- A. CONDITIONAL PASSES (Global + Each Region) ---
-    text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
-    time_ids = pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16,
-            text_encoder_projection_dim=text_encoder_projection_dim
-        ).to(device)
-    add_time_ids_kwargs = {"time_ids": time_ids}
+# Wrap the entire loop in no_grad to prevent PyTorch from keeping computation graphs.
+with torch.no_grad():
+    for i, t in enumerate(pipe.progress_bar(timesteps)):
+        # --- A. CONDITIONAL PASSES (Global + Each Region) ---
+        text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
+        time_ids = pipe._get_add_time_ids(
+                (height, width), (0,0), (height, width), dtype=torch.float16,
+                text_encoder_projection_dim=text_encoder_projection_dim
+            ).to(device)
+        add_time_ids_kwargs = {"time_ids": time_ids}
 
-    # --- B. SEQUENTIAL PREDICTION AND BLENDING (VRAM OPTIMIZED) ---
-    # To save VRAM, we predict and blend one region at a time,
-    # releasing memory after each step.
+        # --- B. SEQUENTIAL PREDICTION AND BLENDING (VRAM OPTIMIZED) ---
+        # To save VRAM, we predict and blend one region at a time,
+        # releasing memory after each step.
 
-    # 1. Global prediction (base noise)
-    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_global
-    noise_pred = pipe.unet(
-        latents, t,
-        encoder_hidden_states=prompt_embeds_global,
-        added_cond_kwargs=add_time_ids_kwargs
-    ).sample
-    torch.cuda.empty_cache()
+        # 1. Global prediction (base noise)
+        add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_global
+        noise_pred = pipe.unet(
+            latents, t,
+            encoder_hidden_states=prompt_embeds_global,
+            added_cond_kwargs=add_time_ids_kwargs
+        ).sample
 
-    # 2. Left region prediction and blend
-    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_left
-    pred_regional = pipe.unet(
-        latents, t,
-        encoder_hidden_states=prompt_embeds_left,
-        added_cond_kwargs=add_time_ids_kwargs
-    ).sample
-    noise_pred = torch.where(mask_left.bool(), pred_regional, noise_pred)
-    del pred_regional
-    torch.cuda.empty_cache()
+        # 2. Left region prediction and blend
+        add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_left
+        pred_regional = pipe.unet(
+            latents, t,
+            encoder_hidden_states=prompt_embeds_left,
+            added_cond_kwargs=add_time_ids_kwargs
+        ).sample
+        noise_pred = torch.where(mask_left.bool(), pred_regional, noise_pred)
+        del pred_regional
 
-    # 3. Center region prediction and blend
-    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_center
-    pred_regional = pipe.unet(
-        latents, t,
-        encoder_hidden_states=prompt_embeds_center,
-        added_cond_kwargs=add_time_ids_kwargs
-    ).sample
-    noise_pred = torch.where(mask_center.bool(), pred_regional, noise_pred)
-    del pred_regional
-    torch.cuda.empty_cache()
+        # 3. Center region prediction and blend
+        add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_center
+        pred_regional = pipe.unet(
+            latents, t,
+            encoder_hidden_states=prompt_embeds_center,
+            added_cond_kwargs=add_time_ids_kwargs
+        ).sample
+        noise_pred = torch.where(mask_center.bool(), pred_regional, noise_pred)
+        del pred_regional
 
-    # 4. Right region prediction and blend
-    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_right
-    pred_regional = pipe.unet(
-        latents, t,
-        encoder_hidden_states=prompt_embeds_right,
-        added_cond_kwargs=add_time_ids_kwargs
-    ).sample
-    noise_pred = torch.where(mask_right.bool(), pred_regional, noise_pred)
-    del pred_regional
-    torch.cuda.empty_cache()
-    
-    # --- C. STEP ---
-    # We directly step with the blended prediction. No CFG calculation.
-    latents = pipe.scheduler.step(noise_pred, t, latents).prev_sample
-
+        # 4. Right region prediction and blend
+        add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_right
+        pred_regional = pipe.unet(
+            latents, t,
+            encoder_hidden_states=prompt_embeds_right,
+            added_cond_kwargs=add_time_ids_kwargs
+        ).sample
+        noise_pred = torch.where(mask_right.bool(), pred_regional, noise_pred)
+        del pred_regional
+        
+        # --- C. STEP ---
+        # We directly step with the blended prediction. No CFG calculation.
+        latents = pipe.scheduler.step(noise_pred, t, latents).prev_sample
 
 end_time = time.time()
 print(f"Custom pipeline execution time: {end_time - start_time:.2f} seconds")
 
 # --- 6. DECODE AND SAVE ---
 # This part is identical.
+# Since we are outside the no_grad context, VAE decoding will have gradients if needed.
 latents = 1 / pipe.vae.config.scaling_factor * latents
 image = pipe.vae.decode(latents).sample
 image = (image / 2 + 0.5).clamp(0, 1)

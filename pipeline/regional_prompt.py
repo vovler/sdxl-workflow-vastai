@@ -39,7 +39,7 @@ pipe.enable_xformers_memory_efficient_attention()
 # --- 3. ENCODE & BLEND PROMPTS ---
 print("Encoding and blending prompts...")
 def encode_prompt_cfg_less(prompt):
-    prompt_embeds, _, pooled_prompt_embeds, _ = pipe._encode_prompt(
+    prompt_embeds, _, pooled_prompt_embeds, _ = pipe.encode_prompt(
         prompt=prompt, device=device, num_images_per_prompt=1, do_classifier_free_guidance=False
     )
     return prompt_embeds, pooled_prompt_embeds

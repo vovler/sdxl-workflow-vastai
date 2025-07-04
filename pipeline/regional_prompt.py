@@ -99,52 +99,58 @@ start_time = time.time()
 # Main loop is now simpler
 for i, t in enumerate(pipe.progress_bar(timesteps)):
     # --- A. CONDITIONAL PASSES (Global + Each Region) ---
-    # We no longer need to duplicate the latent or run an unconditional pass.
     text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
     time_ids = pipe._get_add_time_ids(
             (height, width), (0,0), (height, width), dtype=torch.float16,
             text_encoder_projection_dim=text_encoder_projection_dim
         ).to(device)
     add_time_ids_kwargs = {"time_ids": time_ids}
-    
-    # Global prompt prediction
+
+    # --- B. SEQUENTIAL PREDICTION AND BLENDING (VRAM OPTIMIZED) ---
+    # To save VRAM, we predict and blend one region at a time,
+    # releasing memory after each step.
+
+    # 1. Global prediction (base noise)
     add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_global
-    pred_global = pipe.unet(
+    noise_pred = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_global,
         added_cond_kwargs=add_time_ids_kwargs
     ).sample
-    
-    # Left region prediction
+    torch.cuda.empty_cache()
+
+    # 2. Left region prediction and blend
     add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_left
-    pred_left = pipe.unet(
+    pred_regional = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_left,
         added_cond_kwargs=add_time_ids_kwargs
     ).sample
+    noise_pred = torch.where(mask_left.bool(), pred_regional, noise_pred)
+    del pred_regional
+    torch.cuda.empty_cache()
 
-    # Center region prediction
+    # 3. Center region prediction and blend
     add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_center
-    pred_center = pipe.unet(
+    pred_regional = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_center,
         added_cond_kwargs=add_time_ids_kwargs
     ).sample
+    noise_pred = torch.where(mask_center.bool(), pred_regional, noise_pred)
+    del pred_regional
+    torch.cuda.empty_cache()
 
-    # Right region prediction
+    # 4. Right region prediction and blend
     add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_right
-    pred_right = pipe.unet(
+    pred_regional = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_right,
         added_cond_kwargs=add_time_ids_kwargs
     ).sample
-    
-    # --- B. BLENDING THE PREDICTIONS (LATENT COUPLING) ---
-    # This logic remains the same.
-    noise_pred = pred_global
-    noise_pred = (noise_pred * (1.0 - mask_left)) + (pred_left * mask_left)
-    noise_pred = (noise_pred * (1.0 - mask_center)) + (pred_center * mask_center)
-    noise_pred = (noise_pred * (1.0 - mask_right)) + (pred_right * mask_right)
+    noise_pred = torch.where(mask_right.bool(), pred_regional, noise_pred)
+    del pred_regional
+    torch.cuda.empty_cache()
     
     # --- C. STEP ---
     # We directly step with the blended prediction. No CFG calculation.

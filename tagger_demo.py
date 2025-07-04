@@ -29,15 +29,9 @@ def main():
     print("\nNatural text description:")
     print(natural_text)
 
-    # The model uses a specific chat template for tag generation.
-    messages = [
-        {
-            "role": "user",
-            "content": f"Generate tags for the following text. Keep it brief, clear and focused.\n\n{natural_text}"
-        }
-    ]
-
-    prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    # The model expects a specific prompt format for tag generation, not a chat format.
+    instruction = f"Generate tags for the following text. Keep it brief, clear and focused.\n\n{natural_text}"
+    prompt = f"[INST] {instruction} [/INST]"
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 

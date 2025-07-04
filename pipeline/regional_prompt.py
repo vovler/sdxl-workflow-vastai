@@ -100,41 +100,42 @@ start_time = time.time()
 for i, t in enumerate(pipe.progress_bar(timesteps)):
     # --- A. CONDITIONAL PASSES (Global + Each Region) ---
     # We no longer need to duplicate the latent or run an unconditional pass.
+    text_encoder_projection_dim = pipe.text_encoder_2.config.projection_dim
+    add_time_ids_kwargs = {"text_embeds": None, "time_ids": pipe._get_add_time_ids(
+            (height, width), (0,0), (height, width), dtype=torch.float16,
+            text_encoder_projection_dim=text_encoder_projection_dim
+        )}
     
     # Global prompt prediction
+    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_global
     pred_global = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_global,
-        added_cond_kwargs={"text_embeds": pooled_prompt_embeds_global, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16
-        )}
+        added_cond_kwargs=add_time_ids_kwargs
     ).sample
     
     # Left region prediction
+    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_left
     pred_left = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_left,
-        added_cond_kwargs={"text_embeds": pooled_prompt_embeds_left, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16
-        )}
+        added_cond_kwargs=add_time_ids_kwargs
     ).sample
 
     # Center region prediction
+    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_center
     pred_center = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_center,
-        added_cond_kwargs={"text_embeds": pooled_prompt_embeds_center, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16
-        )}
+        added_cond_kwargs=add_time_ids_kwargs
     ).sample
 
     # Right region prediction
+    add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_right
     pred_right = pipe.unet(
         latents, t,
         encoder_hidden_states=prompt_embeds_right,
-        added_cond_kwargs={"text_embeds": pooled_prompt_embeds_right, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16
-        )}
+        added_cond_kwargs=add_time_ids_kwargs
     ).sample
     
     # --- B. BLENDING THE PREDICTIONS (LATENT COUPLING) ---

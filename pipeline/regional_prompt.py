@@ -17,7 +17,7 @@ def lcm_for_list(numbers):
         result = lcm(result, numbers[i])
     return result
 
-# --- 2. The Core Logic: Final Attention Processor (with cleaner mask handling) ---
+# --- 2. The Core Logic: Attention Processor (Unchanged, it is correct) ---
 class RegionalAttnProcessorV5:
     def __init__(self, regional_cond_embeds: List[torch.Tensor], region_masks: List[torch.Tensor], uncond_embeds: torch.Tensor, width: int, height: int):
         self.num_regions = len(regional_cond_embeds)
@@ -78,26 +78,27 @@ class RegionalAttnProcessorV5:
 
 # --- 3. Main Script Setup and Execution ---
 if __name__ == "__main__":
-    vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
+    # --- FIX: REMOVED CUSTOM VAE to prevent blurriness ---
+    # We will let the pipeline load its own default, matching VAE.
     pipe = StableDiffusionXLPipeline.from_pretrained(
-        "John6666/wai-nsfw-illustrious-v130-sdxl", vae=vae, torch_dtype=torch.float16,
+        "John6666/wai-nsfw-illustrious-v130-sdxl",
+        torch_dtype=torch.float16,
         use_safetensors=True
+        # No more `vae=...` or `variant=...`
     ).to("cuda")
 
-    prompt_left = "1girl, aqua (konosuba), blue hair, smiling, masterpiece, best quality"
-    prompt_right = "1girl, megumin (konosuba), brown hair, eyepatch, sad, masterpiece, best quality"
-    negative_prompt = "blurry, ugly, deformed, text, watermark, worst quality, low quality, (bad anatomy)"
+    # --- FIX: ADDED SHARPNESS/DETAIL TAGS ---
+    prompt_left = "masterpiece, best quality, sharp focus, intricate details, 1girl, aqua (konosuba), smiling"
+    prompt_right = "masterpiece, best quality, sharp focus, intricate details, 1girl, megumin (konosuba), sad, eyepatch"
+    negative_prompt = "blurry, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, artist name"
     width, height = 1024, 768
     
-    # --- Encode each prompt SEPARATELY ---
     print("Encoding regional prompts separately...")
     cond_embeds_left, _, pooled_embeds_left, _ = pipe.encode_prompt(prompt=prompt_left, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
     cond_embeds_right, _, pooled_embeds_right, _ = pipe.encode_prompt(prompt=prompt_right, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
     _, uncond_embeds, _, uncond_pooled_embeds = pipe.encode_prompt(prompt="", negative_prompt=negative_prompt, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=True)
     
-    # --- CRITICAL FIX: Average the pooled embeddings ---
     avg_pooled_embeds = torch.mean(torch.stack([pooled_embeds_left, pooled_embeds_right]), dim=0)
-    
     regional_cond_embeds = [cond_embeds_left, cond_embeds_right]
 
     mask_left = torch.zeros((height, width), device="cuda", dtype=torch.float16)
@@ -118,16 +119,14 @@ if __name__ == "__main__":
     print("Generating image with attention coupling...")
     generator = torch.Generator("cuda").manual_seed(12345)
     
-    # The main prompt_embeds are now just placeholders.
-    # We pass the averaged pooled embeds to give correct global guidance.
     image = pipe(
-        prompt_embeds=cond_embeds_left, # Placeholder, will be ignored by processor
+        prompt_embeds=cond_embeds_left, # Placeholder
         negative_prompt_embeds=uncond_embeds,
-        pooled_prompt_embeds=avg_pooled_embeds, # Use the averaged pooled embeds
+        pooled_prompt_embeds=avg_pooled_embeds,
         negative_pooled_prompt_embeds=uncond_pooled_embeds,
         width=width, height=height, guidance_scale=7.0, num_inference_steps=28, generator=generator
     ).images[0]
     
     print("Image generation complete.")
-    image.save("multi_character_composition_sdxl_final_working.png")
-    print("Saved image to 'multi_character_composition_sdxl_final_working.png'")
+    image.save("multi_character_composition_sdxl_final_sharp.png")
+    print("Saved image to 'multi_character_composition_sdxl_final_sharp.png'")

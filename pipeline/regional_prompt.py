@@ -46,7 +46,8 @@ class RegionalAttnProcessorV2:
             padding_len = max_len - len(indices)
             if padding_len > 0:
                 # Pad with EOS token ID
-                indices = indices + [self.tokenizer.eos_token_id] * padding_len
+                padding_index = self.cond_embeds.shape[1] - 1
+                indices = indices + [padding_index] * padding_len
 
             indices_tensor = torch.tensor(indices).to(self.device)
             region_embed = torch.index_select(self.cond_embeds, 1, indices_tensor)

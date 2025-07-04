@@ -248,6 +248,7 @@ def main():
                 2: height_dim,
                 3: width_dim,
             },
+            "timestep": {},
             "encoder_hidden_states": {
                 0: batch_dim,
             },

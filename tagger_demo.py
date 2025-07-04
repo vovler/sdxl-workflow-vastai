@@ -29,27 +29,33 @@ def main():
     print("\nNatural text description:")
     print(natural_text)
 
-    # The model expects a specific prompt format for tag generation, not a chat format.
-    instruction = f"Generate tags for the following text. Keep it brief, clear and focused.\n\n{natural_text}"
-    prompt = f"[INST] {instruction} [/INST]"
+    # Based on the usage example, the model expects the following prompt format.
+    prompt = f"### Caption:{natural_text}\n### Tags:"
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
     print("\nGenerating tags...")
-    # Generate the output from the model
+    # Generate the output from the model using parameters from the example code
     output = model.generate(
         **inputs,
-        max_new_tokens=256,
+        max_new_tokens=128,
+        temperature=0.8,
+        top_p=0.95,
+        repetition_penalty=1.1,
+        top_k=40,
+        do_sample=True,
+        pad_token_id=tokenizer.eos_token_id,
     )
     
     generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
 
-    # The generated text includes the original prompt, so we need to extract just the response.
-    # The response is what comes after [/INST]
-    response_start_index = generated_text.find("[/INST]")
-    if response_start_index != -1:
-        tag_output = generated_text[response_start_index + len("[/INST]"):].strip()
+    # The generated text includes the original prompt. We need to extract just the response.
+    # The response is what comes after "### Tags:".
+    parts = generated_text.split("### Tags:")
+    if len(parts) > 1:
+        tag_output = parts[1].strip()
     else:
+        # Fallback if the output format is unexpected
         tag_output = "Could not find model response in generated text."
 
 

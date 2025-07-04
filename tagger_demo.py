@@ -19,7 +19,7 @@ def main():
     print("Model and tokenizer loaded successfully.")
 
     natural_text = (
-        "Aqua is smiling and dancing in the rain in Tokyo steets at night"
+        "aqua_(konosuba) is smiling and dancing in the rain in Tokyo steets at night, while megumin is looking at her"
     )
 
     print("\nNatural text description:")

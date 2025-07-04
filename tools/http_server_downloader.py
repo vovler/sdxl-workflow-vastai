@@ -1,16 +1,15 @@
 import os
+import argparse
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from pathlib import Path
 import uvicorn
 from urllib.parse import quote
+import requests
 
-# Define the directory to be served. The path can be configured via an
-# environment variable `WAI_DMD2_ONNX_DIR` for flexibility across different
-# operating systems (like Windows for development and Linux for production).
-# If the environment variable is not set, it defaults to the Linux production path.
-BASE_DIR_PATH = os.environ.get("WAI_DMD2_ONNX_DIR", "/workflow/wai_dmd2_onnx")
-BASE_DIR = Path(BASE_DIR_PATH)
+# The base directory for serving files. This will be configured at runtime
+# based on command-line arguments or environment variables.
+BASE_DIR: Path
 
 app = FastAPI()
 
@@ -80,21 +79,50 @@ async def serve_path(file_path: str = ""):
         raise HTTPException(status_code=400, detail="Unsupported path type.")
 
 if __name__ == "__main__":
-    # Before starting the server, check if the target directory exists.
-    if not BASE_DIR.exists() or not BASE_DIR.is_dir():
-        print(f"WARNING: The directory '{BASE_DIR.resolve()}' does not exist.")
-        print("Please ensure the path is correct or set the 'WAI_DMD2_ONNX_DIR' environment variable.")
+    # Set up argument parser to handle the directory path.
+    parser = argparse.ArgumentParser(
+        description="A simple HTTP server for serving files from a specified directory."
+    )
+    parser.add_argument(
+        "directory",
+        help="The local directory path to serve files from."
+    )
+    args = parser.parse_args()
+
+    # Set the global BASE_DIR variable, which is used by the request handler.
+    global BASE_DIR
+    BASE_DIR = Path(args.directory)
+
+    # Before starting the server, check if the target directory exists and is a directory.
+    if not BASE_DIR.is_dir():
+        print(f"Error: The specified path '{BASE_DIR}' is not a valid directory.")
+        exit(1)
+
+    # Get the external port from an environment variable.
+    port = os.getenv("VAST_TCP_PORT_80", "")
+    if not port:
+        print("Error: The 'VAST_TCP_PORT_80' environment variable is not set.")
+        exit(1)
+
+    # Fetch the public IP address.
+    try:
+        response = requests.get("https://api.ipify.org/?format=json")
+        response.raise_for_status()
+        public_ip = response.json()["ip"]
+    except requests.RequestException as e:
+        print(f"Error: Could not fetch public IP address.")
+        print(f"Details: {e}")
+        exit(1)
     
     print(f"Serving files from: {BASE_DIR.resolve()}")
     print("Starting server on http://0.0.0.0:80")
+    print(f"You can access it on http://{public_ip}:{port}")
     
     try:
         # Attempt to run the server on the privileged port 80.
         uvicorn.run(app, host="0.0.0.0", port=80)
-    except (PermissionError, OSError):
-        # If port 80 is unavailable (e.g., due to permissions), fall back to port 8000.
-        print("\nERROR: Permission denied to bind to port 80.")
-        print("This is common on Unix-like systems where ports below 1024 require root access.")
-        print("Falling back to port 8000.")
-        print("Server starting on http://0.0.0.0:8000")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except (PermissionError, OSError) as e:
+        # Fail gracefully if port 80 is not available.
+        print(f"\nERROR: Could not bind to port 80. Please ensure it is not in use and you have sufficient permissions.")
+        print(f"Details: {e}")
+        exit(1)

@@ -106,7 +106,7 @@ for i, t in enumerate(pipe.progress_bar(timesteps)):
         latents, t,
         encoder_hidden_states=prompt_embeds_global,
         added_cond_kwargs={"text_embeds": pooled_prompt_embeds_global, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16, device=device
+            (height, width), (0,0), (height, width), dtype=torch.float16
         )}
     ).sample
     
@@ -115,7 +115,7 @@ for i, t in enumerate(pipe.progress_bar(timesteps)):
         latents, t,
         encoder_hidden_states=prompt_embeds_left,
         added_cond_kwargs={"text_embeds": pooled_prompt_embeds_left, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16, device=device
+            (height, width), (0,0), (height, width), dtype=torch.float16
         )}
     ).sample
 
@@ -124,7 +124,7 @@ for i, t in enumerate(pipe.progress_bar(timesteps)):
         latents, t,
         encoder_hidden_states=prompt_embeds_center,
         added_cond_kwargs={"text_embeds": pooled_prompt_embeds_center, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16, device=device
+            (height, width), (0,0), (height, width), dtype=torch.float16
         )}
     ).sample
 
@@ -133,7 +133,7 @@ for i, t in enumerate(pipe.progress_bar(timesteps)):
         latents, t,
         encoder_hidden_states=prompt_embeds_right,
         added_cond_kwargs={"text_embeds": pooled_prompt_embeds_right, "time_ids": pipe._get_add_time_ids(
-            (height, width), (0,0), (height, width), dtype=torch.float16, device=device
+            (height, width), (0,0), (height, width), dtype=torch.float16
         )}
     ).sample
     

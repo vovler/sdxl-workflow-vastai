@@ -13,7 +13,7 @@ prompt_right = "1boy, satou_kazuma, green_tracksuit, short_brown_hair, annoyed, 
 
 height = 832
 width = 1216
-num_inference_steps = 12
+num_inference_steps = 8
 seed = 46
 guidance_scale = 1.0 # Disables CFG
 

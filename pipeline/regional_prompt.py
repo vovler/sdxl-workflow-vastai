@@ -81,6 +81,18 @@ class RegionalAttnProcessorV8:
         # Get properly downsampled masks
         mask_downsample = get_mask(all_masks, batch_size, sequence_length, original_shape)
         
+        # Normalize masks so they sum to 1 at each pixel to prevent over-amplification
+        total_weights = torch.zeros_like(mask_downsample[0])
+        for i in range(self.num_regions):
+            _, weight = self.region_masks_and_weights[i]
+            start_idx = i * batch_size
+            end_idx = (i + 1) * batch_size
+            regional_mask = mask_downsample[start_idx:end_idx]
+            total_weights += regional_mask * weight
+        
+        # Prevent division by zero
+        total_weights = torch.clamp(total_weights, min=1e-8)
+        
         token_start_index = 0
         for i in range(self.num_regions):
             token_len = self.region_token_counts[i]
@@ -93,15 +105,15 @@ class RegionalAttnProcessorV8:
             # Compute regional attention
             regional_output = F.scaled_dot_product_attention(query_cond, key_regional, value_regional)
 
-            # Get mask for this region (accounting for batch_size repetition)
+            # Get mask for this region and normalize
             mask, weight = self.region_masks_and_weights[i]
             start_idx = i * batch_size
             end_idx = (i + 1) * batch_size
-            regional_mask = mask_downsample[start_idx:end_idx]  # Shape: [batch_size, sequence_length, 1]
+            regional_mask = mask_downsample[start_idx:end_idx]
             
-            # Apply weight to the mask and accumulate
-            weighted_mask = regional_mask * weight
-            final_cond_output += regional_output * weighted_mask
+            # Normalize the mask weight by the total weight at each position
+            normalized_mask = (regional_mask * weight) / total_weights
+            final_cond_output += regional_output * normalized_mask
             
             token_start_index = token_end_index
 
@@ -123,11 +135,11 @@ if __name__ == "__main__":
 
     # --- DEFINE PROMPTS AND WEIGHTS ---
     prompt_background = "masterpiece, best quality, sharp focus, intricate details, cinematic lighting, indoors, tavern"
-    prompt_region_1 = "1girl, aqua_(konosuba), smiling, upper body"
+    prompt_region_1 = "1girl, aqua (konosuba), smiling, upper body"
     prompt_region_2 = "1girl, megumin (konosuba), sad, eyepatch, upper body"
     
-    # These weights follow sd-forge-couple defaults
-    bg_weight = 0.5
+    # Weights following sd-forge-couple approach
+    bg_weight = 0.2  # Lower background weight
     tile_weight = 1.0
 
     negative_prompt = "blurry, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, artist name"
@@ -135,13 +147,14 @@ if __name__ == "__main__":
     
     print("Encoding prompts...")
     
-    # Encode each prompt separately to get proper embeddings
+    # Encode each prompt separately
     cond_embeds_bg, _, _, _ = pipe.encode_prompt(prompt=prompt_background, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
     cond_embeds_r1, _, _, _ = pipe.encode_prompt(prompt=prompt_region_1, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
     cond_embeds_r2, _, _, _ = pipe.encode_prompt(prompt=prompt_region_2, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
     
-    # For pooled embeddings, use the background prompt as the global context
-    _, _, global_pooled_embeds, _ = pipe.encode_prompt(prompt=prompt_background, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
+    # For pooled embeddings, combine all prompts
+    full_prompt_text = f"{prompt_background}, {prompt_region_1}, {prompt_region_2}"
+    _, _, global_pooled_embeds, _ = pipe.encode_prompt(prompt=full_prompt_text, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=False)
     
     # Encode negative prompt
     _, uncond_embeds, _, uncond_pooled_embeds = pipe.encode_prompt(prompt="", negative_prompt=negative_prompt, device="cuda", num_images_per_prompt=1, do_classifier_free_guidance=True)
@@ -156,11 +169,9 @@ if __name__ == "__main__":
     padded_regional_conds = []
     for embed in regional_cond_embeds_list:
         if embed.shape[1] < common_len:
-            # Repeat the embedding to reach common length
             repeat_factor = common_len // embed.shape[1]
             padded_embed = embed.repeat(1, repeat_factor, 1)
             if padded_embed.shape[1] < common_len:
-                # Handle any remaining tokens by repeating the last token
                 remaining = common_len - padded_embed.shape[1]
                 last_token = embed[:, -1:, :].repeat(1, remaining, 1)
                 padded_embed = torch.cat([padded_embed, last_token], dim=1)
@@ -171,27 +182,36 @@ if __name__ == "__main__":
     final_cond_embeds = torch.cat(padded_regional_conds, dim=1)
     padded_token_counts = [common_len] * len(regional_cond_embeds_list)
     
-    # Pad the negative prompt to match the concatenated positive prompt's length
+    # Pad the negative prompt
     if uncond_embeds.shape[1] < final_cond_embeds.shape[1]:
         padding_length = final_cond_embeds.shape[1] - uncond_embeds.shape[1]
-        # Repeat the last token of uncond_embeds to pad
         last_token = uncond_embeds[:, -1:, :].repeat(1, padding_length, 1)
         padded_uncond_embeds = torch.cat([uncond_embeds, last_token], dim=1)
     else:
         padded_uncond_embeds = uncond_embeds[:, :final_cond_embeds.shape[1], :]
 
-    # --- CREATE MASKS AND PAIR WITH WEIGHTS ---
+    # --- CREATE NON-OVERLAPPING MASKS (forge-couple style) ---
     device, dtype = "cuda", torch.float16
+    
+    # Create mutually exclusive masks
     mask_background = torch.ones((height, width), device=device, dtype=dtype)
     mask_region_1 = torch.zeros((height, width), device=device, dtype=dtype)
-    mask_region_1[:, :width // 2] = 1.0
     mask_region_2 = torch.zeros((height, width), device=device, dtype=dtype)
+    
+    # Left half for Aqua
+    mask_region_1[:, :width // 2] = 1.0
+    # Right half for Megumin  
     mask_region_2[:, width // 2:] = 1.0
+    
+    # Background gets the remaining areas (but since regions cover everything, this becomes a base layer)
+    # In forge-couple style, we reduce background influence in regional areas
+    mask_background[:, :width // 2] = 0.1  # Very low weight where region 1 is
+    mask_background[:, width // 2:] = 0.1  # Very low weight where region 2 is
     
     # Pair each mask with its corresponding weight
     region_masks_and_weights = [
         (mask_background, bg_weight),
-        (mask_region_1, tile_weight),
+        (mask_region_1, tile_weight), 
         (mask_region_2, tile_weight)
     ]
     

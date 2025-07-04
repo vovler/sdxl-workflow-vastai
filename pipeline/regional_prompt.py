@@ -80,8 +80,8 @@ class RegionalAttnProcessorV5:
 if __name__ == "__main__":
     vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
     pipe = StableDiffusionXLPipeline.from_pretrained(
-        "cagliostrolab/animagine-xl-3.0", vae=vae, torch_dtype=torch.float16,
-        variant="fp16", use_safetensors=True
+        "John6666/wai-nsfw-illustrious-v130-sdxl", vae=vae, torch_dtype=torch.float16,
+        use_safetensors=True
     ).to("cuda")
 
     prompt_left = "1girl, aqua (konosuba), blue hair, smiling, masterpiece, best quality"

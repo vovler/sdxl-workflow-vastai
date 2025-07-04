@@ -9,7 +9,7 @@ import requests
 
 # The base directory for serving files. This will be configured at runtime
 # based on command-line arguments or environment variables.
-BASE_DIR: Path
+BASE_DIR = None
 
 app = FastAPI()
 

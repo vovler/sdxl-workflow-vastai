@@ -85,7 +85,7 @@ class RegionalAttnProcessorV4:
 if __name__ == "__main__":
     vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
     pipe = StableDiffusionXLPipeline.from_pretrained(
-        "socks22/sdxl-wai-nsfw-illustriousv14", vae=vae, torch_dtype=torch.float16,
+        "John6666/wai-nsfw-illustrious-v130-sdxl", vae=vae, torch_dtype=torch.float16,
         use_safetensors=True
     ).to("cuda")
 
@@ -136,7 +136,7 @@ if __name__ == "__main__":
         negative_prompt_embeds=uncond_embeds,
         pooled_prompt_embeds=pooled_embeds, # Placeholder
         negative_pooled_prompt_embeds=uncond_pooled_embeds,
-        width=width, height=height, guidance_scale=1.1, num_inference_steps=12, generator=generator
+        width=width, height=height, guidance_scale=5, num_inference_steps=28, generator=generator
     ).images[0]
     
     print("Image generation complete.")

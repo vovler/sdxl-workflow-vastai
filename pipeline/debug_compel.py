@@ -18,7 +18,7 @@ prompt = '("masterpiece, best quality, absurdres, cinematic lighting, ultra-deta
 "darkness_(konosuba), annoyed").and()'
 height = 832
 width = 1216
-num_inference_steps = 8
+num_inference_steps = 12
 seed = 43
 guidance_scale = 1.0 # This is the key to matching your CFG-less setup
 

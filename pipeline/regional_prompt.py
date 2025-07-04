@@ -25,18 +25,31 @@ def repeat_div(value: int, iterations: int) -> int:
     
 # --- 2. The Core Logic: Corrected Custom Attention Processor ---
 class RegionalAttnProcessorV2:
-    def __init__(self, regions_config: Dict, full_prompt_embeds: torch.Tensor):
+    def __init__(self, regions_config: Dict, full_prompt_embeds: torch.Tensor, tokenizer):
         self.regions_config = regions_config
         self.num_regions = len(regions_config)
         self.device = full_prompt_embeds.device
         self.dtype = full_prompt_embeds.dtype
+        self.tokenizer = tokenizer
         
         self.uncond_embeds, self.cond_embeds = full_prompt_embeds.chunk(2)
         
         self.regional_cond_embeds = []
+        
+        max_len = 0
         for region_data in self.regions_config.values():
-            indices = torch.tensor(region_data["indices"]).to(self.device)
-            region_embed = torch.index_select(self.cond_embeds, 1, indices)
+            max_len = max(max_len, len(region_data["indices"]))
+
+        for region_data in self.regions_config.values():
+            indices = region_data["indices"]
+            
+            padding_len = max_len - len(indices)
+            if padding_len > 0:
+                # Pad with EOS token ID
+                indices = indices + [self.tokenizer.eos_token_id] * padding_len
+
+            indices_tensor = torch.tensor(indices).to(self.device)
+            region_embed = torch.index_select(self.cond_embeds, 1, indices_tensor)
             self.regional_cond_embeds.append(region_embed)
             
     def __call__(self, attn, hidden_states, encoder_hidden_states=None, attention_mask=None):
@@ -139,7 +152,7 @@ if __name__ == "__main__":
     attn_procs = {}
     for name in pipe.unet.attn_processors.keys():
         if "attn2" in name: # Target cross-attention blocks
-            attn_procs[name] = RegionalAttnProcessorV2(regions_config, full_prompt_embeds)
+            attn_procs[name] = RegionalAttnProcessorV2(regions_config, full_prompt_embeds, tokenizer1)
         else: # Use default for self-attention
             attn_procs[name] = pipe.unet.attn_processors[name]
     pipe.unet.set_attn_processor(attn_procs)

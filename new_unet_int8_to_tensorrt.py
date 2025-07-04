@@ -429,21 +429,47 @@ def main():
             )
         
         print("ONNX export complete. Analyzing temporary model...")
-        analyze_onnx_model(temp_onnx_path)
         
-        print("Loading and consolidating...")
+        # Check the precision of the temporary model
+        temp_model = onnx.load(temp_onnx_path, load_external_data=True)
         
-        # Load the temporary model
-        model = onnx.load(temp_onnx_path, load_external_data=True)
+        # Check if model is already in FP16
+        fp32_count = 0
+        fp16_count = 0
+        total_count = 0
         
-        # Apply FP16 conversion if requested
-        if args.force_fp16:
+        for initializer in temp_model.graph.initializer:
+            param_count = 1
+            for dim in initializer.dims:
+                param_count *= dim
+            total_count += param_count
+            
+            if initializer.data_type == 1:  # FLOAT (FP32)
+                fp32_count += param_count
+            elif initializer.data_type == 10:  # FLOAT16
+                fp16_count += param_count
+        
+        fp16_percentage = (fp16_count / total_count * 100) if total_count > 0 else 0
+        
+        print(f"Model precision: {fp16_percentage:.1f}% FP16, {fp32_count/total_count*100:.1f}% FP32")
+        
+        # Only convert to FP16 if there are significant FP32 weights and user requested it
+        should_convert_fp16 = args.force_fp16 and fp32_count > 0
+        
+        if should_convert_fp16:
             print("Converting to FP16...")
             try:
-                model = float16.convert_float_to_float16(model, keep_io_types=True)
+                model = float16.convert_float_to_float16(temp_model, keep_io_types=True)
                 print("FP16 conversion successful")
             except Exception as e:
                 print(f"FP16 conversion failed: {e}, keeping original precision")
+                model = temp_model
+        else:
+            if args.force_fp16 and fp32_count == 0:
+                print("Model is already 100% FP16, skipping conversion")
+            elif not args.force_fp16:
+                print("Keeping original precision (use --force-fp16 to convert)")
+            model = temp_model
         
         # Create data filename
         directory = os.path.dirname(onnx_output_path)
@@ -452,14 +478,21 @@ def main():
         data_filename = f"{base_name}.data"
         
         print("Saving consolidated model...")
-        onnx.save(
-            model,
-            onnx_output_path,
-            save_as_external_data=True,
-            all_tensors_to_one_file=True,
-            location=data_filename,
-            size_threshold=1024
-        )
+        try:
+            onnx.save(
+                model,
+                onnx_output_path,
+                save_as_external_data=True,
+                all_tensors_to_one_file=True,
+                location=data_filename,
+                size_threshold=1024
+            )
+            print("Model saved successfully")
+        except Exception as e:
+            print(f"Error saving model: {e}")
+            # Fallback: save without external data consolidation
+            print("Trying fallback save...")
+            onnx.save(model, onnx_output_path)
         
         # Clean up temporary files
         if os.path.exists(temp_onnx_path):

@@ -12,7 +12,10 @@ import modelopt.torch.opt as mto
 
 
 # Ensure you use the exact same settings as your pipeline
-prompt = '("masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, group of three friends dancing in the heavy rain at night on a city street, puddles on the ground with reflections, multiple_girls, 1boy, facing_the_viewer, wet clothes", "(In the center: Aqua (Konosuba) with a joyful expression, looking up at the sky with her hands up in the air:1.3), 1girl, aqua_(konosuba), long_blue_hair, blue_dress, bare_shoulders, hands_up, arms_up, happy, joyful", "(On the left: Megumin with a smug smile, hands clasped behind her back:1.2), 1girl, megumin, witch_hat, eyepatch, short_brown_hair, red_dress, black_cape, hands_behind_back, smug", "(On the right: Satou Kazuma looking annoyed and resigned, holding a green frog plushie protectively:1.2), 1boy, satou_kazuma, green_tracksuit, short_brown_hair, annoyed, holding_plushie, frog_plushie").and()'
+prompt = '("masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, 3girls, facing_the_viewer, shiny clothes", 
+"aqua_(konosuba), hands_up, arms_up, happy, joyful", 
+"megumin, hands_behind_back, smug", 
+"darkness_(konosuba), annoyed").and()'
 height = 832
 width = 1216
 num_inference_steps = 8

@@ -89,35 +89,40 @@ with torch.no_grad():
             ).to(device)}
 
         add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_global
-        noise_pred = pipe.unet(
+        pred_global = pipe.unet(
             latent_model_input, t,
             encoder_hidden_states=prompt_embeds_global,
             added_cond_kwargs=add_time_ids_kwargs
         ).sample
 
         add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_left
-        pred_regional = pipe.unet(
+        pred_left = pipe.unet(
             latent_model_input, t,
             encoder_hidden_states=prompt_embeds_left,
             added_cond_kwargs=add_time_ids_kwargs
         ).sample
-        noise_pred = torch.where(mask_left.bool(), pred_regional, noise_pred)
         
         add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_center
-        pred_regional = pipe.unet(
+        pred_right = pipe.unet(
             latent_model_input, t,
             encoder_hidden_states=prompt_embeds_center,
             added_cond_kwargs=add_time_ids_kwargs
         ).sample
-        noise_pred = torch.where(mask_center.bool(), pred_regional, noise_pred)
 
         add_time_ids_kwargs["text_embeds"] = pooled_prompt_embeds_right
-        pred_regional = pipe.unet(
+        pred_right = pipe.unet(
             latent_model_input, t,
             encoder_hidden_states=prompt_embeds_right,
             added_cond_kwargs=add_time_ids_kwargs
         ).sample
-        noise_pred = torch.where(mask_right.bool(), pred_regional, noise_pred)
+
+        
+        # --- B. BLENDING THE PREDICTIONS (LATENT COUPLING) ---
+        # This logic remains the same.
+        noise_pred = pred_global
+        noise_pred = (noise_pred * (1.0 - mask_left)) + (pred_left * mask_left)
+        noise_pred = (noise_pred * (1.0 - mask_center)) + (pred_center * mask_center)
+        noise_pred = (noise_pred * (1.0 - mask_right)) + (pred_right * mask_right)
         
         # --- B. STEP ---
         # The scheduler's step function receives the raw (but blended) model output.

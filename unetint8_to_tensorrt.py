@@ -7,6 +7,7 @@ import modelopt.torch.opt as mto
 from tqdm import tqdm
 import argparse
 import onnx
+from onnxconverter_common import float16
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
@@ -151,12 +152,15 @@ def consolidate_onnx_model(onnx_path):
         print(f"Error: ONNX file not found at {onnx_path}")
         return
 
-    # Load the model, making sure to load any existing external data
+    # Load the model
     model = onnx.load(onnx_path, load_external_data=True)
 
-    # Save the model, forcing all tensors into a single external data file
+    # Convert to FP16
+    model_fp16 = float16.convert_float_to_float16(model)
+
+    # Save the FP16 model
     onnx.save(
-        model,
+        model_fp16,
         onnx_path,
         save_as_external_data=True,
         all_tensors_to_one_file=True,

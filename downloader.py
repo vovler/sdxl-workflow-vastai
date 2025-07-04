@@ -5,13 +5,12 @@ from pathlib import Path
 import uvicorn
 from urllib.parse import quote
 
-# Define the directory to be served as specified by the user.
-# On Windows, a path like "/foo" is relative to the current drive's root (e.g., C:\foo).
-# On Unix-like systems, it is treated as an absolute path.
-if os.name == 'nt':
-    BASE_DIR = Path(Path.cwd().anchor) / "workflow" / "wai_dmd_2_onnx"
-else:
-    BASE_DIR = Path("/workflow/wai_dmd_2_onnx")
+# Define the directory to be served. The path can be configured via an
+# environment variable `WAI_DMD2_ONNX_DIR` for flexibility across different
+# operating systems (like Windows for development and Linux for production).
+# If the environment variable is not set, it defaults to the Linux production path.
+BASE_DIR_PATH = os.environ.get("WAI_DMD2_ONNX_DIR", "/workflow/wai_dmd_2_onnx")
+BASE_DIR = Path(BASE_DIR_PATH)
 
 app = FastAPI()
 
@@ -70,8 +69,8 @@ async def serve_path(file_path: str = ""):
 if __name__ == "__main__":
     # Before starting the server, check if the target directory exists.
     if not BASE_DIR.exists() or not BASE_DIR.is_dir():
-        print(f"WARNING: The directory '{BASE_DIR}' does not exist.")
-        print("Please create it and place the files you wish to serve inside.")
+        print(f"WARNING: The directory '{BASE_DIR.resolve()}' does not exist.")
+        print("Please ensure the path is correct or set the 'WAI_DMD2_ONNX_DIR' environment variable.")
     
     print(f"Serving files from: {BASE_DIR.resolve()}")
     print("Starting server on http://0.0.0.0:80")

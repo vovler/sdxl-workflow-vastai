@@ -110,7 +110,7 @@ pipe.unet.forward = new_unet_forward
 
 # Run the pipeline.
 prompt_embeds, pooled_prompt_embeds = compel(prompt)
-generator=torch.Generator("cpu").manual_seed(0x7A35D)
+generator=torch.Generator("cpu").manual_seed(44)
 start_time = time.time()
 images_native = pipe(
     prompt_embeds=prompt_embeds,

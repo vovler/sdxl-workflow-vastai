@@ -17,7 +17,7 @@ prompt = 'masterpiece, best quality, absurdres, cinematic lighting, ultra-detail
 height = 832
 width = 1216
 num_inference_steps = 12
-seed = 43
+seed = 455
 guidance_scale = 1.0 # This is the key to matching your CFG-less setup
 
 device = "cuda:0"
@@ -111,7 +111,7 @@ pipe.unet.forward = new_unet_forward
 
 # Run the pipeline.
 prompt_embeds, pooled_prompt_embeds = compel(prompt)
-generator=torch.Generator("cpu").manual_seed(44)
+generator=torch.Generator("cpu").manual_seed(499)
 start_time = time.time()
 images_native = pipe(
     prompt_embeds=prompt_embeds,

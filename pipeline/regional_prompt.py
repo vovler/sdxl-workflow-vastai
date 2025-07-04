@@ -156,6 +156,8 @@ with torch.no_grad():
         del pred_regional
         
         # --- C. STEP ---
+        # The scheduler needs to scale the prediction before stepping.
+        noise_pred = pipe.scheduler.scale_model_input(noise_pred, t)
         # We directly step with the blended prediction. No CFG calculation.
         latents = pipe.scheduler.step(noise_pred, t, latents).prev_sample
 

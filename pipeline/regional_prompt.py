@@ -86,7 +86,6 @@ if __name__ == "__main__":
         "socks22/sdxl-wai-nsfw-illustriousv14",
         vae=vae,
         torch_dtype=torch.float16,
-        variant="fp16",
         use_safetensors=True
     ).to("cuda")
 

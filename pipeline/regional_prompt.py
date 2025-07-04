@@ -44,7 +44,7 @@ print("Encoding all prompts (CFG-less)...")
 # This encoding function is now much simpler as it doesn't need to handle CFG.
 def encode_prompt_cfg_less(prompt):
     # We call the internal method but tell it not to handle CFG.
-    prompt_embeds, _, pooled_prompt_embeds, _ = pipe._encode_prompt(
+    prompt_embeds, _, pooled_prompt_embeds, _ = pipe.encode_prompt(
         prompt=prompt,
         device=device,
         num_images_per_prompt=1,

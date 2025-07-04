@@ -162,7 +162,7 @@ if __name__ == "__main__":
     image = pipe(
         prompt_embeds=prompt_embeds, negative_prompt_embeds=negative_prompt_embeds,
         pooled_prompt_embeds=pooled_prompt_embeds, negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-        width=width, height=height, guidance_scale=1.0, num_inference_steps=8, generator=generator
+        width=width, height=height, guidance_scale=1.1, num_inference_steps=8, generator=generator
     ).images[0]
     
     print("Image generation complete.")

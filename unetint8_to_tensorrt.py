@@ -6,6 +6,7 @@ from huggingface_hub import snapshot_download
 import modelopt.torch.opt as mto
 from tqdm import tqdm
 import argparse
+import onnx
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
@@ -143,25 +144,65 @@ def build_engine(
         f.write(serialized_engine)
     print(f"TensorRT engine saved to {engine_path}")
 
+def consolidate_onnx_model(onnx_path):
+    """Loads an ONNX model and saves it with a single external data file."""
+    print(f"Consolidating ONNX model: {onnx_path}")
+    if not os.path.exists(onnx_path):
+        print(f"Error: ONNX file not found at {onnx_path}")
+        return
+
+    # Load the model, making sure to load any existing external data
+    model = onnx.load(onnx_path, load_external_data=True)
+
+    # Save the model, forcing all tensors into a single external data file
+    onnx.save(
+        model,
+        onnx_path,
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location=os.path.basename(onnx_path) + ".data",
+    )
+    print("ONNX model consolidated.")
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Export INT8 UNet to ONNX and/or build TensorRT engine."
+        description="Export INT8 UNet to ONNX, consolidate it, and/or build TensorRT engine."
     )
     parser.add_argument(
         "--only-onnx",
         action="store_true",
-        help="Only export the ONNX model, skip building the TensorRT engine.",
+        help="Only export the ONNX model and consolidate it, skip building the TensorRT engine.",
+    )
+    parser.add_argument(
+        "--consolidate-onnx",
+        action="store_true",
+        help="Only consolidate an existing ONNX model. Skips export and build.",
     )
     args = parser.parse_args()
 
+    if args.only_onnx and args.consolidate_onnx:
+        print("Error: --only-onnx and --consolidate-onnx are mutually exclusive.")
+        return
+
     base_model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
-    model_dir = snapshot_download(base_model_id)
-    int8_checkpoint_path = os.path.join(model_dir, "unet_int8.safetensors")
-    
     output_dir = "/workflow/wai_dmd2_onnx/unet"
     onnx_output_path = os.path.join(output_dir, "model_int8.onnx")
     engine_output_path = os.path.join(output_dir, "model_int8.plan")
-    
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    if args.consolidate_onnx:
+        consolidate_onnx_model(onnx_output_path)
+        print("Exiting after consolidation.")
+        return
+
+    model_dir = snapshot_download(base_model_id)
+    int8_checkpoint_path = os.path.join(model_dir, "unet_int8.safetensors")
+
+    output_dir = "/workflow/wai_dmd2_onnx/unet"
+    onnx_output_path = os.path.join(output_dir, "model_int8.onnx")
+    engine_output_path = os.path.join(output_dir, "model_int8.plan")
+
     os.makedirs(output_dir, exist_ok=True)
 
     print("Loading base UNet...")
@@ -214,6 +255,8 @@ def main():
                 export_params=True,
             )
         print("ONNX export complete.")
+
+        consolidate_onnx_model(onnx_output_path)
 
     if args.only_onnx:
         print("Successfully exported ONNX model. Exiting as requested by --only-onnx.")

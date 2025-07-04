@@ -436,6 +436,15 @@ def main():
         # Load the temporary model
         model = onnx.load(temp_onnx_path, load_external_data=True)
         
+        # Apply FP16 conversion if requested
+        if args.force_fp16:
+            print("Converting to FP16...")
+            try:
+                model = float16.convert_float_to_float16(model, keep_io_types=True)
+                print("FP16 conversion successful")
+            except Exception as e:
+                print(f"FP16 conversion failed: {e}, keeping original precision")
+        
         # Create data filename
         directory = os.path.dirname(onnx_output_path)
         filename = os.path.basename(onnx_output_path)

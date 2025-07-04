@@ -7,14 +7,13 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter
 
 # --- 1. SETTINGS ---
-prompt_background = "masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, dark city street at night, heavy rain, puddles on the ground with glowing reflections of neon signs, wet asphalt"
-prompt_left = "1girl, megumin, witch_hat, eyepatch, short_brown_hair, red_dress, black_cape, smug, hands_behind_back"
-prompt_center = "1girl, aqua_(konosuba), long_blue_hair, blue_dress, bare_shoulders, hands_up, arms_up, happy, joyful"
-prompt_right = "1boy, satou_kazuma, green_tracksuit, short_brown_hair, annoyed, holding_plushie, frog_plushie"
+prompt_left = "masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, dark city street at night, 1girl, megumin, witch_hat, eyepatch, short_brown_hair, red_dress, black_cape, smug, hands_behind_back"
+prompt_center = "masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, dark city street at night, 1girl, aqua_(konosuba), long_blue_hair, blue_dress, bare_shoulders, hands_up, arms_up, happy, joyful"
+prompt_right = "masterpiece, best quality, absurdres, cinematic lighting, ultra-detailed, dark city street at night, 1boy, satou_kazuma, green_tracksuit, short_brown_hair, annoyed, holding_plushie, frog_plushie"
 
 height = 832
 width = 1216
-num_inference_steps = 15
+num_inference_steps = 8
 seed = 45
 guidance_scale = 1.0
 background_blend_ratio = 0.35
@@ -44,21 +43,9 @@ def encode_prompt_cfg_less(prompt):
     )
     return prompt_embeds, pooled_prompt_embeds
 
-prompt_embeds_bg, pooled_embeds_bg = encode_prompt_cfg_less(prompt_background)
 prompt_embeds_left, pooled_embeds_left = encode_prompt_cfg_less(prompt_left)
 prompt_embeds_center, pooled_embeds_center = encode_prompt_cfg_less(prompt_center)
 prompt_embeds_right, pooled_embeds_right = encode_prompt_cfg_less(prompt_right)
-
-# --- Blending Logic (remains correct) ---
-def blend_conditionings(cond1, pooled1, cond2, pooled2, ratio):
-    blended_cond = (cond1 * ratio) + (cond2 * (1.0 - ratio))
-    blended_pooled = (pooled1 * ratio) + (pooled2 * (1.0 - ratio))
-    return blended_cond, blended_pooled
-
-prompt_embeds_blended_left, pooled_blended_left = blend_conditionings(prompt_embeds_bg, pooled_embeds_bg, prompt_embeds_left, pooled_embeds_left, background_blend_ratio)
-prompt_embeds_blended_center, pooled_blended_center = blend_conditionings(prompt_embeds_bg, pooled_embeds_bg, prompt_embeds_center, pooled_embeds_center, background_blend_ratio)
-prompt_embeds_blended_right, pooled_blended_right = blend_conditionings(prompt_embeds_bg, pooled_embeds_bg, prompt_embeds_right, pooled_embeds_right, background_blend_ratio)
-print("Conditionings blended.")
 
 
 # --- 4. PREPARE LATENTS AND SOFT MASKS (Identical) ---
@@ -97,14 +84,14 @@ with torch.no_grad():
             text_encoder_projection_dim=pipe.text_encoder_2.config.projection_dim
         ).to(device)}
 
-        add_kwargs["text_embeds"] = pooled_blended_left
-        pred_left = pipe.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds_blended_left, added_cond_kwargs=add_kwargs).sample
+        add_kwargs["text_embeds"] = pooled_embeds_left
+        pred_left = pipe.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds_left, added_cond_kwargs=add_kwargs).sample
         
-        add_kwargs["text_embeds"] = pooled_blended_center
-        pred_center = pipe.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds_blended_center, added_cond_kwargs=add_kwargs).sample
+        add_kwargs["text_embeds"] = pooled_embeds_center
+        pred_center = pipe.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds_center, added_cond_kwargs=add_kwargs).sample
         
-        add_kwargs["text_embeds"] = pooled_blended_right
-        pred_right = pipe.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds_blended_right, added_cond_kwargs=add_kwargs).sample
+        add_kwargs["text_embeds"] = pooled_embeds_right
+        pred_right = pipe.unet(latent_model_input, t, encoder_hidden_states=prompt_embeds_right, added_cond_kwargs=add_kwargs).sample
         
         noise_pred = (pred_left * masks[0] + 
                       pred_center * masks[1] + 

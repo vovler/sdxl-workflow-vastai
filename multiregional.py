@@ -3,7 +3,7 @@ import torch
 
 
 pipe = StableDiffusionXLSEGPipeline.from_pretrained(
-    "John6666/wai-nsfw-illustrious-v130-sdxl",
+    "socks22/sdxl-wai-nsfw-illustriousv14",
     torch_dtype=torch.float16
 )
 
@@ -15,7 +15,7 @@ seed = 1
 generator = torch.Generator(device="cuda").manual_seed(seed)
 output = pipe(
     prompts,
-    num_inference_steps=25,
+    num_inference_steps=8,
     guidance_scale=1.0,
     seg_scale=2.0,
     seg_blur_sigma=25.0,

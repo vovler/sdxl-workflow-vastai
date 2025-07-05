@@ -10,7 +10,7 @@ DEFAULT_BASE_MODEL = "socks22/sdxl-wai-nsfw-illustriousv14"
 TENSORRT_ENGINES_DIR = "/workflow/wai_dmd2_onnx"
 
 # VAE
-VAE_DECODER_PATH = os.path.join(TENSORRT_ENGINES_DIR, "vae_decoder", "model_opt.plan")
+VAE_DECODER_PATH = os.path.join(TENSORRT_ENGINES_DIR, "vae_decoder", "new_model_opt.plan")
 
 # UNet
 UNET_PATH = os.path.join(TENSORRT_ENGINES_DIR, "unet", "model_int8_optimized.plan")

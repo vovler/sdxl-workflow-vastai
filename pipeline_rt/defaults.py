@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 # Get the absolute path of the directory where this file is located
 _this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,4 +21,4 @@ CLIP_TEXT_ENCODER_1_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder", "m
 CLIP_TEXT_ENCODER_2_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder_2", "model_opt.plan")
 
 # VAE Scaling
-VAE_SCALING_FACTOR = 0.18215 
+VAE_SCALING_FACTOR = np.float16(0.13025) 

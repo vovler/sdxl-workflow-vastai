@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, Dict
 import os
 import tensorrt as trt
-from cuda import cudart
+from cuda.bindings import runtime as cudart
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 trt.init_libnvinfer_plugins(TRT_LOGGER, "")

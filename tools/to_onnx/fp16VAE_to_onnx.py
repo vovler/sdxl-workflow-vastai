@@ -41,7 +41,7 @@ def main():
     height_dim = Dim("height")
     width_dim = Dim("width")
     dynamic_shapes = {
-        "latent_sample": {
+        "sample": {
             0: batch_dim,
             2: height_dim,
             3: width_dim,
@@ -51,8 +51,8 @@ def main():
     onnx_program = torch.onnx.export(
         decoder,
         model_args,
-        input_names=["latent_sample"],
-        output_names=["sample"],
+        input_names=["sample"],
+        output_names=["output_sample"],
         dynamo=True,
         dynamic_shapes=dynamic_shapes,
         opset_version=18,

@@ -135,9 +135,9 @@ class VAEDecoder(TensorRTModel):
         print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
         print("------------------------")
 
-        feed_dict = {"latent_sample": latent}
+        feed_dict = {"sample": latent}
         outputs = super().__call__(feed_dict)
-        return outputs["sample"]
+        return outputs["output_sample"]
 
 
 class UNet(TensorRTModel):

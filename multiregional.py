@@ -77,6 +77,7 @@ def create_custom_masks(width=1024, height=1024, bboxes=None):
     return masks
 
 
+@torch.no_grad()
 def preprocess_mask(mask_pil, h, w, device):
     """Convert PIL mask to tensor format for MultiDiffusion"""
     mask = np.array(mask_pil).astype(np.float32) / 255.0
@@ -129,6 +130,7 @@ class MultiDiffusionSDXL_Regional:
         backgrounds = self.vae.encode(backgrounds).latent_dist.sample() * self.vae.config.scaling_factor
         return backgrounds
     
+    @torch.no_grad()
     def generate_regional(self, mask_images, prompts, negative_prompts=None, 
                          width=1024, height=1024, num_inference_steps=30,
                          guidance_scale=7.5, stride=64, bootstrapping=20):
@@ -217,7 +219,7 @@ class MultiDiffusionSDXL_Regional:
         self.scheduler.set_timesteps(num_inference_steps, device=self.device)
         
         print("Starting regional generation...")
-        with torch.autocast('cuda'), torch.no_grad():
+        with torch.autocast('cuda'):
             for step_idx, t in enumerate(tqdm(self.scheduler.timesteps)):
                 count = torch.zeros_like(latents)
                 value = torch.zeros_like(latents)

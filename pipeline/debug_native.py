@@ -11,9 +11,14 @@ import modelopt.torch.opt as mto
 
 
 # Ensure you use the exact same settings as your pipeline
-prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), anal sex, ahegao, heart shaped eyes"
-height = 1024
-width = 1024
+prompt = (
+    "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls, "
+    "aqua_(konosuba), blue sword, left_side, "
+    "megumin, red_sword, right_side, "
+    "shiny skin, shiny clothes, looking at viewer, volumetric_lightning, futuristic_city, neon_lights, night"
+)
+height = 768
+width = 1152
 num_inference_steps = 8
 seed = 42
 guidance_scale = 1.0 # This is the key to matching your CFG-less setup
@@ -28,7 +33,7 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
     torch_dtype=torch.float16,
     use_safetensors=True,
 )
-pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
+#pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
 pipe = pipe.to("cuda")
 # Set the exact same scheduler
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
@@ -99,7 +104,7 @@ print("\n" + "="*30 + " RUNNING NATIVE (FP16) " + "="*30 + "\n")
 pipe.unet.forward = new_unet_forward
 
 # Run the pipeline.
-generator=torch.Generator("cpu").manual_seed(0x7A35D)
+generator=torch.Generator("cpu").manual_seed(seed)
 start_time = time.time()
 images_native = pipe(
     prompt=prompt,
@@ -128,7 +133,7 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
     torch_dtype=torch.float16,
     use_safetensors=True,
 )
-pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
+#pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/taesdxl", torch_dtype=torch.float16)
 pipe = pipe.to("cuda")
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
     pipe.scheduler.config
@@ -151,7 +156,7 @@ print("INT8 UNet loaded and restored successfully.")
 pipe.unet.forward = new_unet_forward
 
 # Run the pipeline, resetting the generator to get the same initial noise
-generator=torch.Generator("cpu").manual_seed(0x7A35D)
+generator=torch.Generator("cpu").manual_seed(seed)
 start_time = time.time()
 images_quantized = pipe(
     prompt=prompt,

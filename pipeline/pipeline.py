@@ -31,8 +31,8 @@ class SDXLPipeline:
     def __call__(
         self,
         prompt: str,
-        height: int = 1024,
-        width: int = 1024,
+        height: int = 768,
+        width: int = 1152,
         num_inference_steps: int = 8,
         seed: int = 42,
         is_warmup: bool = False,
@@ -207,15 +207,20 @@ class SDXLPipeline:
         return image
 
 if __name__ == "__main__":
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
-    
+    #prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
+    prompt = (
+        "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls, "
+        "aqua_(konosuba), blue sword, left_side, "
+        "megumin, red_sword, right_side, "
+        "shiny skin, shiny clothes, looking at viewer, volumetric_lightning, futuristic_city, neon_lights, night"
+    )
     pipeline = SDXLPipeline()
     # Warmup run
     _ = pipeline(prompt, is_warmup=True)
 
     # Monitored run
     start_time = time.time()
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nude"
+    #prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nude"
     image = pipeline(prompt)
     end_time = time.time()
 

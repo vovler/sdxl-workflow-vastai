@@ -1,6 +1,5 @@
 import os
 import torch
-import tensorrt as trt
 from diffusers import UNet2DConditionModel
 from huggingface_hub import snapshot_download
 import modelopt.torch.opt as mto
@@ -8,76 +7,7 @@ from tqdm import tqdm
 import argparse
 import onnx
 from onnxconverter_common import float16
-
-TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
-
-class TQDMProgressMonitor(trt.IProgressMonitor):
-    def __init__(self):
-        trt.IProgressMonitor.__init__(self)
-        self._active_phases = {}
-        self._step_result = True
-        self.max_indent = 5
-
-    def phase_start(self, phase_name, parent_phase, num_steps):
-        leave = False
-        try:
-            if parent_phase is not None:
-                nbIndents = (
-                    self._active_phases.get(parent_phase, {}).get(
-                        "nbIndents", self.max_indent
-                    )
-                    + 1
-                )
-                if nbIndents >= self.max_indent:
-                    return
-            else:
-                nbIndents = 0
-                leave = True
-            self._active_phases[phase_name] = {
-                "tq": tqdm(
-                    total=num_steps, desc=phase_name, leave=leave, position=nbIndents
-                ),
-                "nbIndents": nbIndents,
-                "parent_phase": parent_phase,
-            }
-        except KeyboardInterrupt:
-            self._step_result = False
-
-    def phase_finish(self, phase_name):
-        try:
-            if phase_name in self._active_phases.keys():
-                self._active_phases[phase_name]["tq"].update(
-                    self._active_phases[phase_name]["tq"].total
-                    - self._active_phases[phase_name]["tq"].n
-                )
-
-                parent_phase = self._active_phases[phase_name].get("parent_phase", None)
-                while parent_phase is not None:
-                    self._active_phases[parent_phase]["tq"].refresh()
-                    parent_phase = self._active_phases[parent_phase].get(
-                        "parent_phase", None
-                    )
-                if (
-                    self._active_phases[phase_name]["parent_phase"]
-                    in self._active_phases.keys()
-                ):
-                    self._active_phases[
-                        self._active_phases[phase_name]["parent_phase"]
-                    ]["tq"].refresh()
-                del self._active_phases[phase_name]
-            pass
-        except KeyboardInterrupt:
-            self._step_result = False
-
-    def step_complete(self, phase_name, step):
-        try:
-            if phase_name in self._active_phases.keys():
-                self._active_phases[phase_name]["tq"].update(
-                    step - self._active_phases[phase_name]["tq"].n
-                )
-            return self._step_result
-        except KeyboardInterrupt:
-            return False
+import glob
 
 class UnetWrapper(torch.nn.Module):
     def __init__(self, unet):
@@ -207,59 +137,8 @@ def analyze_onnx_model(onnx_path):
     
     print("="*50)
 
-def build_engine(
-    engine_path: str,
-    onnx_path: str,
-    input_profiles: dict,
-    fp16: bool = True,
-    int8: bool = False,
-):
-    print(f"Building TensorRT engine for {onnx_path}: {engine_path}")
-
-    os.makedirs(os.path.dirname(engine_path), exist_ok=True)
-    if os.path.exists(engine_path):
-        print("Engine already exists, skipping build.")
-        return
-
-    builder = trt.Builder(TRT_LOGGER)
-    network = builder.create_network(
-        (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-    )
-    parser = trt.OnnxParser(network, TRT_LOGGER)
-
-    success = parser.parse_from_file(onnx_path)
-    if not success:
-        for idx in range(parser.num_errors):
-            print(parser.get_error(idx))
-        raise RuntimeError(f"Failed to parse ONNX file: {onnx_path}")
-
-    config = builder.create_builder_config()
-
-    profile = builder.create_optimization_profile()
-    for name, (min_shape, opt_shape, max_shape) in input_profiles.items():
-        profile.set_shape(name, min=min_shape, opt=opt_shape, max=max_shape)
-    config.add_optimization_profile(profile)
-
-    if fp16:
-        config.set_flag(trt.BuilderFlag.FP16)
-    if int8:
-        config.set_flag(trt.BuilderFlag.INT8)
-
-    config.progress_monitor = TQDMProgressMonitor()
-
-    print("Building engine...")
-    serialized_engine = builder.build_serialized_network(network, config)
-
-    if serialized_engine is None:
-        raise RuntimeError("Failed to build TensorRT engine.")
-
-    print("Engine built successfully.")
-    with open(engine_path, "wb") as f:
-        f.write(serialized_engine)
-    print(f"TensorRT engine saved to {engine_path}")
-
-def consolidate_onnx_model(onnx_path, force_fp16=False):
-    """Loads an ONNX model and consolidates all external data into a single .data file."""
+def consolidate_onnx_model(onnx_path):
+    """Loads an ONNX model, converts to FP16 if needed, and consolidates external data."""
     print(f"\nConsolidating ONNX model: {onnx_path}")
     if not os.path.exists(onnx_path):
         print(f"Error: ONNX file not found at {onnx_path}")
@@ -274,20 +153,27 @@ def consolidate_onnx_model(onnx_path, force_fp16=False):
         print("Loading ONNX model with external data...")
         model = onnx.load(onnx_path, load_external_data=True)
         
-        # Get the directory and create the consolidated data filename
-        directory = os.path.dirname(onnx_path)
-        filename = os.path.basename(onnx_path)
-        base_name = os.path.splitext(filename)[0]
-        data_filename = f"{base_name}.data"
-        
-        # Optional FP16 conversion
-        if force_fp16:
-            print("Converting to FP16...")
+        # Automatically convert to FP16 if any FP32 weights are found
+        fp32_count = sum(
+            1 for initializer in model.graph.initializer 
+            if initializer.data_type == onnx.TensorProto.DataType.FLOAT
+        )
+
+        if fp32_count > 0:
+            print("Model contains FP32 weights. Converting to FP16...")
             try:
                 model = float16.convert_float_to_float16(model, keep_io_types=True)
                 print("FP16 conversion successful")
             except Exception as e:
                 print(f"FP16 conversion failed: {e}, keeping original precision")
+        else:
+            print("Model is already pure FP16. No conversion needed.")
+
+        # Get the directory and create the consolidated data filename
+        directory = os.path.dirname(onnx_path)
+        filename = os.path.basename(onnx_path)
+        base_name = os.path.splitext(filename)[0]
+        data_filename = f"{base_name}.data"
         
         print("Consolidating external data into single file...")
         
@@ -304,21 +190,21 @@ def consolidate_onnx_model(onnx_path, force_fp16=False):
         
         # Clean up the scattered external data files
         print("Cleaning up scattered external data files...")
-        cleaned_files = []
-        for file in os.listdir(directory):
-            file_path = os.path.join(directory, file)
-            # Remove auto-generated external data files (but keep our consolidated one)
-            if (file.startswith('onnx__') or 
-                (file.endswith('.data') and file != data_filename) or
-                (file.endswith('.pb') and file != filename)):
-                try:
-                    os.remove(file_path)
-                    cleaned_files.append(file)
-                except Exception as e:
-                    print(f"Could not remove {file}: {e}")
+        cleaned_count = 0
+        final_files = {filename, data_filename}
+        patterns_to_clean = ['_unet*', 'unet.*', 'onnx__*', '*.data', '*.pb']
         
-        if cleaned_files:
-            print(f"Removed {len(cleaned_files)} scattered files")
+        for pattern in patterns_to_clean:
+            for file_path in glob.glob(os.path.join(directory, pattern)):
+                if os.path.basename(file_path) not in final_files:
+                    try:
+                        os.remove(file_path)
+                        cleaned_count += 1
+                    except OSError as e:
+                        print(f"Error removing file {file_path}: {e}")
+
+        if cleaned_count > 0:
+            print(f"Removed {cleaned_count} scattered files.")
         
         print("AFTER consolidation:")
         analyze_onnx_model(onnx_path)
@@ -329,38 +215,23 @@ def consolidate_onnx_model(onnx_path, force_fp16=False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Export INT8 UNet to ONNX, consolidate it, and/or build TensorRT engine."
-    )
-    parser.add_argument(
-        "--only-onnx",
-        action="store_true",
-        help="Only export the ONNX model and consolidate it, skip building the TensorRT engine.",
+        description="Export INT8 UNet to ONNX and consolidate it."
     )
     parser.add_argument(
         "--consolidate-onnx",
         action="store_true",
-        help="Only consolidate an existing ONNX model. Skips export and build.",
-    )
-    parser.add_argument(
-        "--force-fp16",
-        action="store_true",
-        help="Force FP16 conversion during consolidation.",
+        help="Only consolidate an existing ONNX model. Skips export.",
     )
     args = parser.parse_args()
-
-    if args.only_onnx and args.consolidate_onnx:
-        print("Error: --only-onnx and --consolidate-onnx are mutually exclusive.")
-        return
 
     base_model_id = "socks22/sdxl-wai-nsfw-illustriousv14"
     output_dir = "/workflow/wai_dmd2_onnx/unet"
     onnx_output_path = os.path.join(output_dir, "model_int8.onnx")
-    engine_output_path = os.path.join(output_dir, "model_int8.plan")
 
     os.makedirs(output_dir, exist_ok=True)
 
     if args.consolidate_onnx:
-        consolidate_onnx_model(onnx_output_path, force_fp16=args.force_fp16)
+        consolidate_onnx_model(onnx_output_path)
         print("Exiting after consolidation.")
         return
 
@@ -451,13 +322,13 @@ def main():
         
         fp16_percentage = (fp16_count / total_count * 100) if total_count > 0 else 0
         
-        print(f"Model precision: {fp16_percentage:.1f}% FP16, {fp32_count/total_count*100:.1f}% FP32")
+        print(f"Model precision: {fp16_percentage:.1f}% FP16, {100 - fp16_percentage:.1f}% FP32")
         
-        # Only convert to FP16 if there are significant FP32 weights and user requested it
-        should_convert_fp16 = args.force_fp16 and fp32_count > 0
+        # Automatically convert to FP16 if there are significant FP32 weights
+        should_convert_fp16 = fp32_count > 0
         
         if should_convert_fp16:
-            print("Converting to FP16...")
+            print("Model contains FP32 weights. Converting to FP16...")
             try:
                 model = float16.convert_float_to_float16(temp_model, keep_io_types=True)
                 print("FP16 conversion successful")
@@ -465,10 +336,7 @@ def main():
                 print(f"FP16 conversion failed: {e}, keeping original precision")
                 model = temp_model
         else:
-            if args.force_fp16 and fp32_count == 0:
-                print("Model is already 100% FP16, skipping conversion")
-            elif not args.force_fp16:
-                print("Keeping original precision (use --force-fp16 to convert)")
+            print("Model is already 100% FP16, skipping conversion.")
             model = temp_model
         
         # Create data filename
@@ -495,60 +363,37 @@ def main():
             onnx.save(model, onnx_output_path)
         
         # Clean up temporary files
-        if os.path.exists(temp_onnx_path):
-            os.remove(temp_onnx_path)
-        
-        # Clean up any scattered external data files from temp export
-        temp_dir = os.path.dirname(temp_onnx_path)
+        print("Cleaning up temporary and scattered files...")
         cleaned_count = 0
-        for file in os.listdir(temp_dir):
-            if file.startswith('onnx__') or (file.endswith('.pb') and file != filename):
-                try:
-                    os.remove(os.path.join(temp_dir, file))
-                    cleaned_count += 1
-                except:
-                    pass
         
+        # Remove the main temp file
+        if os.path.exists(temp_onnx_path):
+            try:
+                os.remove(temp_onnx_path)
+                cleaned_count += 1
+            except Exception as e:
+                print(f"Could not remove temp file {temp_onnx_path}: {e}")
+
+        # Clean up other scattered files from export
+        final_files = {os.path.basename(onnx_output_path), data_filename}
+        patterns_to_clean = ['_unet*', 'unet.*', 'onnx__*', '*.pb']
+        
+        for pattern in patterns_to_clean:
+            for file_path in glob.glob(os.path.join(directory, pattern)):
+                if os.path.basename(file_path) not in final_files:
+                    try:
+                        os.remove(file_path)
+                        cleaned_count += 1
+                    except OSError as e:
+                        print(f"Error removing file {file_path}: {e}")
+
         if cleaned_count > 0:
             print(f"Cleaned up {cleaned_count} temporary files")
         
         print("ONNX model consolidated. Final analysis:")
         analyze_onnx_model(onnx_output_path)
 
-    if args.only_onnx:
-        print("Successfully exported ONNX model. Exiting as requested by --only-onnx.")
-        return
-
-    print("Building INT8 TensorRT engine...")
-    latent_heights = [768 // 8, 1152 // 8, 960 // 8]
-    latent_widths = [1152 // 8, 768 // 8, 960 // 8]
-    
-    min_h, max_h = min(latent_heights), max(latent_heights)
-    min_w, max_w = min(latent_widths), max(latent_widths)
-    opt_h, opt_w = 960 // 8, 960 // 8
-    bs = 1
-
-    unet_input_profiles = {
-        "sample": (
-            (bs, 4, min_h, min_w),
-            (bs, 4, opt_h, opt_w),
-            (bs, 4, max_h, max_w),
-        ),
-        "timestep": ((), (), ()),
-        "encoder_hidden_states": ((bs, 77, 2048), (bs, 77, 2048), (bs, 77, 2048)),
-        "text_embeds": ((bs, 1280), (bs, 1280), (bs, 1280)),
-        "time_ids": ((bs, 6), (bs, 6), (bs, 6)),
-    }
-    
-    build_engine(
-        engine_path=engine_output_path,
-        onnx_path=onnx_output_path,
-        input_profiles=unet_input_profiles,
-        fp16=True,
-        int8=True,
-    )
-
-    print(f"\nINT8 UNet engine saved successfully to {engine_output_path}")
+    print("\nSuccessfully exported ONNX model.")
 
 if __name__ == "__main__":
     main()

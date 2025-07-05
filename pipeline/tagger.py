@@ -4,8 +4,8 @@ import torch
 import numpy as np
 from PIL import Image
 
-import pipeline.models as models
-import pipeline.defaults as defaults
+import models as models
+import defaults as defaults
 
 class WD14Tagger:
     def __init__(self, device: torch.device):

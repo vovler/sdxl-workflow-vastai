@@ -12,7 +12,7 @@ import modelopt.torch.opt as mto
 
 # Ensure you use the exact same settings as your pipeline
 prompt = (
-    "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls, "
+    "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, general, 2girls, "
     "aqua_(konosuba), blue sword, left_side, "
     "megumin, red_sword, right_side, "
     "shiny skin, shiny clothes, looking at viewer, volumetric_lightning, futuristic_city, neon_lights, night"

@@ -123,12 +123,18 @@ class MultiDiffusionSDXL_Regional:
     @torch.no_grad()
     def get_random_background(self, n_samples, height, width):
         """Generate random background latents for bootstrapping"""
-        backgrounds = torch.rand(n_samples, 3, height, width, device=self.device, dtype=torch.float16)
-        backgrounds = backgrounds * 2 - 1  # Normalize to [-1, 1]
         
-        # Encode to latent space
-        backgrounds = self.vae.encode(backgrounds).latent_dist.sample() * self.vae.config.scaling_factor
-        return backgrounds
+        all_latents = []
+        # Process one by one to avoid OOM with VAE
+        for _ in tqdm(range(n_samples), desc="Generating background latents"):
+            background = torch.rand(1, 3, height, width, device=self.device, dtype=torch.float16)
+            background = background * 2 - 1  # Normalize to [-1, 1]
+            
+            # Encode to latent space
+            latents = self.vae.encode(background).latent_dist.sample() * self.vae.config.scaling_factor
+            all_latents.append(latents)
+            
+        return torch.cat(all_latents, dim=0)
     
     @torch.no_grad()
     def generate_regional(self, mask_images, prompts, negative_prompts=None, 

@@ -138,7 +138,7 @@ class VAEDecoder(TensorRTModel):
 
         feed_dict = {"sample": latent}
         outputs = super().__call__(feed_dict)
-        return outputs["output_sample"] * -1.0
+        return outputs["output_sample"]
 
 
 class UNet(TensorRTModel):

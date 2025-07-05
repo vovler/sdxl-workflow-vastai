@@ -225,8 +225,8 @@ if __name__ == "__main__":
     
     prompt = (
         "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls"
-        "aqua_(konosuba), robotic_arms, left_side, facing_right,"
-        "megumin, medieval_armor, blue_sword, right_side, facing_left,"
+        "aqua_(konosuba), robotic_arms, left_side, facing_right, shiny skin, shiny clothes"
+        "megumin, medieval_armor, blue_sword, right_side, facing_left, shiny skin, shiny clothes"
         "futuristic_city, neon_lights, sunset, background"
     )
     pipeline = SDXLPipeline()

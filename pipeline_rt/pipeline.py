@@ -251,7 +251,7 @@ class SDXLPipeline:
             
             # Decode with the Hub VAE
             with torch.no_grad():
-                hub_latents = latents / defaults.VAE_SCALING_FACTOR
+                hub_latents = latents / defaults.VAE_SCALING_FACTOR.astype(np.float16)
                 hub_image_np = self.hub_vae.decode(hub_latents.to(torch.float16)).sample
 
             hub_vae_end_time = time.time()

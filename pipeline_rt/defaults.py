@@ -17,4 +17,7 @@ UNET_PATH = os.path.join(TENSORRT_ENGINES_DIR, "unet", "model_int8_optimized.pla
 
 # Text Encoders
 CLIP_TEXT_ENCODER_1_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder", "model_opt.plan")
-CLIP_TEXT_ENCODER_2_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder_2", "model_opt.plan") 
+CLIP_TEXT_ENCODER_2_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder_2", "model_opt.plan")
+
+# VAE Scaling
+VAE_SCALING_FACTOR = 0.18215 

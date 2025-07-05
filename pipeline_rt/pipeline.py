@@ -44,7 +44,7 @@ class SDXLPipeline:
         height: int = 768,
         width: int = 1152,
         num_inference_steps: int = 8,
-        seed: int = 43,
+        seed: int = 44,
     ):
         print("\n" + "="*50)
         print("--- Starting SDXL Pipeline (Monitored Run) ---")

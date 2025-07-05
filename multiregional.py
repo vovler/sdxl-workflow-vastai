@@ -14,7 +14,7 @@ pipe = StableDiffusionXLSEGPipeline.from_pretrained(
 
 device = "cuda"
 pipe = pipe.to(device)
-prompt = (
+prompts = (
     "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls, "
     "aqua_(konosuba), blue sword, left_side, "
     "megumin, red_sword, right_side, "

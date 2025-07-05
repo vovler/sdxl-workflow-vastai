@@ -32,6 +32,8 @@ def run_single_inference():
         guidance_scale=1.0,
         seg_scale=1.0,
         seg_blur_sigma=50,
+        height=768,
+        width=1152,
         seg_applied_layers=['mid'],
         generator=generator,
     )

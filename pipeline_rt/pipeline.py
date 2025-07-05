@@ -181,7 +181,7 @@ if __name__ == "__main__":
         "masterpiece,best quality,amazing quality, general, 3girls, "
         "aqua_(konosuba), left_side, blue sword, "
         "megumin, center_side, red_sword, "
-        "darkness_(konosuba), right_side, green_sword, "
+        "darkness_(konosuba),mright_side, blonde_hair, green_sword, "
         "shiny skin, shiny clothes, looking at viewer, volumetric_lighting, park, day"
     )
     pipeline = SDXLPipeline()

@@ -278,6 +278,9 @@ class MultiDiffusionSDXL_Regional:
                     noise_pred_text = noise_pred[:, 1] 
                     noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
                     
+                    # Prevent NaNs from unstable models in float16
+                    noise_pred = torch.nan_to_num(noise_pred)
+                    
                     # Scheduler step for each region
                     latents_view_denoised = []
                     for region_idx in range(len(prompts)):

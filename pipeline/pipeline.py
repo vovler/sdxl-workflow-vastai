@@ -9,8 +9,8 @@ import os
 import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 import utils
-from pipeline.tagger import WD14Tagger
-import pipeline.defaults as defaults
+from tagger import WD14Tagger
+import defaults
 
 class SDXLPipeline:
     def __init__(self):

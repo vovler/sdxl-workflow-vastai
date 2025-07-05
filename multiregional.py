@@ -14,18 +14,24 @@ pipe = StableDiffusionXLSEGPipeline.from_pretrained(
 
 device = "cuda"
 pipe = pipe.to(device)
-prompts = ["masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, in a park, upper_body, 2girls, 1boy, ON THE LEFT: aqua_(konosuba), smiling, ON THE CENTER: megumin, sad, looking at each other, ON THE RIGHT: kasuma, crying"]
-seed = 1
+prompt = (
+    "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls, "
+    "aqua_(konosuba), blue sword, left_side, "
+    "megumin, red_sword, right_side, "
+    "shiny skin, shiny clothes, looking at viewer, volumetric_lightning, futuristic_city, neon_lights, night"
+)
+
+seed = 42
 
 
 def run_single_inference():
     generator = torch.Generator(device="cuda").manual_seed(seed)
     output = pipe(
         prompts,
-        num_inference_steps=12,
+        num_inference_steps=8,
         guidance_scale=1.0,
-        seg_scale=3.0,
-        seg_blur_sigma=999,
+        seg_scale=1.0,
+        seg_blur_sigma=50,
         seg_applied_layers=['mid'],
         generator=generator,
     )

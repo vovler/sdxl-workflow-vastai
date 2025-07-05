@@ -156,7 +156,7 @@ class SDXLPipeline:
         print("\n--- Decoding Latents ---")
         vae_start_time = time.time()
         
-        latents = latents / defaults.VAE_SCALING_FACTOR
+        #latents = latents / defaults.VAE_SCALING_FACTOR
         image_np = self.trt_vae(latents)
 
         vae_end_time = time.time()

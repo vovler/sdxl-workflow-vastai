@@ -1,7 +1,7 @@
 # debug_native.py
 import torch
 import time
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny, UNet2DConditionModel
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderTiny, UNet2DConditionModel, AutoencoderKL
 from huggingface_hub import snapshot_download
 import os
 
@@ -102,7 +102,7 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
 print("\n" + "="*30 + " RUNNING NATIVE (FP16) " + "="*30 + "\n")
 # Patch the UNet
 pipe.unet.forward = new_unet_forward
-pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16, device=device)
+pipe.vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16, device=device)
 #pipe = pipe.to("cuda")
 # Run the pipeline.
 generator=torch.Generator("cpu").manual_seed(seed)

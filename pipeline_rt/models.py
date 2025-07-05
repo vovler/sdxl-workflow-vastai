@@ -129,7 +129,6 @@ class TensorRTModel:
 class VAEDecoder(TensorRTModel):
     def __init__(self, model_path: str, device: torch.device):
         super().__init__(model_path, device)
-        self.scaling_factor = VAE_SCALING_FACTOR
 
     def __call__(self, latent: torch.Tensor) -> torch.Tensor:
         print(f"--- VAEDecoder Input ---")
@@ -139,10 +138,7 @@ class VAEDecoder(TensorRTModel):
 
         feed_dict = {"sample": latent}
         outputs = super().__call__(feed_dict)
-        
-        # Scale the output
-        scaled_output = outputs["output_sample"] / self.scaling_factor
-        return scaled_output
+        return outputs["output_sample"] * -1.0
 
 
 class UNet(TensorRTModel):

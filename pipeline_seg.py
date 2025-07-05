@@ -32,7 +32,7 @@ from diffusers.models.attention_processor import (
     XFormersAttnProcessor,
 )
 from diffusers.models.lora import adjust_lora_scale_text_encoder
-from diffusers.schedulers import KarrasDiffusionSchedulers
+from diffusers.schedulers import EulerAncestralDiscreteScheduler
 from diffusers.utils import (
     USE_PEFT_BACKEND,
     deprecate,
@@ -360,7 +360,7 @@ class StableDiffusionXLSEGPipeline(
         tokenizer: CLIPTokenizer,
         tokenizer_2: CLIPTokenizer,
         unet: UNet2DConditionModel,
-        scheduler: KarrasDiffusionSchedulers,
+        scheduler: EulerAncestralDiscreteScheduler,
         image_encoder: CLIPVisionModelWithProjection = None,
         feature_extractor: CLIPImageProcessor = None,
         force_zeros_for_empty_prompt: bool = True,

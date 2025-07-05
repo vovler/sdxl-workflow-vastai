@@ -213,8 +213,9 @@ class SDXLPipeline:
             print("\n--- Decoding with ONNX VAE (Debug) ---")
             onnx_vae_start_time = time.time()
 
+            onnx_latents = latents / defaults.VAE_SCALING_FACTOR
             # Prepare latents for ONNX runtime, ensuring float16
-            onnx_latents = latents.cpu().numpy().astype(np.float16)
+            onnx_latents = onnx_latents.cpu().numpy().astype(np.float16)
             
             # Run inference
             input_name = self.onnx_vae.get_inputs()[0].name

@@ -224,7 +224,7 @@ if __name__ == "__main__":
     #prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
     
     prompt = (
-        "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls"
+        "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls, "
         "aqua_(konosuba), blue sword, left_side, "
         "megumin, red_sword, right_side, "
         "shiny skin, shiny clothes, looking at viewer, futuristic_city, neon_lights, sunset, background"

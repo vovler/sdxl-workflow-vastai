@@ -1,4 +1,7 @@
 from pipeline_seg import StableDiffusionXLSEGPipeline
+import torch
+
+
 pipe = StableDiffusionXLSEGPipeline.from_pretrained(
     "John6666/wai-nsfw-illustrious-v130-sdxl",
     torch_dtype=torch.float16

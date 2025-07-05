@@ -9,7 +9,7 @@ pipe = StableDiffusionXLSEGPipeline.from_pretrained(
 
 device = "cuda"
 pipe = pipe.to(device)
-prompts = ["masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, 2girls, ON THE LEFT: aqua_(konosuba), smiling, ON THE RIGHT: megumin, sad, upper_body"]
+prompts = ["masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, upper_body, 2girls, ON THE LEFT: aqua_(konosuba), smiling, ON THE RIGHT: megumin, sad, looking at each other"]
 seed = 1
 
 generator = torch.Generator(device="cuda").manual_seed(seed)

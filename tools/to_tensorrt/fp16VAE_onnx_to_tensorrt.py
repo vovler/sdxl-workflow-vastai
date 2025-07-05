@@ -129,7 +129,7 @@ def get_vae_decoder_profiles(bs=1):
     min_w, opt_w, max_w = 96, 128, 144
 
     return {
-        "latent_sample": (
+        "sample": (
             (bs, 4, min_h, min_w),
             (bs, 4, opt_h, opt_w),
             (bs, 4, max_h, max_w),

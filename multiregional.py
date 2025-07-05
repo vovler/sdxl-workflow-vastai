@@ -23,4 +23,4 @@ output = pipe(
     generator=generator,
 )
 
-output.save_image("output.png")
+output.images[0].save("output.png")

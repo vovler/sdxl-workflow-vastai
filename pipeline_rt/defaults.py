@@ -7,14 +7,14 @@ _project_root = os.path.realpath(os.path.join(_this_dir, ".."))
 
 # Model Paths
 DEFAULT_BASE_MODEL = "socks22/sdxl-wai-nsfw-illustriousv14"
-ONNX_MODELS_DIR = "/workflow/wai_dmd2_onnx"
+TENSORRT_ENGINES_DIR = "/workflow/wai_dmd2_onnx"
 
 # VAE
-VAE_DECODER_PATH = os.path.join(ONNX_MODELS_DIR, "tiny_vae_decoder", "model.onnx")
+VAE_DECODER_PATH = os.path.join(TENSORRT_ENGINES_DIR, "tiny_vae_decoder", "model.plan")
 
 # UNet
-UNET_PATH = os.path.join(ONNX_MODELS_DIR, "unet", "model_int8_optimized.onnx")
+UNET_PATH = os.path.join(TENSORRT_ENGINES_DIR, "unet", "model_int8_optimized.plan")
 
 # Text Encoders
-CLIP_TEXT_ENCODER_1_PATH = os.path.join(ONNX_MODELS_DIR, "text_encoder", "model_opt.onnx")
-CLIP_TEXT_ENCODER_2_PATH = os.path.join(ONNX_MODELS_DIR, "text_encoder_2", "model_opt.onnx") 
+CLIP_TEXT_ENCODER_1_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder", "model_opt.plan")
+CLIP_TEXT_ENCODER_2_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder_2", "model_opt.plan") 

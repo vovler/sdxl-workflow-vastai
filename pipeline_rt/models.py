@@ -56,32 +56,37 @@ class TensorRTModel:
                 self.output_map[name] = {'dtype': dtype}
         
         err, self.stream = cudart.cudaStreamCreate()
-        self.graph = None
-        self.graph_instance = None
-        self.input_tensors_for_graph = {}
-        self.output_tensors_for_graph = {}
+        self.captured_graphs = {}
+
+    def is_graph_captured(self, shape_key: tuple) -> bool:
+        return shape_key in self.captured_graphs
 
     def capture_graph(self, feed_dict: Dict[str, torch.Tensor]):
-        print(f"Capturing CUDA graph for {self.__class__.__name__}")
+        shape_key = tuple(v.shape for k, v in sorted(feed_dict.items()) if k in self.input_map)
+        if shape_key in self.captured_graphs:
+            return
+
+        print(f"Capturing CUDA graph for {self.__class__.__name__} with shape key: {shape_key}")
         
         for name, tensor in feed_dict.items():
             if name not in self.input_map:
                 continue
             self.context.set_input_shape(name, tensor.shape)
         
+        input_tensors_for_graph = {}
         for name, tensor in feed_dict.items():
             if name not in self.input_map:
                 continue
-            self.input_tensors_for_graph[name] = tensor.clone().contiguous().to(device=self.device, dtype=self.input_map[name]['dtype'])
+            input_tensors_for_graph[name] = tensor.clone().contiguous().to(device=self.device, dtype=self.input_map[name]['dtype'])
         
-        self.output_tensors_for_graph = {}
+        output_tensors_for_graph = {}
         for name, properties in self.output_map.items():
             shape = self.context.get_tensor_shape(name)
-            self.output_tensors_for_graph[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
+            output_tensors_for_graph[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
             
-        for name, tensor in self.input_tensors_for_graph.items():
+        for name, tensor in input_tensors_for_graph.items():
             self.context.set_tensor_address(name, tensor.data_ptr())
-        for name, tensor in self.output_tensors_for_graph.items():
+        for name, tensor in output_tensors_for_graph.items():
             self.context.set_tensor_address(name, tensor.data_ptr())
 
         # Warm-up run
@@ -92,53 +97,40 @@ class TensorRTModel:
         cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal)
         self.context.execute_async_v3(stream_handle=self.stream)
         err, graph = cudart.cudaStreamEndCapture(self.stream)
-        self.graph = graph
         
-        err, instance = cudart.cudaGraphInstantiate(self.graph, 0)
-        self.graph_instance = instance
+        err, instance = cudart.cudaGraphInstantiate(graph, 0)
+        
+        self.captured_graphs[shape_key] = {
+            'instance': instance,
+            'inputs': input_tensors_for_graph,
+            'outputs': output_tensors_for_graph
+        }
         
         print(f"CUDA graph captured for {self.__class__.__name__}")
 
     def __call__(self, feed_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        if self.graph_instance:
-            for name, tensor in feed_dict.items():
-                if name in self.input_tensors_for_graph:
-                    self.input_tensors_for_graph[name].copy_(tensor)
+        shape_key = tuple(v.shape for k, v in sorted(feed_dict.items()) if k in self.input_map)
+        
+        if not self.is_graph_captured(shape_key):
+            self.capture_graph(feed_dict)
             
-            cudart.cudaGraphLaunch(self.graph_instance, self.stream)
-            cudart.cudaStreamSynchronize(self.stream)
-            return {name: tensor.clone() for name, tensor in self.output_tensors_for_graph.items()}
+        graph_data = self.captured_graphs[shape_key]
 
-        bindings = {}
-        
         for name, tensor in feed_dict.items():
-            if name not in self.input_map:
-                continue
-            self.context.set_input_shape(name, tensor.shape)
-            bindings[name] = tensor.contiguous().to(device=self.device, dtype=self.input_map[name]['dtype'])
-
-        outputs = {}
-        for name, properties in self.output_map.items():
-            shape = self.context.get_tensor_shape(name)
-            outputs[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
-            bindings[name] = outputs[name]
+            if name in graph_data['inputs']:
+                graph_data['inputs'][name].copy_(tensor)
         
-        for name, tensor in bindings.items():
-            self.context.set_tensor_address(name, tensor.data_ptr())
-
-        self.context.execute_async_v3(stream_handle=self.stream)
+        cudart.cudaGraphLaunch(graph_data['instance'], self.stream)
         cudart.cudaStreamSynchronize(self.stream)
-        
-        return outputs
+        return {name: tensor.clone() for name, tensor in graph_data['outputs'].items()}
 
 
 class VAEDecoder(TensorRTModel):
     def __init__(self, model_path: str, device: torch.device):
-        engine_path = os.path.splitext(model_path)[0] + ".plan"
-        super().__init__(engine_path, device)
+        super().__init__(model_path, device)
 
     def __call__(self, latent: torch.Tensor) -> torch.Tensor:
-        print("--- VAEDecoder Input ---")
+        print(f"--- VAEDecoder Input ---")
         print(f"latent: shape={latent.shape}, dtype={latent.dtype}, device={latent.device}")
         print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
         print("------------------------")
@@ -150,8 +142,7 @@ class VAEDecoder(TensorRTModel):
 
 class UNet(TensorRTModel):
     def __init__(self, model_path: str, device: torch.device):
-        engine_path = os.path.splitext(model_path)[0] + ".plan"
-        super().__init__(engine_path, device)
+        super().__init__(model_path, device)
 
     def __call__(self, latent: torch.Tensor, timestep: torch.Tensor, text_embedding: torch.Tensor, text_embeds: torch.Tensor, time_ids: torch.Tensor) -> torch.Tensor:
         
@@ -180,8 +171,7 @@ class UNet(TensorRTModel):
 
 class CLIPTextEncoder(TensorRTModel):
     def __init__(self, model_path: str, device: torch.device, name: str = "CLIPTextEncoder"):
-        engine_path = os.path.splitext(model_path)[0] + ".plan"
-        super().__init__(engine_path, device)
+        super().__init__(model_path, device)
         self.name = name
 
         if self.name == "CLIP-L":

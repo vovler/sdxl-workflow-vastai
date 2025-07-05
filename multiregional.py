@@ -18,5 +18,6 @@ output = pipe(
     seg_blur_sigma=100.0,
     seg_applied_layers=['mid'],
     generator=generator,
+)
 
 output.save_image("output.png")

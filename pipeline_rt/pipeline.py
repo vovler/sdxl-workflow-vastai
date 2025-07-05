@@ -221,15 +221,21 @@ class SDXLPipeline:
         return image
 
 if __name__ == "__main__":
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
+    #prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
     
+    prompt = (
+        "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, "
+        "1girl, red_hair, cyberpunk_outfit, robotic_arms, left_side, facing_right, "
+        "1boy, medieval_armor, blue_sword, right_side, facing_left, "
+        "futuristic_city, neon_lights, sunset, background"
+    )
     pipeline = SDXLPipeline()
     # Warmup run
     _ = pipeline(prompt, is_warmup=True)
 
     # Monitored run
     start_time = time.time()
-    prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nude"
+    #prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nude"
     image = pipeline(prompt)
     end_time = time.time()
 

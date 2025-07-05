@@ -300,7 +300,7 @@ class MultiDiffusionSDXL_Regional:
 
 def main():
     parser = argparse.ArgumentParser(description='MultiDiffusion SDXL Regional Generation')
-    parser.add_argument('--model', type=str, default='socks22/sdxl-wai-nsfw-illustriousv140',
+    parser.add_argument('--model', type=str, default='socks22/sdxl-wai-nsfw-illustriousv14',
                        help='SDXL model path')
     parser.add_argument('--width', type=int, default=1024, help='Image width')
     parser.add_argument('--height', type=int, default=1024, help='Image height')

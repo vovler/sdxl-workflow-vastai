@@ -3,16 +3,6 @@ from diffusers import AutoencoderKL
 from torch.export import Dim
 
 
-class VAEDecoderWrapper(torch.nn.Module):
-    def __init__(self, vae):
-        super().__init__()
-        self.vae_decoder = vae.decoder
-
-    def forward(self, latent_sample):
-        sample = self.vae_decoder(latent_sample)
-        return {"sample": sample}
-
-
 def main():
     """
     Exports the SDXL VAE decoder to ONNX.
@@ -42,9 +32,6 @@ def main():
     latent_sample_shape = (batch_size, latent_channels, latent_height, latent_width)
     latent_sample = torch.randn(latent_sample_shape, dtype=torch.float16).to(device)
 
-    print("Wrapping VAE decoder for ONNX export.")
-    decoder_wrapper = VAEDecoderWrapper(vae)
-
     model_args = (latent_sample,)
 
     print("Exporting VAE decoder to ONNX with TorchDynamo...")
@@ -62,7 +49,7 @@ def main():
     }
 
     onnx_program = torch.onnx.export(
-        decoder_wrapper,
+        decoder,
         model_args,
         input_names=["latent_sample"],
         output_names=["sample"],

@@ -91,7 +91,7 @@ def preprocess_mask(mask_pil, h, w, device):
 
 
 class MultiDiffusionSDXL_Regional:
-    def __init__(self, model_path="stabilityai/stable-diffusion-xl-base-1.0", device="cuda"):
+    def __init__(self, model_path="John6666/wai-nsfw-illustrious-v130-sdxl", device="cuda"):
         self.device = device
         
         print(f"Loading SDXL model: {model_path}")
@@ -308,7 +308,7 @@ class MultiDiffusionSDXL_Regional:
 
 def main():
     parser = argparse.ArgumentParser(description='MultiDiffusion SDXL Regional Generation')
-    parser.add_argument('--model', type=str, default='stabilityai/stable-diffusion-xl-base-1.0',
+    parser.add_argument('--model', type=str, default='John6666/wai-nsfw-illustrious-v130-sdxl',
                        help='SDXL model path')
     parser.add_argument('--width', type=int, default=1024, help='Image width')
     parser.add_argument('--height', type=int, default=1024, help='Image height')

@@ -181,7 +181,9 @@ class SDXLPipeline:
         print("\n--- Decoding Latents ---")
         vae_start_time = time.time()
         
-        image_np = self.vae(latents)
+        # Manually scaling latents for all VAEs for consistent debugging
+        scaled_latents = latents / defaults.VAE_SCALING_FACTOR
+        image_np = self.vae(scaled_latents.to(torch.float16))
 
         vae_end_time = time.time()
         vae_duration = vae_end_time - vae_start_time
@@ -213,9 +215,9 @@ class SDXLPipeline:
             print("\n--- Decoding with ONNX VAE (Debug) ---")
             onnx_vae_start_time = time.time()
 
-            # Prepare latents for ONNX runtime, ensuring float16
-            # The ONNX model has scaling built-in, so we pass unscaled latents.
-            onnx_latents = latents.cpu().numpy().astype(np.float16)
+            # Prepare latents for ONNX runtime, applying the same scaling
+            scaled_latents_onnx = latents / defaults.VAE_SCALING_FACTOR
+            onnx_latents = scaled_latents_onnx.cpu().numpy().astype(np.float16)
             
             # Run inference
             input_name = self.onnx_vae.get_inputs()[0].name

@@ -24,7 +24,7 @@ def load_pipeline_components():
     text_encoder_l = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_1_PATH, device, name="CLIP-L")
     text_encoder_g = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_2_PATH, device, name="CLIP-G")
     
-    trt_vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
+    vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
     
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
@@ -41,7 +41,7 @@ def load_pipeline_components():
         "text_encoder_g": text_encoder_g,
         "scheduler": scheduler,
         "unet": unet,
-        "trt_vae": trt_vae,
+        "vae": vae,
         "vae_scale_factor": vae_scale_factor,
         "image_processor": image_processor,
     } 

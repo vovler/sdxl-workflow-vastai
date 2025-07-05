@@ -4,6 +4,7 @@ from typing import Optional, Tuple, Dict
 import os
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
+from defaults import VAE_SCALING_FACTOR
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 trt.init_libnvinfer_plugins(TRT_LOGGER, "")
@@ -128,6 +129,7 @@ class TensorRTModel:
 class VAEDecoder(TensorRTModel):
     def __init__(self, model_path: str, device: torch.device):
         super().__init__(model_path, device)
+        self.scaling_factor = VAE_SCALING_FACTOR
 
     def __call__(self, latent: torch.Tensor) -> torch.Tensor:
         print(f"--- VAEDecoder Input ---")
@@ -137,7 +139,10 @@ class VAEDecoder(TensorRTModel):
 
         feed_dict = {"sample": latent}
         outputs = super().__call__(feed_dict)
-        return outputs["output_sample"]
+        
+        # Scale the output
+        scaled_output = outputs["output_sample"] / self.scaling_factor
+        return scaled_output
 
 
 class UNet(TensorRTModel):

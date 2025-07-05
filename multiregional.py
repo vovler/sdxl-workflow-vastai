@@ -281,21 +281,38 @@ class MultiDiffusionSDXL_Regional:
                     # Prevent NaNs from unstable models in float16
                     noise_pred = torch.nan_to_num(noise_pred)
                     
-                    # Scheduler step for each region
-                    latents_view_denoised = []
-                    for region_idx in range(len(prompts)):
-                        denoised = self.scheduler.step(
-                            noise_pred[region_idx], 
-                            t, 
-                            latent_view_expanded[region_idx:region_idx+1], 
+                    # --- Blending Strategy ---
+                    # During bootstrapping, input latents (x_t) are different for each region,
+                    # so we must use "latent blending" (combining denoised results).
+                    if step_idx < bootstrapping and len(prompts) > 1:
+                        latents_view_denoised = []
+                        for region_idx in range(len(prompts)):
+                            denoised = self.scheduler.step(
+                                noise_pred[region_idx], 
+                                t, 
+                                latent_view_expanded[region_idx:region_idx+1], 
+                                return_dict=False
+                            )[0]
+                            latents_view_denoised.append(denoised * masks_view[region_idx])
+                        
+                        combined_output = torch.sum(torch.cat(latents_view_denoised), dim=0, keepdim=True)
+
+                    # After bootstrapping, inputs are the same, so we can use "noise blending"
+                    # (combining noise predictions), which is more effective.
+                    else:
+                        combined_noise_pred = torch.sum(noise_pred * masks_view, dim=0)
+                        mask_sum = torch.sum(masks_view, dim=0)
+                        combined_noise_pred /= torch.clamp(mask_sum, min=1e-6)
+
+                        combined_output = self.scheduler.step(
+                            combined_noise_pred,
+                            t,
+                            latent_view,
                             return_dict=False
                         )[0]
-                        latents_view_denoised.append(denoised * masks_view[region_idx])
-                    
-                    # Combine all regions for this view
-                    combined_output = torch.sum(torch.cat(latents_view_denoised), dim=0, keepdim=True)
+
                     value[:, :, h_start:h_end, w_start:w_end] += combined_output
-                    count[:, :, h_start:h_end, w_start:w_end] += masks_view.sum(dim=0, keepdim=True)
+                    count[:, :, h_start:h_end, w_start:w_end] += 1.0 # Each view contributes once
                 
                 # MultiDiffusion step: average overlapping regions
                 latents = torch.where(count > 0, value / count, value)
@@ -317,7 +334,7 @@ def main():
     parser.add_argument('--height', type=int, default=1024, help='Image height')
     parser.add_argument('--steps', type=int, default=12, help='Number of inference steps')
     parser.add_argument('--guidance', type=float, default=1.2, help='Guidance scale')
-    parser.add_argument('--stride', type=int, default=64, help='MultiDiffusion stride')
+    parser.add_argument('--stride', type=int, default=8, help='MultiDiffusion stride')
     parser.add_argument('--bootstrapping', type=int, default=20, help='Bootstrapping steps')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--output', type=str, default='regional_output.png', help='Output filename')

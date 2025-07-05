@@ -15,10 +15,10 @@ seed = 1
 generator = torch.Generator(device="cuda").manual_seed(seed)
 output = pipe(
     prompts,
-    num_inference_steps=8,
+    num_inference_steps=12,
     guidance_scale=1.0,
-    seg_scale=2.0,
-    seg_blur_sigma=25.0,
+    seg_scale=3.0,
+    seg_blur_sigma=999,
     seg_applied_layers=['mid'],
     generator=generator,
 )

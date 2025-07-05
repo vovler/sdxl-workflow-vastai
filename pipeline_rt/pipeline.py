@@ -5,6 +5,7 @@ from PIL import Image
 import time
 import psutil
 import os
+import onnxruntime as ort
 
 import loader
 import models
@@ -26,6 +27,20 @@ class SDXLPipeline:
 
         self.image_processor = self.components["image_processor"]
         self.vae_scale_factor = self.components["vae_scale_factor"]
+
+        # Load ONNX VAE for debugging
+        self.onnx_vae_path = "/workflow/wai_dmd2_onnx/vae_decoder/new_model.onnx"
+        if os.path.exists(self.onnx_vae_path):
+            print(f"\n--- Loading ONNX VAE for debugging from: {self.onnx_vae_path} ---")
+            try:
+                self.onnx_vae = ort.InferenceSession(self.onnx_vae_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+                print("--- ONNX VAE loaded successfully ---")
+            except Exception as e:
+                print(f"--- Failed to load ONNX VAE: {e} ---")
+                self.onnx_vae = None
+        else:
+            self.onnx_vae = None
+            print(f"--- ONNX VAE not found at {self.onnx_vae_path}, skipping. ---")
 
     def set_unet(self, unet_path: str):
         """
@@ -182,6 +197,41 @@ class SDXLPipeline:
         image = self.image_processor.postprocess(image_np.detach().cpu(), output_type="pil")[0]
         print(f"Post-processed image: {image}")
         print("--- Post-processing Complete ---")
+
+        # ONNX VAE Debugging Path
+        if self.onnx_vae:
+            print("\n--- Decoding with ONNX VAE (Debug) ---")
+            onnx_vae_start_time = time.time()
+
+            # Prepare latents for ONNX runtime
+            onnx_latents = latents.cpu().numpy()
+            
+            # Run inference
+            input_name = self.onnx_vae.get_inputs()[0].name
+            output_name = self.onnx_vae.get_outputs()[0].name
+            onnx_output = self.onnx_vae.run([output_name], {input_name: onnx_latents})[0]
+
+            # Convert back to torch tensor
+            onnx_image_np = torch.from_numpy(onnx_output).to(self.device)
+            
+            onnx_vae_end_time = time.time()
+            onnx_vae_duration = onnx_vae_end_time - onnx_vae_start_time
+            print(f"ONNX VAE: took {onnx_vae_duration * 1000:.0f}ms")
+            print(f"ONNX decoded image (tensor): shape={onnx_image_np.shape}, dtype={onnx_image_np.dtype}, device={onnx_image_np.device}")
+            print(f"ONNX decoded image (tensor) | Min: {onnx_image_np.min():.6f} | Max: {onnx_image_np.max():.6f}")
+            print(f"ONNX decoded image (tensor) | Mean: {onnx_image_np.mean():.6f} | Std: {onnx_image_np.std():.6f}")
+
+            # Save ONNX VAE debug image
+            print("\n--- Saving ONNX VAE Debug Image (Manual Post-processing) ---")
+            with torch.no_grad():
+                debug_image = onnx_image_np.detach().clone()
+                debug_image = (debug_image / 2 + 0.5).clamp(0, 1)
+                debug_image = debug_image.cpu().permute(0, 2, 3, 1).float().numpy()
+                debug_image_uint8 = (debug_image * 255).round().astype("uint8")
+                if debug_image_uint8.shape[0] == 1:
+                    pil_image = Image.fromarray(debug_image_uint8[0])
+                    pil_image.save("debug_onnx_vae_output.png")
+                    print("--- ONNX VAE Debug image saved to debug_onnx_vae_output.png ---")
 
         # 8. Clear memory
         #utils._clear_memory()

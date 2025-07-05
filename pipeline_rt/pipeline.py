@@ -9,7 +9,7 @@ import onnxruntime as ort
 
 import loader
 import models
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, AutoencoderKL
 import utils
 import defaults
 
@@ -41,6 +41,16 @@ class SDXLPipeline:
         else:
             self.onnx_vae = None
             print(f"--- ONNX VAE not found at {self.onnx_vae_path}, skipping. ---")
+
+        # Load Hub VAE for debugging
+        self.hub_vae_id = "madebyollin/sdxl-vae-fp16-fix"
+        print(f"\n--- Loading Hub VAE for debugging from: {self.hub_vae_id} ---")
+        try:
+            self.hub_vae = AutoencoderKL.from_pretrained(self.hub_vae_id, torch_dtype=torch.float16).to(self.device)
+            print("--- Hub VAE loaded successfully ---")
+        except Exception as e:
+            print(f"--- Failed to load Hub VAE: {e} ---")
+            self.hub_vae = None
 
     def set_unet(self, unet_path: str):
         """
@@ -232,6 +242,35 @@ class SDXLPipeline:
                     pil_image = Image.fromarray(debug_image_uint8[0])
                     pil_image.save("debug_onnx_vae_output.png")
                     print("--- ONNX VAE Debug image saved to debug_onnx_vae_output.png ---")
+
+        # Hub VAE Debugging Path
+        if self.hub_vae:
+            print("\n--- Decoding with Hub VAE (Debug) ---")
+            hub_vae_start_time = time.time()
+            
+            # Decode with the Hub VAE
+            with torch.no_grad():
+                hub_latents = latents / defaults.VAE_SCALING_FACTOR
+                hub_image_np = self.hub_vae.decode(hub_latents).sample
+
+            hub_vae_end_time = time.time()
+            hub_vae_duration = hub_vae_end_time - hub_vae_start_time
+            print(f"Hub VAE: took {hub_vae_duration * 1000:.0f}ms")
+            print(f"Hub decoded image (tensor): shape={hub_image_np.shape}, dtype={hub_image_np.dtype}, device={hub_image_np.device}")
+            print(f"Hub decoded image (tensor) | Min: {hub_image_np.min():.6f} | Max: {hub_image_np.max():.6f}")
+            print(f"Hub decoded image (tensor) | Mean: {hub_image_np.mean():.6f} | Std: {hub_image_np.std():.6f}")
+
+            # Save Hub VAE debug image
+            print("\n--- Saving Hub VAE Debug Image (Manual Post-processing) ---")
+            with torch.no_grad():
+                debug_image = hub_image_np.detach().clone()
+                debug_image = (debug_image / 2 + 0.5).clamp(0, 1)
+                debug_image = debug_image.cpu().permute(0, 2, 3, 1).float().numpy()
+                debug_image_uint8 = (debug_image * 255).round().astype("uint8")
+                if debug_image_uint8.shape[0] == 1:
+                    pil_image = Image.fromarray(debug_image_uint8[0])
+                    pil_image.save("debug_hub_vae_output.png")
+                    print("--- Hub VAE Debug image saved to debug_hub_vae_output.png ---")
 
         # 8. Clear memory
         #utils._clear_memory()

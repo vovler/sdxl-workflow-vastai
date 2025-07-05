@@ -1,7 +1,7 @@
 import gc
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageDraw
 import time
 import psutil
 import os
@@ -9,6 +9,8 @@ import os
 import loader
 from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 import utils
+from pipeline.tagger import WD14Tagger
+import pipeline.defaults as defaults
 
 class SDXLPipeline:
     def __init__(self):
@@ -207,22 +209,42 @@ class SDXLPipeline:
         return image
 
 if __name__ == "__main__":
-    #prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, night"
+    
     prompt = (
         "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, 2girls, "
         "aqua_(konosuba), blue sword, left_side, "
         "megumin, red_sword, right_side, "
         "shiny skin, shiny clothes, looking at viewer, volumetric_lightning, futuristic_city, neon_lights, night"
     )
+
     pipeline = SDXLPipeline()
     # Warmup run
     _ = pipeline(prompt, is_warmup=True)
 
     # Monitored run
     start_time = time.time()
-    #prompt = "masterpiece, best quality, amazing quality, very aesthetic, high resolution, ultra-detailed, absurdres, newest, scenery, night, 1girl, aqua_(konosuba), smiling, looking at viewer, at the park, nude"
     image = pipeline(prompt)
     end_time = time.time()
-
     print(f"Time taken: {end_time - start_time:.2f} seconds")
-    image.save("output.png") 
+
+    # Filter generated image
+    if not os.path.exists(defaults.WD14_TAGGER_MODEL_PATH) or not os.path.exists(defaults.WD14_TAGGER_TAGS_PATH):
+        print("="*50)
+        print("WARNING: WD14 Tagger model or tags file not found. Skipping NSFW filter.")
+        print(f"Please download 'model.onnx' and 'selected_tags.csv' from 'SmilingWolf/wd-vit-tagger-v3'")
+        print(f"and place them in the following directory: {defaults.WD14_TAGGER_DIR}")
+        print("="*50)
+        is_nsfw = False
+    else:
+        print("\n--- Running WD14 Tagger for NSFW Filter ---")
+        tagger = WD14Tagger(device=torch.device("cuda:0"))
+        is_nsfw, detected_tags = tagger.filter_image(image)
+        if is_nsfw:
+            print(f"NSFW content detected. Tags: {', '.join(detected_tags)}")
+            print("Image will not be saved.")
+        else:
+            print("Image is clean. Saving...")
+        print("--- WD14 Tagger Complete ---")
+    
+    #if not is_nsfw:
+    #    image.save("output.png") 

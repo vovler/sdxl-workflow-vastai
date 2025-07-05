@@ -11,7 +11,7 @@ CONTAINER_ID=22352052 (?)
 trt.init_libnvinfer_plugins(None, "")
 https://huggingface.co/SmilingWolf/wd-vit-tagger-v3
 
-optimum-cli export onnx --device cuda --opset 18 --dtype fp16 --slim --model socks22/sdxl-wai-nsfw-illustriousv14 --task text-to-image wai_dmd2_onnx
+optimum-cli export onnx --device cuda --opset 18 --dtype fp16 --slim --model socks22/sdxl-wai-nsfw-illustriousv14 --task text-to-image wai_dmd2_onnx2
 
 cqyan/hybrid-sd-tinyvae-xl
 

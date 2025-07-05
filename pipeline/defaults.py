@@ -17,4 +17,17 @@ UNET_PATH = os.path.join(ONNX_MODELS_DIR, "unet", "model_opt.onnx")
 
 # Text Encoders
 CLIP_TEXT_ENCODER_1_PATH = os.path.join(ONNX_MODELS_DIR, "text_encoder", "model_opt.onnx")
-CLIP_TEXT_ENCODER_2_PATH = os.path.join(ONNX_MODELS_DIR, "text_encoder_2", "model_opt.onnx") 
+CLIP_TEXT_ENCODER_2_PATH = os.path.join(ONNX_MODELS_DIR, "text_encoder_2", "model_opt.onnx")
+
+# Tagger
+WD14_TAGGER_DIR = os.path.join(_project_root, "wd14-tagger-v3-onnx")
+WD14_TAGGER_MODEL_PATH = os.path.join(WD14_TAGGER_DIR, "model.onnx")
+WD14_TAGGER_TAGS_PATH = os.path.join(WD14_TAGGER_DIR, "selected_tags.csv")
+
+# Tagger Blacklist
+WD14_TAGGER_BLACKLIST = [
+    "nsfw", "nude", "pussy", "breasts", "ass", "explicit", "sex", "loli", "shota", 
+    "gore", "blood", "violence", "undressing", "monochrome", "ass focus", "areolae", 
+    "anus", "anus focus", "backboob", "bare ass", "bare breasts", "bare legs", 
+    "bare shoulders", "partially unbuttoned", "partially unzipped"
+] 

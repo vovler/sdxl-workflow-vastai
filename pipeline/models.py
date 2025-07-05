@@ -200,3 +200,21 @@ class CLIPTextEncoder(ONNXModel):
             hidden_states=hidden_states,
             text_embeds=pooler_output,
         )
+
+class WDTaggerONNX(ONNXModel):
+    def __init__(self, model_path: str, device: torch.device):
+        super().__init__(model_path, device)
+        self.input_shape = self.session.get_inputs()[0].shape
+        self.image_size = self.input_shape[2]
+
+    def __call__(self, image: torch.Tensor) -> torch.Tensor:
+        self.io_binding.clear_binding_inputs()
+        self.io_binding.clear_binding_outputs()
+
+        self.bind_input(self.input_names[0], image.contiguous())
+        
+        output_tensor = torch.empty(self.session.get_outputs()[0].shape, dtype=torch.float32, device=self.device)
+        self.bind_output(self.output_names[0], output_tensor)
+        
+        self.session.run_with_iobinding(self.io_binding)
+        return output_tensor

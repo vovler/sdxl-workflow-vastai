@@ -102,8 +102,8 @@ def new_unet_forward(sample, timestep, encoder_hidden_states, **kwargs):
 print("\n" + "="*30 + " RUNNING NATIVE (FP16) " + "="*30 + "\n")
 # Patch the UNet
 pipe.unet.forward = new_unet_forward
-pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
-pipe = pipe.to("cuda")
+pipe.vae = AutoencoderTiny.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16, device=device)
+#pipe = pipe.to("cuda")
 # Run the pipeline.
 generator=torch.Generator("cpu").manual_seed(seed)
 start_time = time.time()

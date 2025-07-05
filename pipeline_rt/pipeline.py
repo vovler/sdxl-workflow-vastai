@@ -43,7 +43,7 @@ class SDXLPipeline:
         prompt: str,
         height: int = 768,
         width: int = 1152,
-        num_inference_steps: int = 8,
+        num_inference_steps: int = 12,
         seed: int = 44,
     ):
         print("\n" + "="*50)

@@ -30,6 +30,7 @@ aria2c -x 16 -s 16 -k 10M "https://test-storage-pull1123.b-cdn.net/diffusion_pyt
 sudo apt install libjemalloc-dev libjemalloc2
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2:$LD_PRELOAD
 export PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True'
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
 python your_training_script.py
 
 ############## VLLM ###############

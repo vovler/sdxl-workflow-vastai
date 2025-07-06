@@ -90,106 +90,50 @@ def preserve_important_configs(model_path):
     
     return preserved_configs
 
-def delete_non_unet_safetensors(model_path):
-    """Delete all safetensors files except those in the UNet directory"""
+def delete_text_encoder_safetensors(model_path):
+    """Delete the safetensors files for the text encoders."""
     model_path = Path(model_path)
     
     if not model_path.exists():
         print(f"⚠ Warning: Model path does not exist: {model_path}")
         return
     
-    print("=== Cleaning up Non-UNet Safetensors Files ===")
+    print("=== Cleaning up Text Encoder Safetensors Files ===")
     
-    # Find all safetensors files
-    all_safetensors = list(model_path.glob("**/*.safetensors"))
-    
-    # Filter out UNet safetensors (keep those)
-    non_unet_safetensors = []
-    unet_safetensors = []
-    
-    for file in all_safetensors:
-        # Check if the file is in a unet directory (case insensitive)
-        file_parts_lower = [part.lower() for part in file.parts]
-        if 'unet' in file_parts_lower:
-            unet_safetensors.append(file)
-        else:
-            non_unet_safetensors.append(file)
-    
-    print(f"Found {len(all_safetensors)} total safetensors files:")
-    print(f"  - {len(unet_safetensors)} UNet files (keeping)")
-    print(f"  - {len(non_unet_safetensors)} non-UNet files (deleting)")
-    
-    if unet_safetensors:
-        print(f"\nKeeping UNet safetensors:")
-        for file in unet_safetensors:
-            relative_path = file.relative_to(model_path)
-            file_size = file.stat().st_size / (1024**3)  # Size in GB
-            print(f"  ✓ {relative_path} ({file_size:.2f} GB)")
-    
-    if non_unet_safetensors:
-        print(f"\nDeleting non-UNet safetensors:")
-        total_deleted_size = 0
-        deleted_count = 0
-        
-        for file in non_unet_safetensors:
-            try:
-                relative_path = file.relative_to(model_path)
-                file_size = file.stat().st_size / (1024**3)  # Size in GB
-                
-                file.unlink()
-                total_deleted_size += file_size
-                deleted_count += 1
-                print(f"  ✓ Deleted {relative_path} ({file_size:.2f} GB)")
-                
-            except Exception as e:
-                print(f"  ✗ Failed to delete {relative_path}: {e}")
-        
-        print(f"\n✓ Deleted {deleted_count} safetensors files")
-        print(f"✓ Freed up {total_deleted_size:.2f} GB of disk space")
-        
-        # Clean up empty directories (but preserve those with config files)
-        cleanup_empty_directories(model_path, non_unet_safetensors)
-    else:
-        print("No non-UNet safetensors files found to delete")
+    text_encoder_dirs = ["text_encoder", "text_encoder_2"]
+    files_to_delete = []
 
-def cleanup_empty_directories(model_path, deleted_files):
-    """Remove empty directories after deleting safetensors files"""
-    # Get unique parent directories of deleted files
-    parent_dirs = set()
-    for file in deleted_files:
-        parent_dirs.add(file.parent)
-    
-    # Sort by depth (deepest first) to avoid removing parent before child
-    sorted_dirs = sorted(parent_dirs, key=lambda p: len(p.parts), reverse=True)
-    
-    removed_dirs = []
-    preserved_dirs = []
-    
-    for dir_path in sorted_dirs:
+    for subdir in text_encoder_dirs:
+        encoder_path = model_path / subdir
+        if encoder_path.is_dir():
+            found_files = list(encoder_path.glob("*.safetensors"))
+            if found_files:
+                files_to_delete.extend(found_files)
+
+    if not files_to_delete:
+        print("No text encoder safetensors files found to delete.")
+        return
+
+    print(f"Found {len(files_to_delete)} text encoder safetensors to delete:")
+    total_deleted_size_gb = 0
+    deleted_count = 0
+
+    for file in files_to_delete:
         try:
-            # Only remove if directory is empty and not the model root
-            if dir_path != model_path and dir_path.exists():
-                remaining_files = list(dir_path.iterdir())
-                if not remaining_files:
-                    dir_path.rmdir()
-                    relative_path = dir_path.relative_to(model_path)
-                    removed_dirs.append(str(relative_path))
-                else:
-                    # Directory has remaining files (likely config.json)
-                    relative_path = dir_path.relative_to(model_path)
-                    remaining_names = [f.name for f in remaining_files]
-                    preserved_dirs.append(f"{relative_path} (contains: {', '.join(remaining_names)})")
+            relative_path = file.relative_to(model_path)
+            file_size_gb = file.stat().st_size / (1024**3)
+            
+            file.unlink()
+            total_deleted_size_gb += file_size_gb
+            deleted_count += 1
+            print(f"  ✓ Deleted {relative_path} ({file_size_gb:.2f} GB)")
+            
         except Exception as e:
-            # Directory might not be empty or other issues, ignore
-            pass
-    
-    if removed_dirs:
-        print(f"✓ Removed {len(removed_dirs)} empty directories: {', '.join(removed_dirs)}")
-    
-    if preserved_dirs:
-        print(f"✓ Preserved {len(preserved_dirs)} directories with config files:")
-        for dir_info in preserved_dirs:
-            print(f"  - {dir_info}")
+            print(f"  ✗ Failed to delete {relative_path}: {e}")
+
+    if deleted_count > 0:
+        print(f"\n✓ Deleted {deleted_count} text encoder safetensors files.")
+        print(f"✓ Freed up {total_deleted_size_gb:.2f} GB of disk space.")
 
 def export_to_onnx(model_path):
     """Export the model to ONNX format using optimum-cli to the same directory"""
@@ -276,9 +220,9 @@ def export_to_onnx(model_path):
         print()
         preserved_configs = preserve_important_configs(model_path)
         
-        # Delete non-UNet safetensors files
+        # Delete text encoder safetensors files
         print()
-        delete_non_unet_safetensors(model_path)
+        delete_text_encoder_safetensors(model_path)
         
     except subprocess.CalledProcessError as e:
         print(f"\n✗ ONNX export failed with return code: {e.returncode}")
@@ -330,7 +274,7 @@ def main():
     print("  - UNet ONNX file (keeping UNet safetensors)")
     print("  - vae/ directory (all VAE safetensors)")
     print("  - vae_encoder/ directory (VAE encoder ONNX)")
-    print("  - All other non-UNet safetensors files")
+    print("  - Text encoder safetensors files")
     print("\nWhat will be preserved:")
     print("  - UNet safetensors (your fused LoRA model)")
     print("  - UNet config.json")
@@ -352,7 +296,7 @@ def main():
     print("✓ Config files preserved for all components")
     print("✓ UNet ONNX file removed (UNet safetensors preserved)")
     print("✓ VAE directories removed")
-    print("✓ Non-UNet safetensors files cleaned up")
+    print("✓ Text encoder safetensors files cleaned up")
     print(f"✓ Optimized model available at: {model_path}")
     
     # Show final structure

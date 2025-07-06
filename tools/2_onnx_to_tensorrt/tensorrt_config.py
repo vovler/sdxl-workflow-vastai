@@ -81,7 +81,7 @@ VAE_DECODER_PROFILES = {
 CLIP_PROFILES = {
     "min": {"bs": 1, "seq_len": 77},
     "opt": {"bs": 1, "seq_len": 77},
-    "max": {"bs": 4, "seq_len": 144},
+    "max": {"bs": 1, "seq_len": 144},
 }
 
 # WD-Tagger Configuration

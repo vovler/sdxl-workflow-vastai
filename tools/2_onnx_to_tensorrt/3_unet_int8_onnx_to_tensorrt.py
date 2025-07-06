@@ -49,6 +49,7 @@ def main():
 
     model_path = args.model_path
     onnx_path = os.path.join(model_path, "unet", "model_int8.onnx")
+    onnx_data_path = onnx_path + ".data"
     engine_path = os.path.join(model_path, "unet", "model_int8.plan")
 
     # Validate input file
@@ -80,7 +81,7 @@ def main():
 
         # After successful conversion, clean up the ONNX model files
         print(f"\nCleaning up ONNX model: {os.path.basename(onnx_path)}")
-        onnx_data_path = onnx_path.replace(".onnx", ".data")
+        
         
         cleaned_files = 0
         if os.path.exists(onnx_path):

@@ -22,7 +22,16 @@ def get_model_files(model_id):
         sys.exit(1)
 
 def download_with_aria2c(url, output_dir, filename=None):
-    """Download file using aria2c with specified parameters"""
+    """Download file using aria2c with specified parameters, skipping if it already exists."""
+    # Determine the effective filename to check for existence
+    effective_filename = filename or os.path.basename(url.split("?")[0])
+    output_path = Path(output_dir) / effective_filename
+
+    # If the file already exists, skip the download
+    if output_path.exists():
+        print(f"✓ File already exists, skipping: {effective_filename}")
+        return
+        
     cmd = [
         "aria2c",
         "--max-connection-per-server=16",
@@ -137,7 +146,7 @@ def main():
     
     lora_filename = "dmd2_sdxl_4step_lora_fp16.safetensors"
     lora_url = f"https://huggingface.co/tianweiy/DMD2/resolve/main/{lora_filename}"
-    download_with_aria2c(lora_url, lora_dir)
+    download_with_aria2c(lora_url, lora_dir, lora_filename)
     
     # Create and download to vae directory  
     print("\n=== Setting up VAE ===")

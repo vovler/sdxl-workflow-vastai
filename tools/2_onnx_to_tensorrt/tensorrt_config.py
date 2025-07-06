@@ -113,7 +113,7 @@ UPSCALER_PROFILES = {
 }
 
 
-def apply_builder_config(config: trt.BuilderConfig, model_flags: dict = {}):
+def apply_builder_config(config: trt.IBuilderConfig, model_flags: dict = {}):
     """Applies the global builder settings and any model-specific overrides."""
     
     config.builder_optimization_level = BUILDER_CONFIG["BUILDER_OPTIMIZATION_LEVEL"]

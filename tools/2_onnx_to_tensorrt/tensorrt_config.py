@@ -61,7 +61,7 @@ BUILDER_CONFIG = {
 UNET_PROFILES = {
     "min": {"bs": 1, "height": 768, "width": 768, "seq_len": 77},
     "opt": {"bs": 1, "height": 768, "width": 1152, "seq_len": 77},
-    "max": {"bs": 4, "height": 1024, "width": 1152, "seq_len": 144},
+    "max": {"bs": 4, "height": 1024, "width": 1152, "seq_len": 77},
 }
 UNET_INT8_CONFIG = {
     "flags": {

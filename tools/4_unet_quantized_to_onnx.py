@@ -223,23 +223,13 @@ def main():
         default="/lab/model",
         help="Path to the downloaded and fused model directory.",
     )
-    parser.add_argument(
-        "--consolidate-onnx",
-        action="store_true",
-        help="Only consolidate an existing ONNX model. Skips export.",
-    )
     args = parser.parse_args()
 
     model_path = args.model_path
     output_dir = os.path.join(model_path, "unet")
-    onnx_output_path = os.path.join(output_dir, "model_int8.onnx")
+    onnx_output_path = os.path.join(output_dir, "model.onnx")
 
     os.makedirs(output_dir, exist_ok=True)
-
-    if args.consolidate_onnx:
-        consolidate_onnx_model(onnx_output_path)
-        print("Exiting after consolidation.")
-        return
 
     int8_checkpoint_path = os.path.join(output_dir, "model_int8.safetensors")
 

@@ -18,6 +18,7 @@ def delete_unet_onnx(model_path):
     """Delete the exported UNet ONNX file"""
     model_path = Path(model_path)
     unet_onnx_path = model_path / "unet" / "model.onnx"
+    unet_onnx_path_data = model_path / "unet" / "model.onnx.data"
     
     try:
         if unet_onnx_path.exists():
@@ -27,6 +28,9 @@ def delete_unet_onnx(model_path):
             # Delete the ONNX file
             unet_onnx_path.unlink()
             print(f"✓ Deleted UNet ONNX file: {unet_onnx_path.name} ({file_size:.2f} GB)")
+            if unet_onnx_path_data.exists():
+                unet_onnx_path_data.unlink()
+                print(f"✓ Deleted UNet ONNX data file: {unet_onnx_path_data.name} ({file_size:.2f} GB)")
         else:
             print(f"⚠ Warning: UNet ONNX file not found at expected location: {unet_onnx_path}")
     

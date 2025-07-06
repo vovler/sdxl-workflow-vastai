@@ -48,7 +48,7 @@ def forward_loop(model, prompts, num_inference_steps=8):
 
 def main():
     # Default path
-    default_model_path = "/lab/model"
+    default_model_path = "/lab/model/unet"
 
     if len(sys.argv) >= 2:
         model_path = sys.argv[1]

@@ -55,7 +55,7 @@ def main():
     print("--- Exporting YOLO .pt to ONNX ---")
     
     subfolder = "yolo"
-    pt_path = os.path.join(model_path, subfolder, "sam_b.pt")
+    pt_path = os.path.join(model_path, subfolder, "model.pt")
     onnx_path = os.path.join(model_path, subfolder, "model.onnx")
 
     if export_yolo_to_onnx(pt_path, onnx_path):

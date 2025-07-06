@@ -52,15 +52,15 @@ def main():
         "--model_path",
         type=str,
         default="/lab/model",
-        help="Path to the model directory containing the SAM .pth file.",
+        help="Path to the model directory containing the SAM sam_b.pt file.",
     )
     args = parser.parse_args()
     model_path = args.model_path
 
-    print("--- Exporting SAM .pth to ONNX ---")
+    print("--- Exporting SAM sam_b.pt to ONNX ---")
     
     subfolder = "sam"
-    pt_path = os.path.join(model_path, subfolder, "model.pth")
+    pt_path = os.path.join(model_path, subfolder, "sam_b.pt")
     onnx_path = os.path.join(model_path, subfolder, "model.onnx")
 
     if export_sam_to_onnx(pt_path, onnx_path):

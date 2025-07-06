@@ -135,7 +135,7 @@ def delete_text_encoder_safetensors(model_path):
         print(f"\n✓ Deleted {deleted_count} text encoder safetensors files.")
         print(f"✓ Freed up {total_deleted_size_gb:.2f} GB of disk space.")
 
-def export_to_onnx(model_path):
+def export_to_onnx(model_path, device="cuda"):
     """Export the model to ONNX format using optimum-cli to the same directory"""
     
     # Verify input model exists
@@ -159,7 +159,7 @@ def export_to_onnx(model_path):
     print("=== Starting ONNX Export ===")
     print(f"Model path: {model_path}")
     print("Export settings:")
-    print("  - Device: CUDA")
+    print(f"  - Device: {device.upper()}")
     print("  - ONNX Opset: 18")
     print("  - Data type: FP16")
     print("  - Framework: PyTorch")
@@ -171,7 +171,7 @@ def export_to_onnx(model_path):
     # Build the optimum-cli command - export to the same directory
     cmd = [
         "optimum-cli", "export", "onnx",
-        "--device", "cuda",
+        "--device", device,
         "--opset", "18",
         "--dtype", "fp16",
         "--no-post-process",
@@ -245,8 +245,24 @@ def main():
     else:
         model_path = default_model_path
     
+    # Determine export device
+    device = "cuda"
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            print("⚠ Warning: CUDA not available. Export will be attempted on CPU.")
+            device = "cpu"
+        else:
+            response = input("CUDA is available. Would you like to force the export to run on CPU instead? (y/N): ").strip().lower()
+            if response == 'y':
+                device = "cpu"
+                print("User selected CPU for export.")
+    except ImportError:
+        print("⚠ Warning: Could not check CUDA availability (torch not installed). Assuming CUDA is available.")
+        
     print(f"\nConfiguration:")
     print(f"Model path (input & output): {model_path}")
+    print(f"Export device: {device.upper()}")
     
     # Check if optimum-cli is available
     if not check_optimum_cli():
@@ -254,18 +270,6 @@ def main():
         print("Please install it with:")
         print("pip install optimum[exporters,onnxruntime-gpu]")
         sys.exit(1)
-    
-    # Check if CUDA is available
-    try:
-        import torch
-        if not torch.cuda.is_available():
-            print("⚠ Warning: CUDA is not available. Export may fail or be very slow.")
-            response = input("Continue anyway? (y/N): ").strip().lower()
-            if response != 'y':
-                print("Export cancelled.")
-                sys.exit(0)
-    except ImportError:
-        print("⚠ Warning: Could not check CUDA availability (torch not installed)")
     
     # Confirm before starting
     print(f"\nReady to export model to ONNX format in the same directory.")
@@ -288,7 +292,7 @@ def main():
         sys.exit(0)
     
     # Start the export
-    export_to_onnx(model_path)
+    export_to_onnx(model_path, device)
     
     print("\n=== Export Complete ===")
     print("Your SDXL model has been successfully converted!")

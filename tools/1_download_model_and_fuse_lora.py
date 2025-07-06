@@ -58,24 +58,25 @@ def fuse_lora_with_unet(base_model_path, lora_path, lora_filename):
     print("\n=== Starting LoRA Fusion ===")
     
     try:
+        # Check for GPU availability
+        if torch.cuda.is_available():
+            print("Loading pipeline directly to GPU for fusion...")
+            device = "cuda"
+        else:
+            print("GPU not available, performing fusion on CPU...")
+            device = "cpu"
+
+        # Load the main pipeline directly to the target device
         print(f"Loading base model from: {base_model_path}")
-        # Load the main pipeline on CPU to avoid meta device issues
         pipeline = DiffusionPipeline.from_pretrained(
             base_model_path,
             torch_dtype=torch.float16,
             use_safetensors=True,
-        )
+        ).to(device)
 
         print(f"Loading and fusing LoRA from: {lora_path}")
         # Load and fuse the LoRA weights
         pipeline.load_lora_weights(lora_path, weight_name=lora_filename)
-
-        # Move to GPU for fusion if available, as it can be memory-intensive
-        if torch.cuda.is_available():
-            print("Moving pipeline to GPU for fusion...")
-            pipeline.to("cuda")
-        else:
-            print("GPU not available, performing fusion on CPU...")
 
         print("Fusing LoRA weights...")
         pipeline.fuse_lora()

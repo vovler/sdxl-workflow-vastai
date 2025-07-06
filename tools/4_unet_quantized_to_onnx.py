@@ -231,7 +231,7 @@ def main():
 
     os.makedirs(output_dir, exist_ok=True)
 
-    int8_checkpoint_path = os.path.join(output_dir, "diffusion_pytorch_model.safetensors")
+    int8_checkpoint_path = os.path.join(output_dir, "model_int8.pth")
 
     if not os.path.exists(int8_checkpoint_path):
         print(f"Error: Quantized UNet checkpoint not found at {int8_checkpoint_path}")

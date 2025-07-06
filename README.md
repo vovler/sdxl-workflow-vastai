@@ -3,6 +3,8 @@
 
 watch -n 0.1 nvidia-smi ## create an alias for this
 
+https://docs.nvidia.com/deeplearning/tensorrt/10.12.0/_static/c-api/namespacemembers.html
+
 HOSTNAME ENV?
 VAST_TCP_PORT_80
 find equivalent for "new_contract" value
@@ -45,8 +47,10 @@ python -m vllm.entrypoints.openai.api_server \
     --gpu-memory-utilization 0.5 \
     --host 127.0.0.1 \
     --port 80
+    --api-key 123456789
 	
-
+https://docs.vllm.ai/en/latest/examples/others/lmcache.html (KVCache in CPU RAM)
+https://docs.vllm.ai/en/latest/examples/others/tensorize_vllm_model.html (Fast Loading Of The Model - NOT TENSORRT)
 
 ############## VAST AI ##############
 vastai change bid

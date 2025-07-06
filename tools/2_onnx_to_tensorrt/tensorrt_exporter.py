@@ -1,12 +1,10 @@
 import os
-import argparse
 import tensorrt as trt
 from tqdm import tqdm
-import torch
-import subprocess
-import sys
+from tensorrt_config import apply_builder_config
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+
 
 class TQDMProgressMonitor(trt.IProgressMonitor):
     def __init__(self):
@@ -75,22 +73,22 @@ class TQDMProgressMonitor(trt.IProgressMonitor):
         except KeyboardInterrupt:
             return False
 
+
 def build_engine(
     engine_path: str,
     onnx_path: str,
     input_profiles: dict,
-    fp16: bool = True,
+    model_flags: dict = {},
 ):
     print(f"Building TensorRT engine for {onnx_path}: {engine_path}")
+
     os.makedirs(os.path.dirname(engine_path), exist_ok=True)
     if os.path.exists(engine_path):
         print("Engine already exists, skipping build.")
         return True
 
     builder = trt.Builder(TRT_LOGGER)
-    network = builder.create_network(
-        (1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-    )
+    network = builder.create_network()
     parser = trt.OnnxParser(network, TRT_LOGGER)
 
     success = parser.parse_from_file(onnx_path)
@@ -100,13 +98,13 @@ def build_engine(
         raise RuntimeError(f"Failed to parse ONNX file: {onnx_path}")
 
     config = builder.create_builder_config()
+    apply_builder_config(config, model_flags)
+
     profile = builder.create_optimization_profile()
     for name, (min_shape, opt_shape, max_shape) in input_profiles.items():
         profile.set_shape(name, min=min_shape, opt=opt_shape, max=max_shape)
     config.add_optimization_profile(profile)
 
-    if fp16:
-        config.set_flag(trt.BuilderFlag.FP16)
     config.progress_monitor = TQDMProgressMonitor()
 
     print("Building engine...")
@@ -119,67 +117,4 @@ def build_engine(
     with open(engine_path, "wb") as f:
         f.write(serialized_engine)
     print(f"TensorRT engine saved to {engine_path}")
-    return True
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Builds a TensorRT engine for the YOLO model."
-    )
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        default="/lab/model",
-        help="Path to the model directory containing the YOLO ONNX file.",
-    )
-    args = parser.parse_args()
-    model_path = args.model_path
-
-    print("--- Building YOLO Engine ---")
-    
-    subfolder = "yolo"
-    onnx_path = os.path.join(model_path, subfolder, "model.onnx")
-    engine_path = os.path.join(model_path, subfolder, "model.plan")
-
-    if not os.path.exists(onnx_path):
-        print(f"Error: YOLO ONNX file not found at {onnx_path}")
-        print("Please run the YOLO ONNX export script first.")
-        return 1
-        
-    yolo_input_profiles = {
-        "images": (
-            (1, 3, 480, 480),
-            (1, 3, 640, 640),
-            (1, 3, 1024, 1024),
-        ),
-    }
-
-    print(f"\nInput ONNX: {onnx_path}")
-    print(f"Output engine: {engine_path}")
-    print("Using FP16 precision")
-    for name, (min_shape, opt_shape, max_shape) in yolo_input_profiles.items():
-        print(f"  Profile for '{name}': min={min_shape}, opt={opt_shape}, max={max_shape}")
-    print()
-
-    try:
-        build_engine(
-            engine_path=engine_path,
-            onnx_path=onnx_path,
-            input_profiles=yolo_input_profiles,
-        )
-        print(f"✓ Successfully built engine for YOLO")
-        
-        print(f"\nCleaning up ONNX file: {os.path.basename(onnx_path)}")
-        try:
-            os.remove(onnx_path)
-            print(f"✓ Removed {os.path.basename(onnx_path)}")
-        except OSError as e:
-            print(f"✗ Error deleting ONNX file: {e}")
-        
-        return 0
-
-    except Exception as e:
-        print(f"✗ Failed to build engine for YOLO: {e}")
-        return 1
-
-if __name__ == "__main__":
-    exit(main())
+    return True 

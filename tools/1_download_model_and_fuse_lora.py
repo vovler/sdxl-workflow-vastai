@@ -7,7 +7,7 @@ import torch
 import shutil
 from pathlib import Path
 import sys
-from diffusers import DiffusionPipeline
+from diffusers import StableDiffusionXLPipeline
 
 def get_model_files(model_id):
     """Get list of files from HuggingFace model API"""
@@ -60,15 +60,16 @@ def fuse_lora_with_unet(base_model_path, lora_path, lora_filename):
     try:
         # Check for GPU availability
         if torch.cuda.is_available():
-            print("Loading pipeline directly to GPU for fusion...")
+            print("Loading pipeline to GPU for fusion...")
             device = "cuda"
         else:
             print("GPU not available, performing fusion on CPU...")
             device = "cpu"
 
-        # Load the main pipeline directly to the target device
+        # Load the main pipeline, explicitly disabling low_cpu_mem_usage to avoid meta tensors.
+        # This will load the full model onto the CPU first, then move it to the GPU.
         print(f"Loading base model from: {base_model_path}")
-        pipeline = DiffusionPipeline.from_pretrained(
+        pipeline = StableDiffusionXLPipeline.from_pretrained(
             base_model_path,
             torch_dtype=torch.float16,
             use_safetensors=True,

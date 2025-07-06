@@ -1,5 +1,5 @@
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import StableDiffusionXLPipeline
 import os
 import sys
 
@@ -48,7 +48,7 @@ def forward_loop(model, prompts, num_inference_steps=8):
 
 def main():
     # Default path
-    default_model_path = "/lab/model/unet"
+    default_model_path = "/lab/model"
 
     if len(sys.argv) >= 2:
         model_path = sys.argv[1]
@@ -56,11 +56,12 @@ def main():
         model_path = default_model_path
     
     print(f"Loading model from: {model_path}")
-    # Load the main pipeline on CPU to avoid meta device issues
-    pipeline = DiffusionPipeline.from_pretrained(
+    # Load the main pipeline
+    pipeline = StableDiffusionXLPipeline.from_pretrained(
         model_path,
         torch_dtype=torch.float16,
         use_safetensors=True,
+        low_cpu_mem_usage=False,
     )
     pipeline.to("cuda")
 

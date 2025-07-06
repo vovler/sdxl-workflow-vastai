@@ -87,17 +87,12 @@ def fuse_lora_with_unet(base_model_path, lora_path, lora_filename):
         # Unload LoRA weights from memory
         pipeline.unload_lora_weights()
 
-        # Move UNet to CPU before saving to ensure portability
-        pipeline.unet.to("cpu")
-
-        # Define the path to save the fused UNet, overwriting the original
-        unet_path = os.path.join(base_model_path, "unet")
-
-        print(f"Saving fused UNet to: {unet_path}")
-        # Save the fused UNet
-        pipeline.unet.save_pretrained(unet_path)
-
-        print("✓ Fused UNet saved successfully.")
+        # Save the entire pipeline back to disk.
+        # This ensures all components, including the fused UNet and the text encoders,
+        # are saved in a format that won't cause "meta tensor" issues in later scripts.
+        print(f"Saving the entire pipeline to: {base_model_path}")
+        pipeline.save_pretrained(base_model_path, safe_serialization=True)
+        print("✓ Entire pipeline saved successfully.")
         
         # Clean up memory
         del pipeline

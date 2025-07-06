@@ -35,7 +35,7 @@ python your_training_script.py
 
 ############## VLLM ###############
 
-pip install vllm flashinfer-python
+pip install vllm flashinfer-python cuda-python==12.9.0
 
 python -m vllm.entrypoints.openai.api_server \
     --model Qwen/Qwen3-8B-AWQ \

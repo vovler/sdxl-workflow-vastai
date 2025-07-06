@@ -17,8 +17,8 @@ def check_optimum_cli():
 def delete_unet_onnx(model_path):
     """Delete the exported UNet ONNX file"""
     model_path = Path(model_path)
-    unet_onnx_path = model_path / "unet" / "model.onnx"
-    unet_onnx_path_data = model_path / "unet" / "model.onnx_data"
+    unet_onnx_path = model_path / "unet" / "useless_model.onnx"
+    unet_onnx_path_data = model_path / "unet" / "useless_model.onnx_data"
     old_unet_safetensors = model_path / "unet" / "diffusion_pytorch_model.safetensors"
     
     try:

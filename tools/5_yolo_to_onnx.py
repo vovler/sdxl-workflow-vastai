@@ -16,7 +16,7 @@ def export_yolo_to_onnx(pt_path, onnx_path):
     try:
         from ultralytics import YOLO
         model = YOLO(pt_path)
-        model.export(format="onnx", imgsz=640, opset=17, dynamic=True, simplify=False, device='0')
+        model.export(format="onnx", imgsz=640, opset=18, dynamic=True, simplify=False, device='0')
         
         # The export command saves it with the original basename, e.g., `model.onnx` if `pt_path` is `/path/to/model.pt`
         exported_name = os.path.splitext(os.path.basename(pt_path))[0] + ".onnx"
@@ -55,7 +55,7 @@ def main():
     print("--- Exporting YOLO .pt to ONNX ---")
     
     subfolder = "yolo"
-    pt_path = os.path.join(model_path, subfolder, "model.pt")
+    pt_path = os.path.join(model_path, subfolder, "sam_b.pt")
     onnx_path = os.path.join(model_path, subfolder, "model.onnx")
 
     if export_yolo_to_onnx(pt_path, onnx_path):

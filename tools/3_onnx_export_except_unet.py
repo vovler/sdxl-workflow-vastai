@@ -18,7 +18,8 @@ def delete_unet_onnx(model_path):
     """Delete the exported UNet ONNX file"""
     model_path = Path(model_path)
     unet_onnx_path = model_path / "unet" / "model.onnx"
-    unet_onnx_path_data = model_path / "unet" / "model.onnx.data"
+    unet_onnx_path_data = model_path / "unet" / "model.onnx_data"
+    old_unet_safetensors = model_path / "unet" / "diffusion_pytorch_model.safetensors"
     
     try:
         if unet_onnx_path.exists():
@@ -31,6 +32,9 @@ def delete_unet_onnx(model_path):
             if unet_onnx_path_data.exists():
                 unet_onnx_path_data.unlink()
                 print(f"✓ Deleted UNet ONNX data file: {unet_onnx_path_data.name} ({file_size:.2f} GB)")
+            if old_unet_safetensors.exists():
+                old_unet_safetensors.unlink()
+                print(f"✓ Deleted old UNet safetensors file: {old_unet_safetensors.name} ({file_size:.2f} GB)")
         else:
             print(f"⚠ Warning: UNet ONNX file not found at expected location: {unet_onnx_path}")
     

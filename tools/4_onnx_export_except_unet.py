@@ -17,8 +17,8 @@ def check_optimum_cli():
 def delete_unet_onnx(model_path):
     """Delete the exported UNet ONNX file"""
     model_path = Path(model_path)
-    unet_onnx_path = model_path / "unet" / "useless_model.onnx"
-    unet_onnx_path_data = model_path / "unet" / "useless_model.onnx_data"
+    unet_onnx_path = model_path / "unet" / "model_fp16.onnx"
+    unet_onnx_path_data = model_path / "unet" / "model_fp16.onnx.data"
     old_unet_safetensors = model_path / "unet" / "diffusion_pytorch_model.safetensors"
     
     try:
@@ -26,12 +26,6 @@ def delete_unet_onnx(model_path):
             # Get file size before deletion for reporting
             file_size = unet_onnx_path.stat().st_size / (1024**3)  # Size in GB
             
-            # Delete the ONNX file
-            unet_onnx_path.unlink()
-            print(f"✓ Deleted UNet ONNX file: {unet_onnx_path.name} ({file_size:.2f} GB)")
-            if unet_onnx_path_data.exists():
-                unet_onnx_path_data.unlink()
-                print(f"✓ Deleted UNet ONNX data file: {unet_onnx_path_data.name} ({file_size:.2f} GB)")
             if old_unet_safetensors.exists():
                 old_unet_safetensors.unlink()
                 print(f"✓ Deleted old UNet safetensors file: {old_unet_safetensors.name} ({file_size:.2f} GB)")

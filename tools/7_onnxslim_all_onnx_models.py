@@ -14,13 +14,13 @@ def check_onnxslim():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Recursively find and optimize all 'model.onnx' files using onnxslim."
+        description="Recursively find and optimize all '.onnx' files using onnxslim."
     )
     parser.add_argument(
         "--model_path",
         type=str,
         default="/lab/model",
-        help="The root directory to search for 'model.onnx' files.",
+        help="The root directory to search for '.onnx' files.",
     )
     args = parser.parse_args()
     model_path = Path(args.model_path)
@@ -36,17 +36,21 @@ def main():
 
     print(f"--- Starting ONNX Slimming Process in {model_path} ---")
     
-    onnx_files = list(model_path.rglob("model.onnx"))
+    onnx_files = list(model_path.rglob("*.onnx"))
 
     if not onnx_files:
-        print("⚠ No 'model.onnx' files found to optimize.")
+        print("⚠ No '.onnx' files found to optimize.")
         sys.exit(0)
 
-    print(f"Found {len(onnx_files)} 'model.onnx' files to process.")
+    print(f"Found {len(onnx_files)} '.onnx' files to process.")
 
     for onnx_file in onnx_files:
         relative_path = onnx_file.relative_to(model_path)
-        output_log_path = onnx_file.parent / "onnxslim_output.txt"
+        output_log_path = onnx_file.parent / f"{onnx_file.name}.onnxslim.txt"
+
+        if output_log_path.exists():
+            print(f"\nSkipping (log file found): {relative_path}")
+            continue
         
         print(f"\nProcessing: {relative_path}")
         

@@ -227,7 +227,7 @@ def main():
 
     model_path = args.model_path
     output_dir = os.path.join(model_path, "unet")
-    onnx_output_path = os.path.join(output_dir, "model.onnx")
+    onnx_output_path = os.path.join(output_dir, "model_int8.onnx")
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -343,7 +343,7 @@ def main():
         directory = os.path.dirname(onnx_output_path)
         filename = os.path.basename(onnx_output_path)
         base_name = os.path.splitext(filename)[0]
-        data_filename = f"{base_name}.data"
+        data_filename = f"{base_name}.onnx.data"
         
         print("Saving consolidated model...")
         try:

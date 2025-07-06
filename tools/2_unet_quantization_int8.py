@@ -67,7 +67,7 @@ def main():
 
     # Define the path to save the quantized UNet
     unet_dir = os.path.join(model_path, "unet")
-    int8_unet_path = os.path.join(unet_dir, "model_int8.safetensors")
+    int8_unet_path = os.path.join(unet_dir, "model_int8.pth")
 
     # Quantize the UNet
     print("Starting UNet quantization...")

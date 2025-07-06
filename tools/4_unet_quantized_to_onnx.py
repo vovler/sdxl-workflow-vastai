@@ -403,6 +403,14 @@ def main():
         else:
             print("⚠ Original INT8 safetensors not found, skipping cleanup.")
 
+        print(f"\nCleaning up original diffusers safetensors: {os.path.basename(output_dir + "/diffusion_pytorch_model.safetensors")}")
+        if os.path.exists(output_dir + "/diffusion_pytorch_model.safetensors"):
+            try:
+                os.remove(output_dir + "/diffusion_pytorch_model.safetensors")
+                print("✓ Successfully deleted original diffusers safetensors.")
+            except OSError as e:
+                print(f"✗ Error deleting original diffusers safetensors: {e}")
+
     print("\nSuccessfully exported ONNX model.")
 
 if __name__ == "__main__":

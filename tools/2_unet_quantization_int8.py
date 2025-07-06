@@ -74,7 +74,7 @@ def main():
 
     # Load calibration prompts
     calib_prompts = load_calib_prompts(
-        batch_size=1, calib_data_path="tools/2_unet_quantization_int8_PROMPTS.txt"
+        batch_size=1, calib_data_path="2_unet_quantization_int8_PROMPTS.txt"
     )
 
     # Create the int8 quantization recipe

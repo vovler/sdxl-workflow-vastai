@@ -73,6 +73,7 @@ def fuse_lora_with_unet(base_model_path, lora_path, lora_filename):
             base_model_path,
             torch_dtype=torch.float16,
             use_safetensors=True,
+            low_cpu_mem_usage=False  # <<< This is the key change
         ).to(device)
 
         print(f"Loading and fusing LoRA from: {lora_path}")

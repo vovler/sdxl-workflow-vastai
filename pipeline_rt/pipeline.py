@@ -22,6 +22,7 @@ class SDXLPipeline:
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
         self.vae = self.components["vae"]
+        self.vae_alt = self.components["vae_alt"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
 

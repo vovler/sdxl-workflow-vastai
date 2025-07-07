@@ -15,7 +15,7 @@ pipe.enable_xformers_memory_efficient_attention()
 prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
 negative_prompt = "ugly, blurry, low quality"
 guidance_scale = 1.2
-num_inference_steps = 8
+num_inference_steps = 25
 seed = 1020094661
 generator = torch.Generator(device="cuda").manual_seed(seed)
 height = 832

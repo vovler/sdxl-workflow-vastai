@@ -98,13 +98,18 @@ YOLO_PROFILES = {
     "max": {"bs": 4, "height": 1024, "width": 1152},
 }
 
-# SAM Configuration
-SAM_PROFILES = {
-    "min": {"bs": 1, "height": 30, "width": 30},
-    "opt": {"bs": 1, "height": 100, "width": 100},
-    "max": {"bs": 4, "height": 800, "width": 800},
+## SAM Configuration
+SAM_ENCODER_PROFILES = {
+    "min": {"bs": 1, "height": 1024, "width": 1024},
+    "opt": {"bs": 1, "height": 1024, "width": 1024},
+    "max": {"bs": 1, "height": 1024, "width": 1024},
 }
 
+SAM_DECODER_PROFILES = {
+    "min": {"bs": 1, "num_points": 1},
+    "opt": {"bs": 1, "num_points": 10},
+    "max": {"bs": 1, "num_points": 20},
+}
 # Upscaler Configuration
 UPSCALER_PROFILES = {
     "min": {"bs": 1, "height": 768, "width": 768},

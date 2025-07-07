@@ -8,7 +8,7 @@ _project_root = os.path.realpath(os.path.join(_this_dir, ".."))
 
 # Model Paths
 DEFAULT_BASE_MODEL = "socks22/sdxl-wai-nsfw-illustriousv14"
-TENSORRT_ENGINES_DIR = "/lab//model"
+TENSORRT_ENGINES_DIR = "/lab/model"
 
 # VAE
 VAE_DECODER_PATH = os.path.join(TENSORRT_ENGINES_DIR, "vae_decoder", "model.plan")

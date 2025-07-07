@@ -182,8 +182,8 @@ class SDXLPipeline:
         vae_start_time = time.time()
         
         # Manually scaling latents for all VAEs for consistent debugging
-        scaled_latents = latents / defaults.VAE_SCALING_FACTOR
-        image_np = self.vae(scaled_latents.to(torch.float16))
+        #scaled_latents = latents / defaults.VAE_SCALING_FACTOR
+        image_np = self.vae(latents.to(torch.float16))
 
         vae_end_time = time.time()
         vae_duration = vae_end_time - vae_start_time
@@ -210,73 +210,7 @@ class SDXLPipeline:
         print(f"Post-processed image: {image}")
         print("--- Post-processing Complete ---")
 
-        # ONNX VAE Debugging Path
-        if self.onnx_vae:
-            print("\n--- Decoding with ONNX VAE (Debug) ---")
-            onnx_vae_start_time = time.time()
-
-            # Prepare latents for ONNX runtime, applying the same scaling
-            scaled_latents_onnx = latents / defaults.VAE_SCALING_FACTOR
-            onnx_latents = scaled_latents_onnx.cpu().numpy().astype(np.float16)
-            
-            # Run inference
-            input_name = self.onnx_vae.get_inputs()[0].name
-            output_name = self.onnx_vae.get_outputs()[0].name
-            onnx_output = self.onnx_vae.run([output_name], {input_name: onnx_latents})[0]
-
-            # Convert back to torch tensor
-            onnx_image_np = torch.from_numpy(onnx_output).to(self.device)
-            
-            onnx_vae_end_time = time.time()
-            onnx_vae_duration = onnx_vae_end_time - onnx_vae_start_time
-            print(f"ONNX VAE: took {onnx_vae_duration * 1000:.0f}ms")
-            print(f"ONNX decoded image (tensor): shape={onnx_image_np.shape}, dtype={onnx_image_np.dtype}, device={onnx_image_np.device}")
-            print(f"ONNX decoded image (tensor) | Min: {onnx_image_np.min():.6f} | Max: {onnx_image_np.max():.6f}")
-            print(f"ONNX decoded image (tensor) | Mean: {onnx_image_np.mean():.6f} | Std: {onnx_image_np.std():.6f}")
-
-            # Save ONNX VAE debug image
-            print("\n--- Saving ONNX VAE Debug Image (Manual Post-processing) ---")
-            with torch.no_grad():
-                debug_image = onnx_image_np.detach().clone()
-                debug_image = (debug_image / 2 + 0.5).clamp(0, 1)
-                debug_image = debug_image.cpu().permute(0, 2, 3, 1).float().numpy()
-                debug_image_uint8 = (debug_image * 255).round().astype("uint8")
-                if debug_image_uint8.shape[0] == 1:
-                    pil_image = Image.fromarray(debug_image_uint8[0])
-                    pil_image.save("debug_onnx_vae_output.png")
-                    print("--- ONNX VAE Debug image saved to debug_onnx_vae_output.png ---")
-
-        # Hub VAE Debugging Path
-        if self.hub_vae:
-            print("\n--- Decoding with Hub VAE (Debug) ---")
-            hub_vae_start_time = time.time()
-            
-            # Decode with the Hub VAE
-            with torch.no_grad():
-                # Manually scale latents and call internal _decode to avoid double scaling
-                #hub_latents = latents / defaults.VAE_SCALING_FACTOR
-                # Cast back to float16 before passing to the model
-                hub_image_np = self.hub_vae._decode(latents.to(torch.float16)).sample
-
-            hub_vae_end_time = time.time()
-            hub_vae_duration = hub_vae_end_time - hub_vae_start_time
-            print(f"Hub VAE: took {hub_vae_duration * 1000:.0f}ms")
-            print(f"Hub decoded image (tensor): shape={hub_image_np.shape}, dtype={hub_image_np.dtype}, device={hub_image_np.device}")
-            print(f"Hub decoded image (tensor) | Min: {hub_image_np.min():.6f} | Max: {hub_image_np.max():.6f}")
-            print(f"Hub decoded image (tensor) | Mean: {hub_image_np.mean():.6f} | Std: {hub_image_np.std():.6f}")
-
-            # Save Hub VAE debug image
-            print("\n--- Saving Hub VAE Debug Image (Manual Post-processing) ---")
-            with torch.no_grad():
-                debug_image = hub_image_np.detach().clone()
-                debug_image = (debug_image / 2 + 0.5).clamp(0, 1)
-                debug_image = debug_image.cpu().permute(0, 2, 3, 1).float().numpy()
-                debug_image_uint8 = (debug_image * 255).round().astype("uint8")
-                if debug_image_uint8.shape[0] == 1:
-                    pil_image = Image.fromarray(debug_image_uint8[0])
-                    pil_image.save("debug_hub_vae_output.png")
-                    print("--- Hub VAE Debug image saved to debug_hub_vae_output.png ---")
-
+        
         # 8. Clear memory
         #utils._clear_memory()
 

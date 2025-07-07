@@ -13,6 +13,8 @@ TENSORRT_ENGINES_DIR = "/lab/model"
 # VAE
 VAE_DECODER_PATH = os.path.join(TENSORRT_ENGINES_DIR, "vae_decoder", "model.plan")
 
+VAE_ALT_PATH = os.path.join(TENSORRT_ENGINES_DIR, "vae", "sdxl.vae.safetensors")
+
 # UNet
 UNET_PATH = os.path.join(TENSORRT_ENGINES_DIR, "unet", "model_int8.plan")
 

@@ -1,7 +1,9 @@
-from diffusers import EulerAncestralDiscreteScheduler
+from diffusers import EulerAncestralDiscreteScheduler, AutoencoderKL
 from diffusers.image_processor import VaeImageProcessor
 from transformers import CLIPTokenizer
 import torch
+import os
+import json
 
 import models
 import defaults
@@ -26,6 +28,15 @@ def load_pipeline_components():
     
     vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
     
+    vae_alt_config_path = os.path.join(os.path.dirname(defaults.VAE_ALT_PATH), "config.json")
+    with open(vae_alt_config_path) as f:
+        vae_alt_config = json.load(f)
+
+    vae_alt = AutoencoderKL.from_single_file(
+        defaults.VAE_ALT_PATH,
+        config=vae_alt_config
+    ).to(device)
+    
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
         defaults.DEFAULT_BASE_MODEL, subfolder="scheduler"
@@ -42,6 +53,7 @@ def load_pipeline_components():
         "scheduler": scheduler,
         "unet": unet,
         "vae": vae,
+        "vae_alt": vae_alt,
         "vae_scale_factor": vae_scale_factor,
         "image_processor": image_processor,
     } 

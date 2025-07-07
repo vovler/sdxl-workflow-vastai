@@ -29,13 +29,12 @@ def load_pipeline_components():
     vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
     
     vae_alt_config_path = os.path.join(os.path.dirname(defaults.VAE_ALT_PATH), "config.json")
-    with open(vae_alt_config_path) as f:
-        vae_alt_config = json.load(f)
+
 
     vae_alt = AutoencoderKL.from_single_file(
         defaults.VAE_ALT_PATH,
         dtype=torch.float16,
-        config=vae_alt_config
+        config=vae_alt_config_path
     ).to(device)
     
     unet = models.UNet(defaults.UNET_PATH, device)

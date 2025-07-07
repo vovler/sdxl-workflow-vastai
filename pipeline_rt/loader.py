@@ -26,8 +26,8 @@ def load_pipeline_components():
     text_encoder_l = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_1_PATH, device, name="CLIP-L")
     text_encoder_g = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_2_PATH, device, name="CLIP-G")
     
-    vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
-    
+    #vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
+    vae = None
     vae_alt_config_path = os.path.join(os.path.dirname(defaults.VAE_ALT_PATH), "config.json")
 
 

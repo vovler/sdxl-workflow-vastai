@@ -86,9 +86,9 @@ CLIP_PROFILES = {
 
 # WD-Tagger Configuration
 WD_TAGGER_PROFILES = {
-    "min": {"bs": 1, "height": 448, "width": 448},
-    "opt": {"bs": 1, "height": 448, "width": 448},
-    "max": {"bs": 4, "height": 448, "width": 448},
+    "min": {"bs": 1},
+    "opt": {"bs": 1},
+    "max": {"bs": 4},
 }
 
 # YOLO Configuration
@@ -99,17 +99,12 @@ YOLO_PROFILES = {
 }
 
 ## SAM Configuration
-SAM_ENCODER_PROFILES = {
-    "min": {"bs": 1, "height": 1024, "width": 1024},
-    "opt": {"bs": 1, "height": 1024, "width": 1024},
-    "max": {"bs": 4, "height": 1024, "width": 1024},
-}
-
-SAM_DECODER_PROFILES = {
+SAM_PROFILES = {
     "min": {"bs": 1},
     "opt": {"bs": 1},
     "max": {"bs": 4},
 }
+
 # Upscaler Configuration
 UPSCALER_PROFILES = {
     "min": {"bs": 1, "height": 768, "width": 768},

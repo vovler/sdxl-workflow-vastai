@@ -36,9 +36,9 @@ def main():
 
     tagger_input_profiles = {
         "input": (
-            (min_p["bs"], min_p["height"], min_p["width"], 3),
-            (opt_p["bs"], opt_p["height"], opt_p["width"], 3),
-            (max_p["bs"], max_p["height"], max_p["width"], 3),
+            (min_p["bs"], 448, 448, 3),
+            (opt_p["bs"], 448, 448, 3),
+            (max_p["bs"], 448, 448, 3),
         ),
     }
 

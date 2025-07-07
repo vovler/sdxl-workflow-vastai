@@ -14,7 +14,7 @@ TENSORRT_ENGINES_DIR = "/lab//model"
 VAE_DECODER_PATH = os.path.join(TENSORRT_ENGINES_DIR, "vae_decoder", "model.plan")
 
 # UNet
-UNET_PATH = os.path.join(TENSORRT_ENGINES_DIR, "unet", "model_int8.plan.plan")
+UNET_PATH = os.path.join(TENSORRT_ENGINES_DIR, "unet", "model_int8.plan")
 
 # Text Encoders
 CLIP_TEXT_ENCODER_1_PATH = os.path.join(TENSORRT_ENGINES_DIR, "text_encoder", "model.plan")

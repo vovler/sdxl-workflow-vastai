@@ -164,6 +164,9 @@ class TensorRTModel:
 class VAEDecoder(TensorRTModel):
     def __init__(self, model_path: str, device: torch.device):
         super().__init__(model_path, device)
+        if len(self.output_map) != 1:
+            raise ValueError("VAEDecoder should have exactly one output.")
+        self.output_name = list(self.output_map.keys())[0]
 
     def __call__(self, latent: torch.Tensor) -> torch.Tensor:
         print(f"--- VAEDecoder Input ---")
@@ -175,8 +178,8 @@ class VAEDecoder(TensorRTModel):
         output_shape = (batch_size, 3, height * 8, width * 8)
 
         feed_dict = {"sample": latent}
-        outputs = super().__call__(feed_dict, output_shapes={"output_sample": output_shape})
-        return outputs["output_sample"]
+        outputs = super().__call__(feed_dict, output_shapes={self.output_name: output_shape})
+        return outputs[self.output_name]
 
 
 class UNet(TensorRTModel):

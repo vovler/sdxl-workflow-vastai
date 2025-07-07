@@ -239,7 +239,6 @@ def main():
     
     print("=== SDXL to ONNX Converter ===")
     print("This script will export your local SDXL model to ONNX format in the same directory")
-    print("Config files for text encoders and VAE decoder will be preserved")
     
     # Allow custom path via command line argument
     if len(sys.argv) >= 2:
@@ -252,13 +251,8 @@ def main():
     try:
         import torch
         if not torch.cuda.is_available():
-            print("⚠ Warning: CUDA not available. Export will be attempted on CPU.")
-            device = "cpu"
-        else:
-            response = input("CUDA is available. Would you like to force the export to run on CPU instead? (y/N): ").strip().lower()
-            if response == 'y':
-                device = "cpu"
-                print("User selected CPU for export.")
+            print("⚠ Error: CUDA not available.")
+            return
     except ImportError:
         print("⚠ Warning: Could not check CUDA availability (torch not installed). Assuming CUDA is available.")
         
@@ -277,6 +271,7 @@ def main():
     print(f"\nReady to export model to ONNX format in the same directory.")
     print("This process may take a significant amount of time.")
     print("\nAfter export, the following will be deleted:")
+    print("  - UNet safetensors file")
     print("  - vae/ directory (all VAE safetensors)")
     print("  - Text encoder safetensors files")
     print("\nWhat will be preserved:")

@@ -74,7 +74,7 @@ UNET_INT8_CONFIG = {
 VAE_DECODER_PROFILES = {
     "min": {"bs": 1, "height": 768, "width": 768},
     "opt": {"bs": 1, "height": 768, "width": 1152},
-    "max": {"bs": 4, "height": 1024, "width": 1152},
+    "max": {"bs": 1, "height": 1024, "width": 1152},
 }
 
 # VAE Encoder Configuration

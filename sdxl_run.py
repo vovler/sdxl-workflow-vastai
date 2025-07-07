@@ -1,5 +1,5 @@
 import torch
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
+from diffusers import StableDiffusionXLPipeline, DDIMScheduler
 import os
 
 # Set up the pipeline
@@ -11,7 +11,7 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
 pipe.to("cuda")
 pipe.enable_xformers_memory_efficient_attention()
 
-pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+pipe.scheduler = DDIMScheduler.from_config(
     pipe.scheduler.config, timestep_spacing="trailing", num_train_timesteps=1000
 )
 
@@ -20,7 +20,7 @@ print(pipe.scheduler)
 # Define the prompt and parameters for the pipeline
 prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
 guidance_scale = 0
-num_inference_steps = 4
+num_inference_steps = 8
 seed = 1020094661
 generator = torch.Generator(device="cuda").manual_seed(seed)
 height = 832

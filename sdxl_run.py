@@ -15,11 +15,10 @@ pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.conf
 
 print(pipe)
 print(pipe.scheduler)
-print(pipe.scheduler.config)
 # Define the prompt and parameters for the pipeline
 prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
 negative_prompt = "ugly, blurry, low quality"
-guidance_scale = 1.2
+guidance_scale = 0
 num_inference_steps = 8
 seed = 1020094661
 generator = torch.Generator(device="cuda").manual_seed(seed)

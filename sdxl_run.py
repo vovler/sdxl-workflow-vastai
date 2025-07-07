@@ -3,11 +3,13 @@ from diffusers import StableDiffusionXLPipeline, DDIMScheduler
 import os
 
 # Set up the pipeline
-pipe = StableDiffusionXLPipeline.from_pretrained(
-    "/lab/model",
+pipe = StableDiffusionXLPipeline.from_single_file(
+    "/lab/waiNSFWIllustrious_v140.safetensors",
     torch_dtype=torch.float16,
-    use_safetensors=True
+    use_safetensors=True,
 )
+pipe.load_lora_weights("/lab/dmd2_sdxl_4step_lora_fp16.safetensors")
+pipe.fuse_lora(lora_scale=1.0)
 pipe.to("cuda")
 pipe.enable_xformers_memory_efficient_attention()
 

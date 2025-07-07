@@ -11,7 +11,7 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
 pipe.to("cuda")
 pipe.enable_xformers_memory_efficient_attention()
 
-pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
+pipe.scheduler = EulerAncestralDiscreteScheduler()
 
 print(pipe)
 print(pipe.scheduler)

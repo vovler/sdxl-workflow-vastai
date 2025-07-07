@@ -11,15 +11,14 @@ pipe = StableDiffusionXLPipeline.from_pretrained(
 pipe.to("cuda")
 pipe.enable_xformers_memory_efficient_attention()
 
-pipe.scheduler = EulerAncestralDiscreteScheduler()
+pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
 print(pipe)
 print(pipe.scheduler)
 # Define the prompt and parameters for the pipeline
 prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
-negative_prompt = "ugly, blurry, low quality"
 guidance_scale = 0
-num_inference_steps = 8
+num_inference_steps = 4
 seed = 1020094661
 generator = torch.Generator(device="cuda").manual_seed(seed)
 height = 832
@@ -29,12 +28,12 @@ width = 1216
 with torch.no_grad():
     image = pipe(
         prompt=prompt,
-        negative_prompt=negative_prompt,
         height=height,
         width=width,
         guidance_scale=guidance_scale,
         num_inference_steps=num_inference_steps,
-        generator=generator
+        generator=generator,
+        timesteps=[999, 749, 499, 249]
     ).images[0]
 
 # Save the generated image

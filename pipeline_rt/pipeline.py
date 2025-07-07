@@ -158,8 +158,9 @@ class SDXLPipeline:
         vae_start_time = time.time()
         
         # Manually scaling latents for all VAEs for consistent debugging
-        scaled_latents = latents / 8
-        image_np = self.vae(scaled_latents.to(torch.float16))
+        # The VAE from "madebyollin/sdxl-vae-fp16-fix" has a scaling factor of 0.13025
+        scaled_latents = latents / 0.13025
+        image_np = self.vae(scaled_latents)
 
         vae_end_time = time.time()
         vae_duration = vae_end_time - vae_start_time
@@ -167,18 +168,6 @@ class SDXLPipeline:
         print(f"decoded image (tensor): shape={image_np.shape}, dtype={image_np.dtype}, device={image_np.device}, has_nan={torch.isnan(image_np).any()}, has_inf={torch.isinf(image_np).any()}")
         print(f"decoded image (tensor) | Min: {image_np.min():.6f} | Max: {image_np.max():.6f}")
         print(f"decoded image (tensor) | Mean: {image_np.mean():.6f} | Std: {image_np.std():.6f} | Sum: {image_np.sum():.6f}")
-
-        # Manual post-processing for debugging
-        print("\n--- Saving Debug Image (Manual Post-processing) ---")
-        with torch.no_grad():
-            debug_image = image_np.detach().clone()
-            debug_image = (debug_image / 2 + 0.5).clamp(0, 1)
-            debug_image = debug_image.cpu().permute(0, 2, 3, 1).float().numpy()
-            debug_image_uint8 = (debug_image * 255).round().astype("uint8")
-            if debug_image_uint8.shape[0] == 1:
-                pil_image = Image.fromarray(debug_image_uint8[0])
-                pil_image.save("debug_manual_postprocess.png")
-                print("--- Debug image saved to debug_manual_postprocess.png ---")
 
         # 7. Post-process image
         print("\n--- Post-processing Image ---")

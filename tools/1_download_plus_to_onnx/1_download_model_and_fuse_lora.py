@@ -149,7 +149,14 @@ def main():
     # Create and download to vae directory  
     print("\n=== Setting up VAE ===")
     vae_dir = base_dir / "vae"
+
+    # Delete VAE directory
+    if vae_dir.exists():
+        shutil.rmtree(vae_dir)
+        print(f"Deleted directory: {vae_dir}")
+
     vae_dir.mkdir(exist_ok=True)
+
     print(f"Created directory: {vae_dir}")
     
     vae_files = [

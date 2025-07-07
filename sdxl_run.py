@@ -32,7 +32,12 @@ width = 1216
 # Manually unpack the pipeline to allow for custom scheduler logic
 with torch.no_grad():
     # 1. Encode input prompt
-    prompt_embeds, _, _, _ = pipe.encode_prompt(prompt)
+    (
+        prompt_embeds,
+        _,
+        pooled_prompt_embeds,
+        _,
+    ) = pipe.encode_prompt(prompt)
 
     # 2. Prepare timesteps
     pipe.scheduler.set_timesteps(num_inference_steps, device=pipe.device)
@@ -51,7 +56,12 @@ with torch.no_grad():
         generator,
     )
 
-    # 4. Denoising loop
+    # 4. Prepare added conditional embeddings
+    add_text_embeds = pooled_prompt_embeds
+    add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], device=pipe.device, dtype=prompt_embeds.dtype)
+    added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+
+    # 5. Denoising loop
     for i, t in enumerate(tqdm(timesteps)):
         # expand the latents if we are doing classifier free guidance
         latent_model_input = latents
@@ -61,13 +71,14 @@ with torch.no_grad():
             latent_model_input,
             t,
             encoder_hidden_states=prompt_embeds,
+            added_cond_kwargs=added_cond_kwargs,
             return_dict=False,
         )[0]
 
         # compute the previous noisy sample x_t -> x_t-1
         latents = pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
 
-    # 5. Post-processing
+    # 6. Post-processing
     image = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
     image = pipe.image_processor.postprocess(image, output_type="pil")[0]
 

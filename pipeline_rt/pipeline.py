@@ -22,7 +22,7 @@ class SDXLPipeline:
         self.text_encoder_l = self.components["text_encoder_l"]
         self.text_encoder_g = self.components["text_encoder_g"]
         self.vae = self.components["vae"]
-        self.vae_alt = self.components["vae_alt"]
+        #self.vae_alt = self.components["vae_alt"]
         self.unet = self.components["unet"]
         self.scheduler = self.components["scheduler"]
 
@@ -162,7 +162,7 @@ class SDXLPipeline:
             # Manually scaling latents for all VAEs for consistent debugging
             # The VAE from "madebyollin/sdxl-vae-fp16-fix" has a scaling factor of 0.13025
             scaled_latents = latents / 0.13025
-            image_np = self.vae_alt.decode(scaled_latents).sample
+            image_np = self.vae(scaled_latents)
 
             vae_end_time = time.time()
             vae_duration = vae_end_time - vae_start_time

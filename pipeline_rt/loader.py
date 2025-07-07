@@ -26,17 +26,17 @@ def load_pipeline_components():
     text_encoder_l = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_1_PATH, device, name="CLIP-L")
     text_encoder_g = models.CLIPTextEncoder(defaults.CLIP_TEXT_ENCODER_2_PATH, device, name="CLIP-G")
     
-    #vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
-    vae = None
-    vae_alt_config_path = os.path.join(os.path.dirname(defaults.VAE_ALT_PATH), "config.json")
+    vae = models.VAEDecoder(defaults.VAE_DECODER_PATH, device)
+    #vae = None
+    #vae_alt_config_path = os.path.join(os.path.dirname(defaults.VAE_ALT_PATH), "config.json")
 
-    vae_alt = AutoencoderKL.from_single_file(
-        defaults.VAE_ALT_PATH,
-        dtype=torch.float16,
-        config=vae_alt_config_path
-    ).to(device)
-    vae_alt.enable_xformers_memory_efficient_attention()
-    vae_alt.enable_tiling()
+    #vae_alt = AutoencoderKL.from_single_file(
+    #    defaults.VAE_ALT_PATH,
+    #    dtype=torch.float16,
+    #    config=vae_alt_config_path
+    #).to(device)
+    #vae_alt.enable_xformers_memory_efficient_attention()
+    #vae_alt.enable_tiling()
     
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
@@ -54,7 +54,7 @@ def load_pipeline_components():
         "scheduler": scheduler,
         "unet": unet,
         "vae": vae,
-        "vae_alt": vae_alt,
+        #"vae_alt": vae_alt,
         "vae_scale_factor": vae_scale_factor,
         "image_processor": image_processor,
     } 

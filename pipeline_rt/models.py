@@ -62,7 +62,7 @@ class TensorRTModel:
     def is_graph_captured(self, shape_key: tuple) -> bool:
         return shape_key in self.captured_graphs
 
-    def capture_graph(self, feed_dict: Dict[str, torch.Tensor]):
+    def capture_graph(self, feed_dict: Dict[str, torch.Tensor], output_shapes: Optional[Dict[str, tuple]] = None):
         shape_key = tuple(v.shape for k, v in sorted(feed_dict.items()) if k in self.input_map)
         if shape_key in self.captured_graphs:
             return
@@ -82,7 +82,10 @@ class TensorRTModel:
         
         output_tensors_for_graph = {}
         for name, properties in self.output_map.items():
-            shape = self.context.get_tensor_shape(name)
+            if output_shapes and name in output_shapes:
+                shape = output_shapes[name]
+            else:
+                shape = self.context.get_tensor_shape(name)
             output_tensors_for_graph[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
             
         for name, tensor in input_tensors_for_graph.items():
@@ -109,11 +112,11 @@ class TensorRTModel:
         
         print(f"CUDA graph captured for {self.__class__.__name__}")
 
-    def __call__(self, feed_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def __call__(self, feed_dict: Dict[str, torch.Tensor], output_shapes: Optional[Dict[str, tuple]] = None) -> Dict[str, torch.Tensor]:
         shape_key = tuple(v.shape for k, v in sorted(feed_dict.items()) if k in self.input_map)
         
         if not self.is_graph_captured(shape_key):
-            self.capture_graph(feed_dict)
+            self.capture_graph(feed_dict, output_shapes)
             
         graph_data = self.captured_graphs[shape_key]
 
@@ -136,8 +139,11 @@ class VAEDecoder(TensorRTModel):
         print(f"latent | Mean: {latent.mean():.6f} | Std: {latent.std():.6f} | Sum: {latent.sum():.6f}")
         print("------------------------")
 
+        batch_size, _, height, width = latent.shape
+        output_shape = (batch_size, 3, height * 8, width * 8)
+
         feed_dict = {"sample": latent}
-        outputs = super().__call__(feed_dict)
+        outputs = super().__call__(feed_dict, output_shapes={"output_sample": output_shape})
         return outputs["output_sample"]
 
 

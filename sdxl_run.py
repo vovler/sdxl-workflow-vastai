@@ -13,6 +13,8 @@ pipe.enable_xformers_memory_efficient_attention()
 
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
+print(pipe)
+
 # Define the prompt and parameters for the pipeline
 prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
 negative_prompt = "ugly, blurry, low quality"

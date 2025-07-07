@@ -159,7 +159,7 @@ class SDXLPipeline:
         
         # Manually scaling latents for all VAEs for consistent debugging
         # The VAE from "madebyollin/sdxl-vae-fp16-fix" has a scaling factor of 0.13025
-        scaled_latents = latents / 0.13025
+        scaled_latents = latents / 0.18215
         image_np = self.vae(scaled_latents)
 
         vae_end_time = time.time()

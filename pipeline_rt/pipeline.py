@@ -158,7 +158,7 @@ class SDXLPipeline:
         vae_start_time = time.time()
         
         # Manually scaling latents for all VAEs for consistent debugging
-        scaled_latents = latents / 0.13025
+        scaled_latents = latents / 8
         image_np = self.vae(scaled_latents.to(torch.float16))
 
         vae_end_time = time.time()

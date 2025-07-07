@@ -6,9 +6,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import onnx
-import numpy as np
 
 
 class ImageEncoderOnnxModel(nn.Module):
@@ -41,72 +39,68 @@ class ImageEncoderOnnxModel(nn.Module):
         return image_embeddings
 
 
-def export_encoder(sam_model, onnx_path: str, opset: int):
-    """Export the SAM image encoder to an ONNX model."""
+class CombinedSamModel(nn.Module):
+    """
+    This model wraps the SAM image encoder and decoder for ONNX export.
+    It handles image preprocessing and combines both parts of the model.
+    """
+    def __init__(self, model):
+        super().__init__()
+        self.image_encoder = ImageEncoderOnnxModel(model)
+        from segment_anything.utils.onnx import SamOnnxModel
+        self.mask_decoder = SamOnnxModel(model=model, return_single_mask=True)
+
+    def forward(
+        self,
+        input_image: torch.Tensor,
+        point_coords: torch.Tensor,
+        point_labels: torch.Tensor,
+        mask_input: torch.Tensor,
+        has_mask_input: torch.Tensor,
+        orig_im_size: torch.Tensor,
+    ):
+        image_embeddings = self.image_encoder(input_image)
+        
+        masks, iou_predictions, low_res_masks = self.mask_decoder(
+            image_embeddings=image_embeddings,
+            point_coords=point_coords,
+            point_labels=point_labels,
+            mask_input=mask_input,
+            has_mask_input=has_mask_input,
+            orig_im_size=orig_im_size,
+        )
+        return masks, iou_predictions, low_res_masks
+
+
+def export_combined_sam(sam_model, onnx_path: str, opset: int):
+    """Export the combined SAM model to a single ONNX file."""
     if os.path.exists(onnx_path):
-        print(f"Encoder ONNX file already exists at {onnx_path}, skipping export.")
+        print(f"Combined SAM ONNX file already exists at {onnx_path}, skipping export.")
         return
 
-    print(f"Exporting encoder to {onnx_path}...")
-    onnx_model = ImageEncoderOnnxModel(model=sam_model)
+    print(f"Exporting combined SAM model to {onnx_path}...")
+    onnx_model = CombinedSamModel(model=sam_model)
     
-    # input_image shape: (N, 3, H, W)
-    dummy_input = {"input_image": torch.randn(1, 3, 1024, 1024, dtype=torch.float)}
-    dynamic_axes = {
-        "input_image": {0: "batch_size"},
-    }
-    output_names = ["image_embeddings"]
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
-        warnings.filterwarnings("ignore", category=UserWarning)
-        with open(onnx_path, "wb") as f:
-            torch.onnx.export(
-                onnx_model,
-                tuple(dummy_input.values()),
-                f,
-                export_params=True,
-                verbose=False,
-                opset_version=opset,
-                do_constant_folding=True,
-                input_names=list(dummy_input.keys()),
-                output_names=output_names,
-                dynamic_axes=dynamic_axes,
-            )
-    print(f"✓ Encoder exported to {onnx_path}")
-
-
-def export_decoder(sam_model, onnx_path: str, opset: int):
-    """Export the SAM prompt encoder and mask decoder to an ONNX model."""
-    if os.path.exists(onnx_path):
-        print(f"Decoder ONNX file already exists at {onnx_path}, skipping export.")
-        return
-
-    print(f"Exporting decoder to {onnx_path}...")
-    from segment_anything.utils.onnx import SamOnnxModel
-
-    onnx_model = SamOnnxModel(model=sam_model, return_single_mask=True)
-
-    dynamic_axes = {
-        "image_embeddings": {0: "batch_size"},
-        "point_coords": {0: "batch_size"},
-        "point_labels": {0: "batch_size"},
-        "mask_input": {0: "batch_size"},
-    }
-
+    # Dummy inputs
     embed_dim = sam_model.prompt_encoder.embed_dim
     embed_size = sam_model.prompt_encoder.image_embedding_size
     mask_input_size = [4 * x for x in embed_size]
-    
+
     dummy_inputs = {
-        "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
+        "input_image": torch.randn(1, 3, 1024, 1024, dtype=torch.float),
         "point_coords": torch.tensor([[[512, 512]]], dtype=torch.float),
         "point_labels": torch.ones((1, 1), dtype=torch.float),
         "mask_input": torch.zeros(1, 1, *mask_input_size, dtype=torch.float),
         "has_mask_input": torch.tensor([0], dtype=torch.float),
-        "orig_im_size": torch.tensor([1024, 1024], dtype=torch.int32),
+        "orig_im_size": torch.tensor([1024, 1024], dtype=torch.int64),
     }
 
+    dynamic_axes = {
+        "input_image": {0: "batch_size"},
+        "point_coords": {0: "batch_size"},
+        "point_labels": {0: "batch_size"},
+        "mask_input": {0: "batch_size"},
+    }
     output_names = ["masks", "iou_predictions", "low_res_masks"]
 
     with warnings.catch_warnings():
@@ -125,12 +119,12 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
                 output_names=output_names,
                 dynamic_axes=dynamic_axes,
             )
-    print(f"✓ Decoder exported to {onnx_path}")
+    print(f"✓ Combined SAM exported to {onnx_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Exports a SAM .pth model to ONNX format, creating separate encoder and decoder models."
+        description="Exports a SAM .pth model to a single ONNX model."
     )
     parser.add_argument(
         "--model_path",
@@ -159,8 +153,7 @@ def main():
     model_dir.mkdir(parents=True, exist_ok=True)
     
     pt_path = model_dir / "model.pth"
-    encoder_onnx_path = model_dir / "encoder.onnx"
-    decoder_onnx_path = model_dir / "decoder.onnx"
+    onnx_path = model_dir / "sam.onnx"
 
     if not pt_path.exists():
         print(f"Error: SAM checkpoint not found at {pt_path}")
@@ -174,8 +167,7 @@ def main():
         
         sam = sam_model_registry[args.model_type](checkpoint=str(pt_path))
         
-        export_encoder(sam, str(encoder_onnx_path), args.opset)
-        export_decoder(sam, str(decoder_onnx_path), args.opset)
+        export_combined_sam(sam, str(onnx_path), args.opset)
 
         # Cleanup original .pth file
         print(f"\nCleaning up original PyTorch model: {pt_path.name}")

@@ -14,7 +14,7 @@ pipe.to("cuda")
 pipe.enable_xformers_memory_efficient_attention()
 
 pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
-    pipe.scheduler.config, timestep_spacing="trailing", num_train_timesteps=1000
+    pipe.scheduler.config, timestep_spacing="linspace", num_train_timesteps=1000
 )
 
 print(pipe)

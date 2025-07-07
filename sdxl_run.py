@@ -17,11 +17,15 @@ guidance_scale = 1.0
 num_inference_steps = 8
 seed = 1020094661
 generator = torch.Generator(device="cuda").manual_seed(seed)
+height = 832
+width = 1216
 
 # Generate the image
 with torch.no_grad():
     image = pipe(
         prompt=prompt,
+        height=height,
+        width=width,
         guidance_scale=guidance_scale,
         num_inference_steps=num_inference_steps,
         generator=generator

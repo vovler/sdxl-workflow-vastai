@@ -127,39 +127,6 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
             )
     print(f"✓ Decoder exported to {onnx_path}")
 
-    print("\n--- Optimizing SAM Decoder ONNX by baking in constant inputs ---")
-    model = onnx.load(onnx_path)
-    graph = model.graph
-
-    # Define the constant values to bake into the model
-    # Note: orig_im_size needs to be int64 for ONNX initializers
-    constants = {
-        "point_coords": np.array([[[512, 512]]], dtype=np.float32),
-        "point_labels": np.array([[1]], dtype=np.float32),
-        "mask_input": np.zeros((1, 1, 256, 256), dtype=np.float32),
-        "has_mask_input": np.array([0], dtype=np.float32),
-        "orig_im_size": np.array([1024, 1024], dtype=np.int64),
-    }
-
-    # Add constants as initializers to the graph
-    for name, arr in constants.items():
-        tensor = onnx.helper.make_tensor(
-            name=name,
-            data_type=onnx.helper.np_dtype_to_tensor_dtype(arr.dtype),
-            dims=arr.shape,
-            vals=arr.flatten().tolist(),
-        )
-        graph.initializer.append(tensor)
-
-    # Remove the corresponding graph inputs
-    inputs_to_remove = set(constants.keys())
-    new_inputs = [inp for inp in graph.input if inp.name not in inputs_to_remove]
-    graph.input[:] = new_inputs
-
-    onnx.checker.check_model(model)
-    onnx.save(model, onnx_path)
-    print(f"✓ Saved optimized decoder back to {onnx_path}")
-
 
 def main():
     parser = argparse.ArgumentParser(

@@ -153,7 +153,7 @@ def main():
     model_dir.mkdir(parents=True, exist_ok=True)
     
     pt_path = model_dir / "model.pth"
-    onnx_path = model_dir / "sam.onnx"
+    onnx_path = model_dir / "model.onnx"
 
     if not pt_path.exists():
         print(f"Error: SAM checkpoint not found at {pt_path}")

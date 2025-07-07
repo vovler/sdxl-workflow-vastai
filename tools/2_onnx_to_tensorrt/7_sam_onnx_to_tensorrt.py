@@ -3,7 +3,7 @@ import argparse
 from tensorrt_config import SAM_ENCODER_PROFILES, SAM_DECODER_PROFILES
 from tensorrt_exporter import build_engine
 
-def build_sam_engine(model_path, model_name, input_profiles):
+def build_sam_engine(model_path, model_name, input_profiles, shape_input_profiles={}):
     """A helper function to build a TensorRT engine for a given SAM model."""
     print(f"--- Building SAM {model_name.capitalize()} Engine ---")
     
@@ -26,6 +26,7 @@ def build_sam_engine(model_path, model_name, input_profiles):
             engine_path=engine_path,
             onnx_path=onnx_path,
             input_profiles=input_profiles,
+            shape_input_profiles=shape_input_profiles,
         )
         print(f"✓ Successfully built engine for SAM {model_name.capitalize()}")
         
@@ -61,9 +62,9 @@ def main():
     
     encoder_profiles = {
         "input_image": (
-            (min_enc["bs"], 3, min_enc["height"], min_enc["width"]),
-            (opt_enc["bs"], 3, opt_enc["height"], opt_enc["width"]),
-            (max_enc["bs"], 3, max_enc["height"], max_enc["width"]),
+            (min_enc["bs"], 3, 1024, 1024),
+            (opt_enc["bs"], 3, 1024, 1024),
+            (max_enc["bs"], 3, 1024, 1024),
         ),
     }
     
@@ -73,25 +74,30 @@ def main():
     max_dec = SAM_DECODER_PROFILES["max"]
 
     decoder_profiles = {
-        "image_embeddings": ((1, 256, 64, 64), (1, 256, 64, 64), (1, 256, 64, 64)),
+        "image_embeddings": ((min_dec["bs"], 256, 64, 64), (opt_dec["bs"], 256, 64, 64), (max_dec["bs"], 256, 64, 64)),
         "point_coords": (
-            (min_dec["bs"], min_dec["num_points"], 2),
-            (opt_dec["bs"], opt_dec["num_points"], 2),
-            (max_dec["bs"], max_dec["num_points"], 2),
+            (min_dec["bs"], 1, 2),
+            (opt_dec["bs"], 1, 2),
+            (max_dec["bs"], 1, 2),
         ),
         "point_labels": (
-            (min_dec["bs"], min_dec["num_points"]),
-            (opt_dec["bs"], opt_dec["num_points"]),
-            (max_dec["bs"], max_dec["num_points"]),
+            (min_dec["bs"], 1),
+            (opt_dec["bs"], 1),
+            (max_dec["bs"], 1),
         ),
         "mask_input": ((1, 1, 256, 256), (1, 1, 256, 256), (1, 1, 256, 256)),
         "has_mask_input": ((1,), (1,), (1,)),
-        "orig_im_size": ((2,), (2,), (2,)),
+    }
+    
+    decoder_shape_input_profiles = {
+        "orig_im_size": ((1024, 1024), (1024, 1024), (1024, 1024)),
     }
 
     # Build engines
     encoder_ok = build_sam_engine(model_path, "encoder", encoder_profiles)
-    decoder_ok = build_sam_engine(model_path, "decoder", decoder_profiles)
+    decoder_ok = build_sam_engine(
+        model_path, "decoder", decoder_profiles, decoder_shape_input_profiles
+    )
 
     if encoder_ok and decoder_ok:
         print("\nAll SAM engines built successfully.")

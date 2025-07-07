@@ -7,6 +7,8 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import onnx
+import numpy as np
 
 
 class ImageEncoderOnnxModel(nn.Module):
@@ -32,13 +34,6 @@ class ImageEncoderOnnxModel(nn.Module):
         )
 
     def forward(self, input_image: torch.Tensor):
-        # Resize
-        input_image = F.interpolate(
-            input_image,
-            (self.img_size, self.img_size),
-            mode="bilinear",
-            align_corners=False,
-        )
         # Normalize
         input_image = (input_image - self.pixel_mean) / self.pixel_std
         # Forward
@@ -58,7 +53,7 @@ def export_encoder(sam_model, onnx_path: str, opset: int):
     # input_image shape: (N, 3, H, W)
     dummy_input = {"input_image": torch.randn(1, 3, 1024, 1024, dtype=torch.float)}
     dynamic_axes = {
-        "input_image": {0: "batch_size", 2: "height", 3: "width"},
+        "input_image": {0: "batch_size"},
     }
     output_names = ["image_embeddings"]
 
@@ -93,8 +88,10 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
     onnx_model = SamOnnxModel(model=sam_model, return_single_mask=True)
 
     dynamic_axes = {
-        "point_coords": {1: "num_points"},
-        "point_labels": {1: "num_points"},
+        "image_embeddings": {0: "batch_size"},
+        "point_coords": {0: "batch_size"},
+        "point_labels": {0: "batch_size"},
+        "mask_input": {0: "batch_size"},
     }
 
     embed_dim = sam_model.prompt_encoder.embed_dim
@@ -103,11 +100,11 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
     
     dummy_inputs = {
         "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
-        "point_coords": torch.randint(low=0, high=1024, size=(1, 5, 2), dtype=torch.float),
-        "point_labels": torch.randint(low=0, high=4, size=(1, 5), dtype=torch.float),
-        "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
-        "has_mask_input": torch.tensor([1], dtype=torch.float),
-        "orig_im_size": torch.tensor([1500, 2250], dtype=torch.int32),
+        "point_coords": torch.tensor([[[512, 512]]], dtype=torch.float),
+        "point_labels": torch.ones((1, 1), dtype=torch.float),
+        "mask_input": torch.zeros(1, 1, *mask_input_size, dtype=torch.float),
+        "has_mask_input": torch.tensor([0], dtype=torch.float),
+        "orig_im_size": torch.tensor([1024, 1024], dtype=torch.int32),
     }
 
     output_names = ["masks", "iou_predictions", "low_res_masks"]
@@ -129,6 +126,40 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
                 dynamic_axes=dynamic_axes,
             )
     print(f"✓ Decoder exported to {onnx_path}")
+
+    print("\n--- Optimizing SAM Decoder ONNX by baking in constant inputs ---")
+    model = onnx.load(onnx_path)
+    graph = model.graph
+
+    # Define the constant values to bake into the model
+    # Note: orig_im_size needs to be int64 for ONNX initializers
+    constants = {
+        "point_coords": np.array([[[512, 512]]], dtype=np.float32),
+        "point_labels": np.array([[1]], dtype=np.float32),
+        "mask_input": np.zeros((1, 1, 256, 256), dtype=np.float32),
+        "has_mask_input": np.array([0], dtype=np.float32),
+        "orig_im_size": np.array([1024, 1024], dtype=np.int64),
+    }
+
+    # Add constants as initializers to the graph
+    for name, arr in constants.items():
+        tensor = onnx.helper.make_tensor(
+            name=name,
+            data_type=onnx.mapping.NP_TYPE_TO_TENSOR_TYPE[arr.dtype],
+            dims=arr.shape,
+            vals=arr.flatten().tolist(),
+        )
+        graph.initializer.append(tensor)
+
+    # Remove the corresponding graph inputs
+    inputs_to_remove = set(constants.keys())
+    new_inputs = [inp for inp in graph.input if inp.name not in inputs_to_remove]
+    graph.input.Clear()
+    graph.input.extend(new_inputs)
+
+    onnx.checker.check_model(model)
+    onnx.save(model, onnx_path)
+    print(f"✓ Saved optimized decoder back to {onnx_path}")
 
 
 def main():

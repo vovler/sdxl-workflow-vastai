@@ -107,7 +107,7 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
         "point_labels": torch.randint(low=0, high=4, size=(1, 5), dtype=torch.float),
         "mask_input": torch.randn(1, 1, *mask_input_size, dtype=torch.float),
         "has_mask_input": torch.tensor([1], dtype=torch.float),
-        "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float),
+        "orig_im_size": torch.tensor([1500, 2250], dtype=torch.int32),
     }
 
     output_names = ["masks", "iou_predictions", "low_res_masks"]
@@ -139,7 +139,7 @@ def main():
         "--model_path",
         type=str,
         default="/lab/model",
-        help="Path to the model directory containing the SAM sam_b.pt file.",
+        help="Path to the model directory containing the SAM model.pth file.",
     )
     parser.add_argument(
         "--model_type",
@@ -155,13 +155,13 @@ def main():
     )
     args = parser.parse_args()
 
-    print("--- Exporting SAM (sam_b.pt) to ONNX ---")
+    print("--- Exporting SAM (model.pth) to ONNX ---")
     
     subfolder = "sam"
     model_dir = Path(args.model_path) / subfolder
     model_dir.mkdir(parents=True, exist_ok=True)
     
-    pt_path = model_dir / "sam_b.pt"
+    pt_path = model_dir / "model.pth"
     encoder_onnx_path = model_dir / "encoder.onnx"
     decoder_onnx_path = model_dir / "decoder.onnx"
 

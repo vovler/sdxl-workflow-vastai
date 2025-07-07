@@ -13,7 +13,8 @@ pipe.enable_xformers_memory_efficient_attention()
 
 # Define the prompt and parameters for the pipeline
 prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
-guidance_scale = 1.0
+negative_prompt = "ugly, blurry, low quality"
+guidance_scale = 1.2
 num_inference_steps = 8
 seed = 1020094661
 generator = torch.Generator(device="cuda").manual_seed(seed)
@@ -24,6 +25,7 @@ width = 1216
 with torch.no_grad():
     image = pipe(
         prompt=prompt,
+        negative_prompt=negative_prompt,
         height=height,
         width=width,
         guidance_scale=guidance_scale,

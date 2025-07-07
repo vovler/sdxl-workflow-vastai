@@ -34,6 +34,7 @@ def load_pipeline_components():
 
     vae_alt = AutoencoderKL.from_single_file(
         defaults.VAE_ALT_PATH,
+        dtype=torch.float16,
         config=vae_alt_config
     ).to(device)
     

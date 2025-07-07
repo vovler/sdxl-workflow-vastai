@@ -6,7 +6,6 @@ import os
 pipe = StableDiffusionXLPipeline.from_pretrained(
     "/lab/model",
     torch_dtype=torch.float16,
-    variant="fp16",
     use_safetensors=True
 )
 pipe.to("cuda")

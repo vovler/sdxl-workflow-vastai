@@ -28,30 +28,6 @@ class SDXLPipeline:
         self.image_processor = self.components["image_processor"]
         self.vae_scale_factor = self.components["vae_scale_factor"]
 
-        # Load ONNX VAE for debugging
-        self.onnx_vae_path = "/workflow/wai_dmd2_onnx/vae_decoder/new_model.onnx"
-        if os.path.exists(self.onnx_vae_path):
-            print(f"\n--- Loading ONNX VAE for debugging from: {self.onnx_vae_path} ---")
-            try:
-                self.onnx_vae = ort.InferenceSession(self.onnx_vae_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-                print("--- ONNX VAE loaded successfully ---")
-            except Exception as e:
-                print(f"--- Failed to load ONNX VAE: {e} ---")
-                self.onnx_vae = None
-        else:
-            self.onnx_vae = None
-            print(f"--- ONNX VAE not found at {self.onnx_vae_path}, skipping. ---")
-
-        # Load Hub VAE for debugging
-        self.hub_vae_id = "madebyollin/sdxl-vae-fp16-fix"
-        print(f"\n--- Loading Hub VAE for debugging from: {self.hub_vae_id} ---")
-        try:
-            self.hub_vae = AutoencoderKL.from_pretrained(self.hub_vae_id, torch_dtype=torch.float16).to(self.device)
-            print("--- Hub VAE loaded successfully ---")
-        except Exception as e:
-            print(f"--- Failed to load Hub VAE: {e} ---")
-            self.hub_vae = None
-
     def set_unet(self, unet_path: str):
         """
         Load a new UNet model.
@@ -182,8 +158,8 @@ class SDXLPipeline:
         vae_start_time = time.time()
         
         # Manually scaling latents for all VAEs for consistent debugging
-        #scaled_latents = latents / defaults.VAE_SCALING_FACTOR
-        image_np = self.vae(latents.to(torch.float16))
+        scaled_latents = latents / self.vae_scale_factor
+        image_np = self.vae(scaled_latents.to(torch.float16))
 
         vae_end_time = time.time()
         vae_duration = vae_end_time - vae_start_time

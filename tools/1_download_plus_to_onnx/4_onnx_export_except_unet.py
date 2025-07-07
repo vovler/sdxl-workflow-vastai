@@ -277,15 +277,15 @@ def main():
     print(f"\nReady to export model to ONNX format in the same directory.")
     print("This process may take a significant amount of time.")
     print("\nAfter export, the following will be deleted:")
-    print("  - UNet ONNX file (keeping UNet safetensors)")
     print("  - vae/ directory (all VAE safetensors)")
     print("  - Text encoder safetensors files")
     print("\nWhat will be preserved:")
     print("  - UNet safetensors (your fused LoRA model)")
-    print("  - UNet config.json")
+    print("  - UNet ONNX files + config.json")
     print("  - text_encoder/ ONNX files + config.json")
     print("  - text_encoder_2/ ONNX files + config.json") 
     print("  - vae_decoder/ ONNX files + config.json")
+    print("  - vae_encoder/ ONNX files + config.json")
     print("  - model_index.json")
     response = input("Continue? (Y/n): ").strip().lower()
     if response in ['n', 'no']:
@@ -297,10 +297,10 @@ def main():
     
     print("\n=== Export Complete ===")
     print("Your SDXL model has been successfully converted!")
-    print("✓ ONNX files created for text encoders and VAE decoder")
+    print("✓ ONNX files created for UNet_fp16, text encoders, VAE decoder and VAE encoder")
     print("✓ Config files preserved for all components")
-    print("✓ UNet ONNX file removed (UNet safetensors preserved)")
-    print("✓ VAE directories removed")
+    print("✓ VAE directory removed")
+    print("✓ UNet safetensors file removed")
     print("✓ Text encoder safetensors files cleaned up")
     print(f"✓ Optimized model available at: {model_path}")
     
@@ -310,7 +310,7 @@ def main():
         print(f"\nFinal optimized model structure:")
         
         # Organize by component
-        components = ["unet", "text_encoder", "text_encoder_2", "vae_decoder"]
+        components = ["unet", "text_encoder", "text_encoder_2", "vae_decoder", "vae_encoder"]
         
         for component in components:
             comp_dir = model_path / component

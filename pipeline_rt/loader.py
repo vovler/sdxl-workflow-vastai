@@ -30,13 +30,13 @@ def load_pipeline_components():
     vae = None
     vae_alt_config_path = os.path.join(os.path.dirname(defaults.VAE_ALT_PATH), "config.json")
 
-
+    enable_xformers_memory_efficient_attention()
     vae_alt = AutoencoderKL.from_single_file(
         defaults.VAE_ALT_PATH,
         dtype=torch.float16,
         config=vae_alt_config_path
     ).to(device)
-    
+    vae_alt.enable_xformers_memory_efficient_attention()
     unet = models.UNet(defaults.UNET_PATH, device)
     scheduler = EulerAncestralDiscreteScheduler.from_pretrained(
         defaults.DEFAULT_BASE_MODEL, subfolder="scheduler"

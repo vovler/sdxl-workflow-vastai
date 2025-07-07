@@ -30,7 +30,7 @@ def load_pipeline_components():
     vae = None
     vae_alt_config_path = os.path.join(os.path.dirname(defaults.VAE_ALT_PATH), "config.json")
 
-    vae_alt = AutoencoderKL.from_pretrained(
+    vae_alt = AutoencoderKL.from_single_file(
         defaults.VAE_ALT_PATH,
         dtype=torch.float16
     ).to(device)

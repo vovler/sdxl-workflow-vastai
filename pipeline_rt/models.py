@@ -6,6 +6,9 @@ import tensorrt as trt
 from cuda.bindings import runtime as cudart
 from defaults import VAE_SCALING_FACTOR
 
+# Global toggle for CUDA graph
+USE_CUDA_GRAPH = False
+
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 trt.init_libnvinfer_plugins(TRT_LOGGER, "")
 runtime = trt.Runtime(TRT_LOGGER)
@@ -113,6 +116,35 @@ class TensorRTModel:
         print(f"CUDA graph captured for {self.__class__.__name__}")
 
     def __call__(self, feed_dict: Dict[str, torch.Tensor], output_shapes: Optional[Dict[str, tuple]] = None) -> Dict[str, torch.Tensor]:
+        if not USE_CUDA_GRAPH:
+            # Non-graph execution path
+            for name, tensor in feed_dict.items():
+                if name not in self.input_map:
+                    continue
+                self.context.set_input_shape(name, tensor.shape)
+
+            input_tensors = {
+                name: tensor.contiguous().to(device=self.device, dtype=self.input_map[name]['dtype'])
+                for name, tensor in feed_dict.items() if name in self.input_map
+            }
+
+            output_tensors = {}
+            for name, properties in self.output_map.items():
+                if output_shapes and name in output_shapes:
+                    shape = output_shapes[name]
+                else:
+                    shape = self.context.get_tensor_shape(name)
+                output_tensors[name] = torch.empty(tuple(shape), dtype=properties['dtype'], device=self.device)
+
+            for name, tensor in input_tensors.items():
+                self.context.set_tensor_address(name, tensor.data_ptr())
+            for name, tensor in output_tensors.items():
+                self.context.set_tensor_address(name, tensor.data_ptr())
+
+            self.context.execute_async_v3(stream_handle=self.stream)
+            cudart.cudaStreamSynchronize(self.stream)
+            return {name: tensor.clone() for name, tensor in output_tensors.items()}
+
         shape_key = tuple(v.shape for k, v in sorted(feed_dict.items()) if k in self.input_map)
         
         if not self.is_graph_captured(shape_key):

@@ -145,7 +145,7 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
     for name, arr in constants.items():
         tensor = onnx.helper.make_tensor(
             name=name,
-            data_type=onnx.mapping.NP_TYPE_TO_TENSOR_TYPE[arr.dtype],
+            data_type=onnx.helper.np_dtype_to_tensor_dtype(arr.dtype),
             dims=arr.shape,
             vals=arr.flatten().tolist(),
         )
@@ -154,8 +154,7 @@ def export_decoder(sam_model, onnx_path: str, opset: int):
     # Remove the corresponding graph inputs
     inputs_to_remove = set(constants.keys())
     new_inputs = [inp for inp in graph.input if inp.name not in inputs_to_remove]
-    graph.input.Clear()
-    graph.input.extend(new_inputs)
+    graph.input[:] = new_inputs
 
     onnx.checker.check_model(model)
     onnx.save(model, onnx_path)

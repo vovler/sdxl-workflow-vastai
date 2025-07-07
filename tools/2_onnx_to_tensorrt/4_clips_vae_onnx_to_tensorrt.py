@@ -3,6 +3,7 @@ import argparse
 from collections import OrderedDict
 from tensorrt_config import (
     VAE_DECODER_PROFILES,
+    VAE_ENCODER_PROFILES,
     CLIP_PROFILES,
 )
 from tensorrt_exporter import build_engine
@@ -32,16 +33,26 @@ def main():
 
     print("Building TensorRT engines for VAE and CLIP models...")
 
-    # VAE Profiles
-    vae_min_p = VAE_DECODER_PROFILES["min"]
-    vae_opt_p = VAE_DECODER_PROFILES["opt"]
-    vae_max_p = VAE_DECODER_PROFILES["max"]
+    # VAE Decoder Profiles
+    vae_decoder_min_p = VAE_DECODER_PROFILES["min"]
+    vae_decoder_opt_p = VAE_DECODER_PROFILES["opt"]
+    vae_decoder_max_p = VAE_DECODER_PROFILES["max"]
     
-    vae_min_bs, vae_opt_bs, vae_max_bs = vae_min_p["bs"], vae_opt_p["bs"], vae_max_p["bs"]
-    vae_min_h, vae_min_w = vae_min_p["height"] // 8, vae_min_p["width"] // 8
-    vae_opt_h, vae_opt_w = vae_opt_p["height"] // 8, vae_opt_p["width"] // 8
-    vae_max_h, vae_max_w = vae_max_p["height"] // 8, vae_max_p["width"] // 8
+    vae_decoder_min_bs, vae_decoder_opt_bs, vae_decoder_max_bs = vae_decoder_min_p["bs"], vae_decoder_opt_p["bs"], vae_decoder_max_p["bs"]
+    vae_decoder_min_h, vae_decoder_min_w = vae_decoder_min_p["height"] // 8, vae_decoder_min_p["width"] // 8
+    vae_decoder_opt_h, vae_decoder_opt_w = vae_decoder_opt_p["height"] // 8, vae_decoder_opt_p["width"] // 8
+    vae_decoder_max_h, vae_decoder_max_w = vae_decoder_max_p["height"] // 8, vae_decoder_max_p["width"] // 8
 
+    # VAE Encoder Profiles
+    vae_encoder_min_p = VAE_ENCODER_PROFILES["min"]
+    vae_encoder_opt_p = VAE_ENCODER_PROFILES["opt"]
+    vae_encoder_max_p = VAE_ENCODER_PROFILES["max"]
+
+    vae_encoder_min_bs, vae_encoder_opt_bs, vae_encoder_max_bs = vae_encoder_min_p["bs"], vae_encoder_opt_p["bs"], vae_encoder_max_p["bs"]
+    vae_encoder_min_h, vae_encoder_min_w = vae_encoder_min_p["height"], vae_encoder_min_p["width"]
+    vae_encoder_opt_h, vae_encoder_opt_w = vae_encoder_opt_p["height"], vae_encoder_opt_p["width"]
+    vae_encoder_max_h, vae_encoder_max_w = vae_encoder_max_p["height"], vae_encoder_max_p["width"]
+    
     # CLIP Profiles
     clip_min_p = CLIP_PROFILES["min"]
     clip_opt_p = CLIP_PROFILES["opt"]
@@ -52,13 +63,23 @@ def main():
 
     # Define components to build
     components = OrderedDict([
+        ("VAE Encoder", {
+            "subfolder": "vae_encoder",
+            "profiles": {
+                "sample": (
+                    (vae_encoder_min_bs, 3, vae_encoder_min_h, vae_encoder_min_w),
+                    (vae_encoder_opt_bs, 3, vae_encoder_opt_h, vae_encoder_opt_w),
+                    (vae_encoder_max_bs, 3, vae_encoder_max_h, vae_encoder_max_w),
+                ),
+            }
+        }),
         ("VAE Decoder", {
             "subfolder": "vae_decoder",
             "profiles": {
                 "latent_sample": (
-                    (vae_min_bs, 4, vae_min_h, vae_min_w),
-                    (vae_opt_bs, 4, vae_opt_h, vae_opt_w),
-                    (vae_max_bs, 4, vae_max_h, vae_max_w),
+                    (vae_decoder_min_bs, 4, vae_decoder_min_h, vae_decoder_min_w),
+                    (vae_decoder_opt_bs, 4, vae_decoder_opt_h, vae_decoder_opt_w),
+                    (vae_decoder_max_bs, 4, vae_decoder_max_h, vae_decoder_max_w),
                 ),
             }
         }),

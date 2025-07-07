@@ -77,6 +77,9 @@ VAE_DECODER_PROFILES = {
     "max": {"bs": 4, "height": 1024, "width": 1152},
 }
 
+# VAE Encoder Configuration
+VAE_ENCODER_PROFILES = VAE_DECODER_PROFILES
+
 # CLIP Text Encoders Configuration
 CLIP_PROFILES = {
     "min": {"bs": 1, "seq_len": 77},

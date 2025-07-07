@@ -39,7 +39,7 @@ def delete_vae_directories(model_path):
     """Delete VAE and VAE encoder directories"""
     model_path = Path(model_path)
     
-    directories_to_delete = ["vae", "vae_encoder"]
+    directories_to_delete = ["vae"]
     
     print("=== Cleaning up VAE Directories ===")
     
@@ -279,7 +279,6 @@ def main():
     print("\nAfter export, the following will be deleted:")
     print("  - UNet ONNX file (keeping UNet safetensors)")
     print("  - vae/ directory (all VAE safetensors)")
-    print("  - vae_encoder/ directory (VAE encoder ONNX)")
     print("  - Text encoder safetensors files")
     print("\nWhat will be preserved:")
     print("  - UNet safetensors (your fused LoRA model)")

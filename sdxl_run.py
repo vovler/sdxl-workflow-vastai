@@ -1,5 +1,5 @@
 import torch
-from diffusers import StableDiffusionXLPipeline, DDIMScheduler
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
 import os
 
 # Set up the pipeline
@@ -13,7 +13,7 @@ pipe.fuse_lora(lora_scale=1.0)
 pipe.to("cuda")
 pipe.enable_xformers_memory_efficient_attention()
 
-pipe.scheduler = DDIMScheduler.from_config(
+pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
     pipe.scheduler.config, timestep_spacing="trailing", num_train_timesteps=1000
 )
 

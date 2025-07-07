@@ -24,6 +24,10 @@ generator = torch.Generator(device="cuda").manual_seed(seed)
 height = 832
 width = 1216
 
+pipe.scheduler.set_timesteps(num_inference_steps, device=pipe.device)
+timesteps = pipe.scheduler.timesteps
+print(f"Generated timesteps: {timesteps}")
+
 # Generate the image
 with torch.no_grad():
     image = pipe(
@@ -32,8 +36,7 @@ with torch.no_grad():
         width=width,
         guidance_scale=guidance_scale,
         num_inference_steps=num_inference_steps,
-        generator=generator,
-        timesteps=[999, 749, 499, 249]
+        generator=generator
     ).images[0]
 
 # Save the generated image

@@ -11,6 +11,7 @@ from safetensors.torch import load_file
 from pathlib import Path
 import sys
 from PIL import Image
+import shutil
 
 def main():
     """
@@ -60,21 +61,11 @@ def main():
 
         # Load the unfused UNet weights
         print("Loading unfused UNet...")
-        unet_config_path = base_dir / "unet" / "config.json"
-        unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model_unfused.safetensors"
+        unet_dir = base_dir / "unet"
 
-        if not unfused_unet_path.exists():
-            # Fallback to the default name if the rename script hasn't run
-            unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model.safetensors"
-            if not unfused_unet_path.exists():
-                print(f"Error: Could not find UNet weights at {unfused_unet_path} or its fallback.")
-                sys.exit(1)
-            print(f"Using UNet from default path: {unfused_unet_path}")
-
-        # Create a UNet from config and load the specific safetensors file
-        unet = UNet2DConditionModel.from_config(str(unet_config_path))
-        state_dict = load_file(unfused_unet_path, device="cpu")
-        unet.load_state_dict(state_dict)
+        unet = UNet2DConditionModel.from_pretrained(
+            str(unet_dir), torch_dtype=dtype, use_safetensors=True
+        )
         print("✓ Unfused UNet loaded.")
 
         # Create the scheduler
@@ -102,6 +93,14 @@ def main():
         lora_filename = "dmd2_sdxl_4step_lora_fp16.safetensors"
         pipe.load_lora_weights(lora_path, weight_name=lora_filename)
         print("✓ LoRA loaded.")
+
+        print("Fusing LoRA weights...")
+        pipe.fuse_lora()
+        print("✓ LoRA fused.")
+        
+        print("Unloading LoRA weights from memory...")
+        pipe.unload_lora_weights()
+        print("✓ LoRA unloaded.")
 
         # Move pipeline to GPU
         pipe = pipe.to(device)

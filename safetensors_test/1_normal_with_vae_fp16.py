@@ -94,6 +94,7 @@ def main():
         )
         pipe.enable_xformers_memory_efficient_attention()
         pipe.enable_vae_tiling()
+        pipe.enable_vae_slicing()
 
         # Load and set LoRA weights
         print("Loading LoRA...")

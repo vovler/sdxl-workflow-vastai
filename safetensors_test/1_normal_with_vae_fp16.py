@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 from PIL import Image
 import shutil
+import time
 
 def main():
     """
@@ -92,6 +93,7 @@ def main():
         )
         pipe.enable_xformers_memory_efficient_attention()
         pipe.enable_vae_tiling()
+        pipe.enable_vae_slicing()
 
         # Load and set LoRA weights
         print("Loading LoRA...")
@@ -178,7 +180,10 @@ def main():
         print(f"Latents to VAE - Shape: {latents_for_vae.shape}, DType: {latents_for_vae.dtype}")
         
         # The VAE scales the latents internally
+        start_time = time.time()
         image = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
+        end_time = time.time()
+        print(f"VAE decoding took: {end_time - start_time:.4f} seconds")
         
         print(f"Image from VAE - Shape: {image.shape}, DType: {image.dtype}")
 

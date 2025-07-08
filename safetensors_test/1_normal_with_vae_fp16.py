@@ -17,92 +17,92 @@ def main():
     Generates an image with SDXL using an unfused UNet, a separate VAE, and a LoRA.
     The process is run manually to decode the UNet output with the VAE explicitly.
     """
-    if not torch.cuda.is_available():
-        print("Error: CUDA is not available. This script requires a GPU.")
-        sys.exit(1)
-
-    # --- Configuration ---
-    base_dir = Path("/lab/model")
-    device = "cuda"
-    dtype = torch.float16
-
-    prompt = "a cute cat, masterpiece, best quality, ultra-detailed, cinematic lighting"
-    
-    # Pipeline settings
-    cfg_scale = 1.0
-    num_inference_steps = 8
-    
-    # --- Load Model Components ---
-    print("=== Loading models ===")
-    
-    # Load VAE from its own directory
-    print("Loading VAE...")
-    vae = AutoencoderKL.from_pretrained(
-        base_dir / "vae",
-        torch_dtype=dtype
-    )
-
-    # Load text encoders and tokenizers
-    print("Loading text encoders and tokenizers...")
-    tokenizer = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
-    tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
-    text_encoder = CLIPTextModel.from_pretrained(
-        str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
-    )
-    text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
-        str(base_dir), subfolder="text_encoder_2", torch_dtype=dtype, use_safetensors=True
-    )
-
-    # Load the unfused UNet weights
-    print("Loading unfused UNet...")
-    unet_config_path = base_dir / "unet" / "config.json"
-    unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model_unfused.safetensors"
-
-    if not unfused_unet_path.exists():
-        # Fallback to the default name if the rename script hasn't run
-        unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model.safetensors"
-        if not unfused_unet_path.exists():
-            print(f"Error: Could not find UNet weights at {unfused_unet_path} or its fallback.")
-            sys.exit(1)
-        print(f"Using UNet from default path: {unfused_unet_path}")
-
-    # Create a UNet from config and load the specific safetensors file
-    unet = UNet2DConditionModel.from_config(str(unet_config_path))
-    state_dict = load_file(unfused_unet_path, device="cpu")
-    unet.load_state_dict(state_dict)
-    print("✓ Unfused UNet loaded.")
-
-    # Create the scheduler
-    scheduler = EulerAncestralDiscreteScheduler.from_config(
-        str(base_dir / "scheduler"), timestep_spacing="linspace"
-    )
-    print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
-    
-    # Instantiate pipeline from components
-    print("Instantiating pipeline from components...")
-    pipe = StableDiffusionXLPipeline(
-        vae=vae,
-        text_encoder=text_encoder,
-        text_encoder_2=text_encoder_2,
-        tokenizer=tokenizer,
-        tokenizer_2=tokenizer_2,
-        unet=unet,
-        scheduler=scheduler,
-    )
-
-    # Load and set LoRA weights
-    print("Loading LoRA...")
-    lora_path = base_dir / "lora"
-    lora_filename = "dmd2_sdxl_4step_lora_fp16.safetensors"
-    pipe.load_lora_weights(lora_path, weight_name=lora_filename)
-    print("✓ LoRA loaded.")
-
-    # Move pipeline to GPU
-    pipe = pipe.to(device)
-
-    # --- Manual Inference Process ---
-    print("\n=== Starting Manual Inference ===")
     with torch.no_grad():
+        if not torch.cuda.is_available():
+            print("Error: CUDA is not available. This script requires a GPU.")
+            sys.exit(1)
+
+        # --- Configuration ---
+        base_dir = Path("/lab/model")
+        device = "cuda"
+        dtype = torch.float16
+
+        prompt = "a cute cat, masterpiece, best quality, ultra-detailed, cinematic lighting"
+        
+        # Pipeline settings
+        cfg_scale = 1.0
+        num_inference_steps = 8
+        
+        # --- Load Model Components ---
+        print("=== Loading models ===")
+        
+        # Load VAE from its own directory
+        print("Loading VAE...")
+        vae = AutoencoderKL.from_pretrained(
+            base_dir / "vae",
+            torch_dtype=dtype
+        )
+
+        # Load text encoders and tokenizers
+        print("Loading text encoders and tokenizers...")
+        tokenizer = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
+        tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
+        text_encoder = CLIPTextModel.from_pretrained(
+            str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
+        )
+        text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
+            str(base_dir), subfolder="text_encoder_2", torch_dtype=dtype, use_safetensors=True
+        )
+
+        # Load the unfused UNet weights
+        print("Loading unfused UNet...")
+        unet_config_path = base_dir / "unet" / "config.json"
+        unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model_unfused.safetensors"
+
+        if not unfused_unet_path.exists():
+            # Fallback to the default name if the rename script hasn't run
+            unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model.safetensors"
+            if not unfused_unet_path.exists():
+                print(f"Error: Could not find UNet weights at {unfused_unet_path} or its fallback.")
+                sys.exit(1)
+            print(f"Using UNet from default path: {unfused_unet_path}")
+
+        # Create a UNet from config and load the specific safetensors file
+        unet = UNet2DConditionModel.from_config(str(unet_config_path))
+        state_dict = load_file(unfused_unet_path, device="cpu")
+        unet.load_state_dict(state_dict)
+        print("✓ Unfused UNet loaded.")
+
+        # Create the scheduler
+        scheduler = EulerAncestralDiscreteScheduler.from_config(
+            str(base_dir / "scheduler"), timestep_spacing="linspace"
+        )
+        print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
+        
+        # Instantiate pipeline from components
+        print("Instantiating pipeline from components...")
+        pipe = StableDiffusionXLPipeline(
+            vae=vae,
+            text_encoder=text_encoder,
+            text_encoder_2=text_encoder_2,
+            tokenizer=tokenizer,
+            tokenizer_2=tokenizer_2,
+            unet=unet,
+            scheduler=scheduler,
+        )
+
+        # Load and set LoRA weights
+        print("Loading LoRA...")
+        lora_path = base_dir / "lora"
+        lora_filename = "dmd2_sdxl_4step_lora_fp16.safetensors"
+        pipe.load_lora_weights(lora_path, weight_name=lora_filename)
+        print("✓ LoRA loaded.")
+
+        # Move pipeline to GPU
+        pipe = pipe.to(device)
+
+        # --- Manual Inference Process ---
+        print("\n=== Starting Manual Inference ===")
         # 1. Encode prompts
         print("Encoding prompts...")
         (

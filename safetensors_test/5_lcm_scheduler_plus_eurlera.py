@@ -5,7 +5,6 @@ from diffusers import (
     UNet2DConditionModel,
     AutoencoderKL,
     LCMScheduler,
-    EulerAncestralDiscreteScheduler,
 )
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from safetensors.torch import load_file
@@ -37,7 +36,7 @@ def main():
         
         # Pipeline settings
         cfg_scale = 1.0
-        num_inference_steps = 8
+        num_inference_steps = 4
         seed = 1020094661
         generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
@@ -85,12 +84,6 @@ def main():
         #scheduler = scheduler.to(device)
         print(f"✓ Scheduler set to LCMScheduler.")
         
-        # Create the Euler A scheduler for the second half of inference
-        eulera_scheduler = EulerAncestralDiscreteScheduler.from_config(
-            str(base_dir / "scheduler"), timestep_spacing="linspace"
-        )
-        print(f"✓ EulerAncestralDiscreteScheduler created for later use.")
-
         # Instantiate pipeline from components
         print("Instantiating pipeline from components...")
         pipe = StableDiffusionXLPipeline(
@@ -136,121 +129,57 @@ def main():
 
         # 3. Prepare timesteps and extra embeds for the denoising loop
         # Manually create a custom list of step numbers and pass it to the scheduler
-        custom_timesteps = [999, 749, 499, 249, 199, 149, 99, 50]
+        custom_timesteps = [999, 749, 499, 249]
         print(f"Using custom timesteps: {custom_timesteps}")
-
-        # Split timesteps for the two schedulers
-        lcm_steps = 4
-        lcm_timesteps = custom_timesteps[:lcm_steps]
-        eulera_timesteps = custom_timesteps[lcm_steps:]
 
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)
         add_time_ids = add_time_ids.repeat(batch_size, 1)
 
         start_time = time.time()
+        
+        # --- Denoising with LCMScheduler, twice ---
+        num_passes = 2
+        print(f"\n--- Running {len(custom_timesteps)} steps with LCMScheduler, for {num_passes} passes ---")
 
-        # --- Denoising with LCMScheduler ---
-        print(f"\n--- Running first {lcm_steps} steps with LCMScheduler ---")
-        pipe.scheduler.set_timesteps(num_inference_steps, device=device)
+        for pass_num in range(num_passes):
+            print(f"--- Pass {pass_num + 1}/{num_passes} ---")
+            
+            pipe.scheduler.set_timesteps(num_inference_steps, device=device)
         
-        # Overwrite with custom timesteps for LCM
-        lcm_timesteps_np = np.array(lcm_timesteps)
-        pipe.scheduler.timesteps = torch.from_numpy(lcm_timesteps_np).to(device)
-        
-        timesteps = pipe.scheduler.timesteps
-        
-        # Denoising loop for LCM
-        print(f"Running denoising loop for {len(timesteps)} steps...")
-        for i, t in enumerate(tqdm(timesteps)):
-            latent_model_input = latents
-            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
-            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
-            noise_pred = pipe.unet(
-                latent_model_input,
-                t,
-                encoder_hidden_states=prompt_embeds,
-                cross_attention_kwargs=None,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-            )[0]
-            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
+            # Overwrite with custom timesteps for LCM
+            lcm_timesteps_np = np.array(custom_timesteps)
+            pipe.scheduler.timesteps = torch.from_numpy(lcm_timesteps_np).to(device)
+            
+            timesteps = pipe.scheduler.timesteps
+            
+            # Denoising loop for LCM
+            print(f"Running denoising loop for {len(timesteps)} steps...")
+            for i, t in enumerate(tqdm(timesteps)):
+                latent_model_input = latents
+                latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+                added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
+                noise_pred = pipe.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds,
+                    cross_attention_kwargs=None,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+                latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
 
-        # --- Denoising with EulerAncestralDiscreteScheduler ---
-        print(f"\n--- Running last {len(eulera_timesteps)} steps with EulerAncestralDiscreteScheduler ---")
-        pipe.scheduler = eulera_scheduler
+                # --- Save intermediate image ---
+                latents_for_vae = latents / pipe.vae.config.scaling_factor
+                image_tensor = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
+                image = pipe.image_processor.postprocess(image_tensor, output_type="pil")[0]
 
-        # Set and configure timesteps for Euler A
-        pipe.scheduler.set_timesteps(num_inference_steps, device=device) # This sets up alphas_cumprod
-        
-        eulera_timesteps_np = np.array(eulera_timesteps)
-        pipe.scheduler.timesteps = torch.from_numpy(eulera_timesteps_np).to(device)
-        
-        # Recalculate sigmas for the new timesteps for Euler A
-        scheduler = pipe.scheduler
-        sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
-        sigmas = np.interp(eulera_timesteps_np, np.arange(0, len(sigmas)), sigmas)
-        sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
-        scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
+                script_name = Path(__file__).stem
+                output_path = f"{script_name}__pass{pass_num + 1}_step{i:02d}.png"
+                image.save(output_path)
 
-        timesteps = pipe.scheduler.timesteps
-        
-        # Denoising loop for Euler A
-        print(f"Running denoising loop for {len(timesteps)} steps...")
-        for i, t in enumerate(tqdm(timesteps)):
-            latent_model_input = latents
-            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
-            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
-            noise_pred = pipe.unet(
-                latent_model_input,
-                t,
-                encoder_hidden_states=prompt_embeds,
-                cross_attention_kwargs=None,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-            )[0]
-            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
-        
         end_time = time.time()
         print(f"Denoising loop took: {end_time - start_time:.4f} seconds")
         print("✓ Denoising loop complete.")
-        
-        # 5. Manually decode the latents with the VAE
-        print("Decoding latents with VAE...")
-
-        # --- VAE Debugging ---
-        print(f"VAE dtype: {pipe.vae.dtype}")
-        needs_upcasting = pipe.vae.dtype == torch.float16 and getattr(pipe.vae.config, "force_upcast", False)
-        print(f"Needs upcasting (pipeline logic): {needs_upcasting}")
-        print("Is 'upcast_vae' being run? No, because we are calling vae.decode() manually.")
-
-        latents_for_vae = latents / pipe.vae.config.scaling_factor
-        print(f"Latents to VAE - Shape: {latents_for_vae.shape}, DType: {latents_for_vae.dtype}")
-        
-        # The VAE scales the latents internally
-        start_time = time.time()
-        image = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
-        end_time = time.time()
-        print(f"VAE decoding took: {end_time - start_time:.4f} seconds")
-        
-        print(f"Image from VAE - Shape: {image.shape}, DType: {image.dtype}")
-
-        # 6. Post-process the image
-        images = pipe.image_processor.postprocess(image, output_type="pil")
-        
-        print("✓ Images generated successfully!")
-        
-        # 7. Save the images
-        script_name = Path(__file__).stem
-        i = 0
-        for image in images:
-            while True:
-                output_path = f"{script_name}__{i:04d}.png"
-                if not Path(output_path).exists():
-                    break
-                i += 1
-            image.save(output_path)
-            print(f"✓ Image saved to: {output_path}")
-            i += 1
 
 if __name__ == "__main__":
     main()

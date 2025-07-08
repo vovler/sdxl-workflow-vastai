@@ -147,6 +147,7 @@ def main():
         sigmas = np.interp(timesteps_np, np.arange(0, len(sigmas)), sigmas)
         sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
         scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
+        print(f"Recalculated sigmas: {sigmas.tolist()}")
 
         timesteps = pipe.scheduler.timesteps
         

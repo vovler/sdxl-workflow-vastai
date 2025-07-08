@@ -36,6 +36,7 @@ def download_with_aria2c(url, output_dir, filename=None):
         "--split=10", 
         "--min-split-size=10M",
         "--lowest-speed-limit=1M",
+        "--user-agent='unknown/None; hf_hub/0.33.0.dev0; python/3.12.0'",
         "--dir", str(output_dir),
         "--continue=true",
         "--auto-file-renaming=false"

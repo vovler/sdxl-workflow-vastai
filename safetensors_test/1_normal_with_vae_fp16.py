@@ -6,6 +6,7 @@ from diffusers import (
     AutoencoderKL,
     EulerAncestralDiscreteScheduler,
 )
+from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from safetensors.torch import load_file
 from pathlib import Path
 import sys
@@ -41,18 +42,18 @@ def main():
         torch_dtype=dtype
     )
 
-    # Load the base pipeline. This will also load the default (fused) UNet,
-    # which we will replace. It's a convenient way to get all other components
-    # like text encoders and tokenizers.
-    print("Loading base pipeline structure...")
-    pipe = StableDiffusionXLPipeline.from_pretrained(
-        str(base_dir),
-        vae=vae,
-        torch_dtype=dtype,
-        use_safetensors=True,
+    # Load text encoders and tokenizers
+    print("Loading text encoders and tokenizers...")
+    tokenizer = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
+    tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
+    text_encoder = CLIPTextModel.from_pretrained(
+        str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
+    )
+    text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
+        str(base_dir), subfolder="text_encoder_2", torch_dtype=dtype, use_safetensors=True
     )
 
-    # Load the unfused UNet weights and replace the one in the pipeline
+    # Load the unfused UNet weights
     print("Loading unfused UNet...")
     unet_config_path = base_dir / "unet" / "config.json"
     unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model_unfused.safetensors"
@@ -66,12 +67,29 @@ def main():
         print(f"Using UNet from default path: {unfused_unet_path}")
 
     # Create a UNet from config and load the specific safetensors file
-    unet = UNet2DConditionModel.from_config(unet_config_path)
+    unet = UNet2DConditionModel.from_config(str(unet_config_path))
     state_dict = load_file(unfused_unet_path, device="cpu")
     unet.load_state_dict(state_dict)
-    pipe.unet = unet
-    print("✓ Unfused UNet loaded and replaced in pipeline.")
+    print("✓ Unfused UNet loaded.")
+
+    # Create the scheduler
+    scheduler = EulerAncestralDiscreteScheduler.from_config(
+        str(base_dir / "scheduler"), timestep_spacing="linspace"
+    )
+    print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
     
+    # Instantiate pipeline from components
+    print("Instantiating pipeline from components...")
+    pipe = StableDiffusionXLPipeline(
+        vae=vae,
+        text_encoder=text_encoder,
+        text_encoder_2=text_encoder_2,
+        tokenizer=tokenizer,
+        tokenizer_2=tokenizer_2,
+        unet=unet,
+        scheduler=scheduler,
+    )
+
     # Load and set LoRA weights
     print("Loading LoRA...")
     lora_path = base_dir / "lora"
@@ -81,12 +99,6 @@ def main():
 
     # Move pipeline to GPU
     pipe = pipe.to(device)
-
-    # Set the scheduler
-    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
-        pipe.scheduler.config, timestep_spacing="linspace"
-    )
-    print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
 
     # --- Manual Inference Process ---
     print("\n=== Starting Manual Inference ===")

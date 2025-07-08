@@ -129,7 +129,7 @@ def main():
 
         # 3. Prepare timesteps and extra embeds for the denoising loop
         # Manually create a custom list of step numbers and pass it to the scheduler
-        custom_timesteps = [999 - 125 * i for i in range(num_inference_steps)]
+        custom_timesteps = [999 - 250 * i for i in range(num_inference_steps)]
         print(f"Using custom timesteps: {custom_timesteps}")
 
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)

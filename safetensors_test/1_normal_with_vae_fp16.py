@@ -137,7 +137,7 @@ def main():
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = pipe.scheduler.timesteps
         
-        add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, device=device)
+        add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype)
         
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")

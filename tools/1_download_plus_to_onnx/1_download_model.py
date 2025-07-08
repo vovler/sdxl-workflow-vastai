@@ -3,11 +3,9 @@ import requests
 import subprocess
 import os
 import json
-import torch
 import shutil
 from pathlib import Path
 import sys
-from diffusers import StableDiffusionXLPipeline
 
 def get_model_files(model_id):
     """Get list of files from HuggingFace model API"""
@@ -34,9 +32,10 @@ def download_with_aria2c(url, output_dir, filename=None):
         
     cmd = [
         "aria2c",
-        "--max-connection-per-server=16",
-        "--split=16", 
+        "--max-connection-per-server=10",
+        "--split=10", 
         "--min-split-size=10M",
+        "--lowest-speed-limit=1M",
         "--dir", str(output_dir),
         "--continue=true",
         "--auto-file-renaming=false"
@@ -51,56 +50,6 @@ def download_with_aria2c(url, output_dir, filename=None):
         print(f"✓ Downloaded successfully")
     except subprocess.CalledProcessError as e:
         print(f"✗ Download failed: {e}")
-        sys.exit(1)
-
-def fuse_lora_with_unet(base_model_path, lora_path, lora_filename):
-    """Fuse LoRA weights with the UNet model"""
-    print("\n=== Starting LoRA Fusion ===")
-    
-    try:
-        # Check for GPU availability
-        if torch.cuda.is_available():
-            print("Loading pipeline to GPU for fusion...")
-            device = "cuda"
-        else:
-            print("GPU not available, performing fusion on CPU...")
-            device = "cpu"
-
-        # Load the main pipeline, explicitly disabling low_cpu_mem_usage to avoid meta tensors.
-        # This will load the full model onto the CPU first, then move it to the GPU.
-        print(f"Loading base model from: {base_model_path}")
-        pipeline = StableDiffusionXLPipeline.from_pretrained(
-            base_model_path,
-            torch_dtype=torch.float16,
-            use_safetensors=True,
-            low_cpu_mem_usage=False  # <<< This is the key change
-        ).to(device)
-
-        print(f"Loading and fusing LoRA from: {lora_path}")
-        # Load and fuse the LoRA weights
-        pipeline.load_lora_weights(lora_path, weight_name=lora_filename)
-
-        print("Fusing LoRA weights...")
-        pipeline.fuse_lora()
-
-        print("Fusing complete. Unloading LoRA and moving to CPU for saving.")
-        # Unload LoRA weights from memory
-        pipeline.unload_lora_weights()
-
-        # Save the entire pipeline back to disk.
-        # This ensures all components, including the fused UNet and the text encoders,
-        # are saved in a format that won't cause "meta tensor" issues in later scripts.
-        print(f"Saving the entire pipeline to: {base_model_path}")
-        pipeline.save_pretrained(base_model_path, safe_serialization=True)
-        print("✓ Entire pipeline saved successfully.")
-        
-        # Clean up memory
-        del pipeline
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            
-    except Exception as e:
-        print(f"✗ Error during LoRA fusion: {e}")
         sys.exit(1)
 
 def main():
@@ -223,27 +172,9 @@ def main():
     print(f"✓ SAM model downloaded to: {sam_dir}")
     print(f"✓ Skipped files: {', '.join(skipped_files)}")
     
-    # Fuse LoRA with UNet
-    lora_file_path = lora_dir / lora_filename
-    if lora_file_path.exists():
-        fuse_lora_with_unet(str(base_dir), str(lora_dir), lora_filename)
-        
-        # Delete the original LoRA directory after successful fusion
-        print("\n=== Cleaning up LoRA files ===")
-        try:
-            shutil.rmtree(lora_dir)
-            print(f"✓ Deleted original LoRA directory: {lora_dir}")
-        except Exception as e:
-            print(f"⚠ Warning: Could not delete LoRA directory: {e}")
-    else:
-        print(f"✗ LoRA file not found: {lora_file_path}")
-        sys.exit(1)
-    
     print("\n=== Final Summary ===")
     print("✓ All downloads completed successfully!")
-    print("✓ LoRA has been fused with the UNet model!")
-    print("✓ Original LoRA files have been cleaned up!")
-    print(f"✓ Fused model available at: {base_dir}")
+    print(f"✓ Models available at: {base_dir}")
 
 if __name__ == "__main__":
     # Check dependencies
@@ -252,17 +183,6 @@ if __name__ == "__main__":
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("Error: aria2c is not installed or not in PATH")
         print("Please install aria2c first: sudo apt install aria2 (on Ubuntu/Debian)")
-        sys.exit(1)
-    
-    # Check Python packages
-    try:
-        import torch
-        import diffusers
-    except ImportError as e:
-        print(f"Error: Missing required Python package: {e}")
-        print("Please install required packages:")
-        print("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118")
-        print("pip install diffusers transformers accelerate")
         sys.exit(1)
     
     main()

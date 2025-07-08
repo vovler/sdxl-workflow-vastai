@@ -47,6 +47,7 @@ def main():
             base_dir / "vae",
             torch_dtype=dtype
         )
+        vae.to(device)
 
         # Load text encoders and tokenizers
         print("Loading text encoders and tokenizers...")
@@ -55,9 +56,11 @@ def main():
         text_encoder = CLIPTextModel.from_pretrained(
             str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
         )
+        text_encoder.to(device)
         text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
             str(base_dir), subfolder="text_encoder_2", torch_dtype=dtype, use_safetensors=True
         )
+        text_encoder_2.to(device)
 
         # Load the unfused UNet weights
         print("Loading unfused UNet...")
@@ -66,12 +69,14 @@ def main():
         unet = UNet2DConditionModel.from_pretrained(
             str(unet_dir), torch_dtype=dtype, use_safetensors=True
         )
+        unet.to(device)
         print("✓ Unfused UNet loaded.")
 
         # Create the scheduler
         scheduler = EulerAncestralDiscreteScheduler.from_config(
             str(base_dir / "scheduler"), timestep_spacing="linspace"
         )
+        scheduler = scheduler.to(device)
         print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
         
         # Instantiate pipeline from components
@@ -100,9 +105,6 @@ def main():
         #print("Unloading LoRA weights from memory...")
         #pipe.unload_lora_weights()
         #print("✓ LoRA unloaded.")
-
-        # Move pipeline to GPU
-        pipe = pipe.to(device)
 
         # --- Manual Inference Process ---
         print("\n=== Starting Manual Inference ===")

@@ -36,7 +36,7 @@ def main():
         prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), dark lolita, running makeup, holding pipe, looking at viewer, volumetric_lighting, street, night, shiny clothes, shiny skin, detailed_background"
         # Pipeline settings
         cfg_scale = 1.0
-        num_inference_steps = 8
+        num_inference_steps = 4
         seed = 1020094661
         generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832

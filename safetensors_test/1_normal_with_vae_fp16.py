@@ -94,13 +94,12 @@ def main():
         pipe.load_lora_weights(lora_path, weight_name=lora_filename)
         print("✓ LoRA loaded.")
 
-        print("Fusing LoRA weights...")
-        pipe.fuse_lora()
-        print("✓ LoRA fused.")
+        print("Enabling LoRA weights...")
+        pipe.enable_lora()
         
-        print("Unloading LoRA weights from memory...")
-        pipe.unload_lora_weights()
-        print("✓ LoRA unloaded.")
+        #print("Unloading LoRA weights from memory...")
+        #pipe.unload_lora_weights()
+        #print("✓ LoRA unloaded.")
 
         # Move pipeline to GPU
         pipe = pipe.to(device)

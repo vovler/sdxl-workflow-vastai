@@ -52,8 +52,8 @@ def main():
         print(f"Loading and fusing LoRA from: {lora_path} ({lora_filename})")
         pipeline.load_lora_weights(lora_path, weight_name=lora_filename)
         pipeline.fuse_lora()
-        #print("Fusing complete. Unloading LoRA weights.")
-        #pipeline.unload_lora_weights()
+        print("Fusing complete. Unloading LoRA weights.")
+        pipeline.unload_lora_weights()
 
         # Move original UNet to a backup directory before saving the fused one
         unet_dir = base_dir / "unet"

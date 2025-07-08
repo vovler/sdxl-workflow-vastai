@@ -81,6 +81,7 @@ def main():
         
         # Instantiate pipeline from components
         print("Instantiating pipeline from components...")
+        pipe.enable_xformers_memory_efficient_attention()
         pipe = StableDiffusionXLPipeline(
             vae=vae,
             text_encoder=text_encoder,

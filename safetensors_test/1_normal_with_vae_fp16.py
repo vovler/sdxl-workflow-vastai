@@ -38,6 +38,7 @@ def main():
         generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
         width = 1216
+        batch_size = 2
         
         # --- Load Model Components ---
         print("=== Loading models ===")
@@ -116,14 +117,14 @@ def main():
         ) = pipe.encode_prompt(
             prompt,
             device=device,
-            num_images_per_prompt=1,
+            num_images_per_prompt=batch_size,
             do_classifier_free_guidance=1
         )
 
         # 2. Prepare latents
         print("Preparing latents...")
         latents = torch.randn(
-            (1, pipe.unet.config.in_channels, height // 8, width // 8),
+            (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
             generator=generator,
             device=device,
             dtype=dtype,
@@ -137,6 +138,7 @@ def main():
         timesteps = pipe.scheduler.timesteps
         
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)
+        add_time_ids = add_time_ids.repeat(batch_size, 1)
         
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")
@@ -187,21 +189,22 @@ def main():
         print(f"Image from VAE - Shape: {image.shape}, DType: {image.dtype}")
 
         # 6. Post-process the image
-        image = pipe.image_processor.postprocess(image, output_type="pil")[0]
+        images = pipe.image_processor.postprocess(image, output_type="pil")
         
-        print("✓ Image generated successfully!")
+        print("✓ Images generated successfully!")
         
-        # 7. Save the image
+        # 7. Save the images
         script_name = Path(__file__).stem
         i = 0
-        while True:
-            output_path = f"{script_name}__{i:04d}.png"
-            if not Path(output_path).exists():
-                break
+        for image in images:
+            while True:
+                output_path = f"{script_name}__{i:04d}.png"
+                if not Path(output_path).exists():
+                    break
+                i += 1
+            image.save(output_path)
+            print(f"✓ Image saved to: {output_path}")
             i += 1
-        
-        image.save(output_path)
-        print(f"✓ Image saved to: {output_path}")
 
 if __name__ == "__main__":
     main()

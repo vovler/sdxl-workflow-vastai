@@ -35,7 +35,7 @@ def main():
         
         # Pipeline settings
         cfg_scale = 1.0
-        num_inference_steps = 8
+        num_inference_steps = 4
         seed = 1020094661
         generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
@@ -130,7 +130,7 @@ def main():
         # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
 
         # Manually create a custom list of step numbers and pass it to the scheduler
-        custom_timesteps = [950, 850, 750, 650, 550, 450, 350, 150]
+        custom_timesteps = [999, 749, 499, 249]
         print(f"Using custom timesteps: {custom_timesteps}")
 
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)

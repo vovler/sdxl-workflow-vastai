@@ -154,7 +154,10 @@ def main():
         add_time_ids = add_time_ids.repeat(batch_size, 1)
         
         # Scale the initial noise by the scheduler's standard deviation
+        print(f"Latents before noise sigma scaling: min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
         latents = latents * pipe.scheduler.init_noise_sigma
+        print(f"Initial noise sigma: {pipe.scheduler.init_noise_sigma}")
+        print(f"Latents after noise sigma scaling:  min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
 
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")

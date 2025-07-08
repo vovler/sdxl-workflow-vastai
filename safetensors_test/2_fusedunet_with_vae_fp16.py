@@ -67,7 +67,7 @@ def main():
 
         # Load the unfused UNet weights
         print("Loading unfused UNet...")
-        unet_dir = base_dir / "unet_unfused"
+        unet_dir = base_dir / "unet"
 
         unet = UNet2DConditionModel.from_pretrained(
             str(unet_dir), torch_dtype=dtype, use_safetensors=True

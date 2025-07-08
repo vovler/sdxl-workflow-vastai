@@ -52,17 +52,19 @@ def main():
         print(f"Loading and fusing LoRA from: {lora_path} ({lora_filename})")
         pipeline.load_lora_weights(lora_path, weight_name=lora_filename)
         pipeline.fuse_lora()
-        print("Fusing complete. Unloading LoRA weights.")
-        pipeline.unload_lora_weights()
+        #print("Fusing complete. Unloading LoRA weights.")
+        #pipeline.unload_lora_weights()
 
-        # Rename original UNet before saving the fused one
+        # Move original UNet to a backup directory before saving the fused one
         unet_dir = base_dir / "unet"
         original_unet_safetensors = unet_dir / "diffusion_pytorch_model.safetensors"
-        unfused_unet_safetensors = unet_dir / "diffusion_pytorch_model_unfused.safetensors"
+        unfused_unet_dir = base_dir / "unet_unfused"
         
         if original_unet_safetensors.exists():
-            print(f"Renaming original UNet to: {unfused_unet_safetensors}")
-            shutil.move(original_unet_safetensors, unfused_unet_safetensors)
+            unfused_unet_dir.mkdir(parents=True, exist_ok=True)
+            backup_path = unfused_unet_dir / original_unet_safetensors.name
+            print(f"Moving original UNet to: {backup_path}")
+            shutil.move(str(original_unet_safetensors), backup_path)
         else:
             print(f"Warning: Original UNet not found at {original_unet_safetensors}. Cannot create backup.")
 
@@ -82,7 +84,7 @@ def main():
 
     print("\n=== Fusion Summary ===")
     print("✓ LoRA has been fused with the UNet model.")
-    print(f"✓ Original UNet has been renamed and kept as a backup.")
+    print(f"✓ Original UNet has been moved to the 'unet_unfused' directory as a backup.")
     print(f"✓ Fused model available at: {base_model_path}")
 
 if __name__ == "__main__":

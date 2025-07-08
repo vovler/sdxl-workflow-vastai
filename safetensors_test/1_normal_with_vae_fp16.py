@@ -89,6 +89,7 @@ def main():
             tokenizer_2=tokenizer_2,
             unet=unet,
             scheduler=scheduler,
+            text_encoder_2_projection_dim=text_encoder_2.config.projection_dim,
         )
         pipe.enable_xformers_memory_efficient_attention()
 

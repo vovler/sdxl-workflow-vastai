@@ -169,16 +169,35 @@ def main():
         
         # 5. Manually decode the latents with the VAE
         print("Decoding latents with VAE...")
-        # The VAE scales the latents internally
-        image = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
+
+        # --- VAE Debugging ---
+        print(f"VAE dtype: {pipe.vae.dtype}")
+        needs_upcasting = pipe.vae.dtype == torch.float16 and getattr(pipe.vae.config, "force_upcast", False)
+        print(f"Needs upcasting (pipeline logic): {needs_upcasting}")
+        print("Is 'upcast_vae' being run? No, because we are calling vae.decode() manually.")
+
+        latents_for_vae = latents / pipe.vae.config.scaling_factor
+        print(f"Latents to VAE - Shape: {latents_for_vae.shape}, DType: {latents_for_vae.dtype}")
         
+        # The VAE scales the latents internally
+        image = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
+        
+        print(f"Image from VAE - Shape: {image.shape}, DType: {image.dtype}")
+
         # 6. Post-process the image
         image = pipe.image_processor.postprocess(image, output_type="pil")[0]
         
         print("✓ Image generated successfully!")
         
         # 7. Save the image
-        output_path = "output_manual_vae.png"
+        script_name = Path(__file__).stem
+        i = 0
+        while True:
+            output_path = f"{script_name}__{i:04d}.png"
+            if not Path(output_path).exists():
+                break
+            i += 1
+        
         image.save(output_path)
         print(f"✓ Image saved to: {output_path}")
 

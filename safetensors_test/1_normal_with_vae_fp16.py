@@ -91,6 +91,7 @@ def main():
             scheduler=scheduler,
         )
         pipe.enable_xformers_memory_efficient_attention()
+        pipe.enable_vae_tiling()
 
         # Load and set LoRA weights
         print("Loading LoRA...")
@@ -101,10 +102,6 @@ def main():
 
         print("Enabling LoRA weights...")
         pipe.enable_lora()
-        
-        #print("Unloading LoRA weights from memory...")
-        #pipe.unload_lora_weights()
-        #print("✓ LoRA unloaded.")
 
         # --- Manual Inference Process ---
         print("\n=== Starting Manual Inference ===")
@@ -135,6 +132,7 @@ def main():
 
         # 3. Prepare timesteps and extra embeds for the denoising loop
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)
+       
         timesteps = pipe.scheduler.timesteps
         
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)

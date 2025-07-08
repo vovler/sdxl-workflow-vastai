@@ -92,8 +92,7 @@ def main():
             scheduler=scheduler,
         )
         pipe.enable_xformers_memory_efficient_attention()
-        pipe.enable_vae_tiling()
-        pipe.enable_vae_slicing()
+        #pipe.enable_vae_tiling()
 
         # Load and set LoRA weights
         print("Loading LoRA...")

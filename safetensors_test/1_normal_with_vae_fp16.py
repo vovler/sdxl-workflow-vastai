@@ -30,7 +30,7 @@ def main():
         device = "cuda"
         dtype = torch.float16
 
-        prompt = "a cute cat, masterpiece, best quality, ultra-detailed, cinematic lighting"
+        prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
         
         # Pipeline settings
         cfg_scale = 1.0

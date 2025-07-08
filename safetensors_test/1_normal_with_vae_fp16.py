@@ -145,6 +145,8 @@ def main():
             # No CFG for cfg_scale=1.0, so we don't duplicate inputs
             latent_model_input = latents
             
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+            
             # Prepare added conditioning signals
             added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
 

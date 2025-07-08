@@ -97,15 +97,6 @@ def main():
         pipe.enable_vae_tiling()
         pipe.enable_vae_slicing()
 
-        # Load and set LoRA weights
-        print("Loading LoRA...")
-        lora_path = base_dir / "lora"
-        lora_filename = "dmd2_sdxl_4step_lora_fp16.safetensors"
-        pipe.load_lora_weights(lora_path, weight_name=lora_filename)
-        print("✓ LoRA loaded.")
-
-        print("Enabling LoRA weights...")
-        pipe.enable_lora()
 
         # --- Manual Inference Process ---
         print("\n=== Starting Manual Inference ===")

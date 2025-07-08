@@ -57,16 +57,18 @@ def main():
 
         # Move original UNet to a backup directory before saving the fused one
         unet_dir = base_dir / "unet"
-        original_unet_safetensors = unet_dir / "diffusion_pytorch_model.safetensors"
         unfused_unet_dir = base_dir / "unet_unfused"
-        
-        if original_unet_safetensors.exists():
-            unfused_unet_dir.mkdir(parents=True, exist_ok=True)
-            backup_path = unfused_unet_dir / original_unet_safetensors.name
-            print(f"Moving original UNet to: {backup_path}")
-            shutil.move(str(original_unet_safetensors), backup_path)
-        else:
-            print(f"Warning: Original UNet not found at {original_unet_safetensors}. Cannot create backup.")
+        unfused_unet_dir.mkdir(parents=True, exist_ok=True)
+
+        files_to_move = ["diffusion_pytorch_model.safetensors", "config.json"]
+        for filename in files_to_move:
+            original_file = unet_dir / filename
+            if original_file.exists():
+                backup_path = unfused_unet_dir / filename
+                print(f"Moving original {filename} to: {backup_path}")
+                shutil.move(str(original_file), backup_path)
+            else:
+                print(f"Warning: Original {filename} not found at {original_file}. Cannot create backup.")
 
         # Save the fused pipeline
         print(f"Saving fused pipeline to: {base_model_path}")
@@ -84,7 +86,7 @@ def main():
 
     print("\n=== Fusion Summary ===")
     print("✓ LoRA has been fused with the UNet model.")
-    print(f"✓ Original UNet has been moved to the 'unet_unfused' directory as a backup.")
+    print(f"✓ Original UNet and config have been moved to the 'unet_unfused' directory as a backup.")
     print(f"✓ Fused model available at: {base_model_path}")
 
 if __name__ == "__main__":

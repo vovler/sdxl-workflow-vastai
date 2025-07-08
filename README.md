@@ -5,6 +5,7 @@ watch -n 0.1 nvidia-smi ## create an alias for this
 
 https://docs.nvidia.com/deeplearning/tensorrt/10.12.0/_static/c-api/namespacemembers.html
 
+
 HOSTNAME ENV?
 VAST_TCP_PORT_80
 find equivalent for "new_contract" value

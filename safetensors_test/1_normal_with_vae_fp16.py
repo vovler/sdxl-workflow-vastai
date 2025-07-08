@@ -13,6 +13,7 @@ import sys
 from PIL import Image
 import shutil
 import time
+from tqdm import tqdm
 
 def main():
     """
@@ -143,7 +144,8 @@ def main():
         
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")
-        for i, t in enumerate(timesteps):
+        start_time = time.time()
+        for i, t in enumerate(tqdm(timesteps)):
             # No CFG for cfg_scale=1.0, so we don't duplicate inputs
             latent_model_input = latents
             
@@ -167,6 +169,8 @@ def main():
             # Compute the previous noisy sample x_t -> x_{t-1}
             latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
         
+        end_time = time.time()
+        print(f"Denoising loop took: {end_time - start_time:.4f} seconds")
         print("✓ Denoising loop complete.")
         
         # 5. Manually decode the latents with the VAE

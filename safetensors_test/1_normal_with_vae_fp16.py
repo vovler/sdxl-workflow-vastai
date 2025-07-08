@@ -163,7 +163,7 @@ def main():
             # No guidance is applied since cfg_scale is 1.0
 
             # Compute the previous noisy sample x_t -> x_{t-1}
-            latents = pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
         
         print("✓ Denoising loop complete.")
         

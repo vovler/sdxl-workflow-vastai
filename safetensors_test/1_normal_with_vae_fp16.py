@@ -76,7 +76,7 @@ def main():
         scheduler = EulerAncestralDiscreteScheduler.from_config(
             str(base_dir / "scheduler"), timestep_spacing="linspace"
         )
-        scheduler = scheduler.to(device)
+        #scheduler = scheduler.to(device)
         print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
         
         # Instantiate pipeline from components

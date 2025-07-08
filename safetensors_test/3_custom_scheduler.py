@@ -125,8 +125,7 @@ def main():
             device=device,
             dtype=dtype,
         )
-        # Scale the initial noise by the scheduler's standard deviation
-        latents = latents * pipe.scheduler.init_noise_sigma
+        
 
         # 3. Prepare timesteps and extra embeds for the denoising loop
         # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -153,6 +152,9 @@ def main():
         
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)
         add_time_ids = add_time_ids.repeat(batch_size, 1)
+        
+        # Scale the initial noise by the scheduler's standard deviation
+        latents = latents * pipe.scheduler.init_noise_sigma
         
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")

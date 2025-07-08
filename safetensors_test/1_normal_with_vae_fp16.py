@@ -90,7 +90,6 @@ def main():
             unet=unet,
             scheduler=scheduler,
         )
-        pipe.unet.config.projection_dim = text_encoder_2.config.projection_dim
         pipe.enable_xformers_memory_efficient_attention()
 
         # Load and set LoRA weights
@@ -138,7 +137,7 @@ def main():
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = pipe.scheduler.timesteps
         
-        add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype)
+        add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim)
         
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")

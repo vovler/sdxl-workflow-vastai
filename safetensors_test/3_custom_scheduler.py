@@ -14,6 +14,7 @@ from PIL import Image
 import shutil
 import time
 from tqdm import tqdm
+import numpy as np
 
 def main():
     """
@@ -131,7 +132,19 @@ def main():
         # Manually create a custom list of step numbers and pass it to the scheduler
         custom_timesteps = [950, 850, 750, 650, 550, 450, 350, 150]
         print(f"Using custom timesteps: {custom_timesteps}")
-        pipe.scheduler.set_timesteps(timesteps=custom_timesteps, device=device)
+
+        pipe.scheduler.set_timesteps(num_inference_steps, device=device)
+        
+        # Overwrite with custom timesteps and recalculate sigmas
+        timesteps_np = np.array(custom_timesteps)
+        pipe.scheduler.timesteps = torch.from_numpy(timesteps_np).to(device)
+
+        # Recalculate sigmas for the new timesteps
+        scheduler = pipe.scheduler
+        sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
+        sigmas = np.interp(timesteps_np, np.arange(0, len(sigmas)), sigmas)
+        sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
+        scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
 
         timesteps = pipe.scheduler.timesteps
         

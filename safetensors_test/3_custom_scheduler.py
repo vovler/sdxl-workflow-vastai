@@ -31,9 +31,9 @@ def main():
         device = "cuda"
         dtype = torch.float16
 
-        #prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
+        prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
         #prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), face_focus, looking at viewer, volumetric_lighting"
-        prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), dark lolita, running makeup, holding pipe, looking at viewer, volumetric_lighting, street, night, shiny clothes, shiny skin, detailed_background"
+        #prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), dark lolita, running makeup, holding pipe, looking at viewer, volumetric_lighting, street, night, shiny clothes, shiny skin, detailed_background"
         
         # Pipeline settings
         cfg_scale = 1.0
@@ -155,7 +155,7 @@ def main():
         
         # Scale the initial noise by the scheduler's standard deviation
         latents = latents * pipe.scheduler.init_noise_sigma
-        
+
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")
         

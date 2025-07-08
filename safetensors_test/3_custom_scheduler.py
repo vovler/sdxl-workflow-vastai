@@ -93,6 +93,7 @@ def main():
             tokenizer_2=tokenizer_2,
             unet=unet,
             scheduler=scheduler,
+            guidance_scale = 0.0,
         )
         pipe.enable_xformers_memory_efficient_attention()
         pipe.enable_vae_tiling()

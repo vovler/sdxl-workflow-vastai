@@ -5,6 +5,7 @@ from diffusers import (
     UNet2DConditionModel,
     AutoencoderKL,
     LCMScheduler,
+    EulerAncestralDiscreteScheduler,
 )
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from safetensors.torch import load_file
@@ -84,6 +85,12 @@ def main():
         #scheduler = scheduler.to(device)
         print(f"✓ Scheduler set to LCMScheduler.")
         
+        # Create the Euler A scheduler for the second half of inference
+        eulera_scheduler = EulerAncestralDiscreteScheduler.from_config(
+            str(base_dir / "scheduler"), timestep_spacing="linspace"
+        )
+        print(f"✓ EulerAncestralDiscreteScheduler created for later use.")
+
         # Instantiate pipeline from components
         print("Instantiating pipeline from components...")
         pipe = StableDiffusionXLPipeline(
@@ -128,36 +135,36 @@ def main():
         latents = latents * pipe.scheduler.init_noise_sigma
 
         # 3. Prepare timesteps and extra embeds for the denoising loop
-        # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
-
         # Manually create a custom list of step numbers and pass it to the scheduler
         custom_timesteps = [999, 749, 499, 249, 199, 149, 99, 50]
         print(f"Using custom timesteps: {custom_timesteps}")
 
-        pipe.scheduler.set_timesteps(num_inference_steps, device=device)
-        
-        # Overwrite with custom timesteps
-        timesteps_np = np.array(custom_timesteps)
-        pipe.scheduler.timesteps = torch.from_numpy(timesteps_np).to(device)
+        # Split timesteps for the two schedulers
+        lcm_steps = 4
+        lcm_timesteps = custom_timesteps[:lcm_steps]
+        eulera_timesteps = custom_timesteps[lcm_steps:]
 
-        timesteps = pipe.scheduler.timesteps
-        
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)
         add_time_ids = add_time_ids.repeat(batch_size, 1)
-        
-        # 4. Denoising loop
-        print(f"Running denoising loop for {num_inference_steps} steps...")
-        start_time = time.time()
-        for i, t in enumerate(tqdm(timesteps)):
-            # No CFG for cfg_scale=1.0, so we don't duplicate inputs
-            latent_model_input = latents
-            
-            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
-            
-            # Prepare added conditioning signals
-            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
 
-            # Predict the noise residual
+        start_time = time.time()
+
+        # --- Denoising with LCMScheduler ---
+        print(f"\n--- Running first {lcm_steps} steps with LCMScheduler ---")
+        pipe.scheduler.set_timesteps(num_inference_steps, device=device)
+        
+        # Overwrite with custom timesteps for LCM
+        lcm_timesteps_np = np.array(lcm_timesteps)
+        pipe.scheduler.timesteps = torch.from_numpy(lcm_timesteps_np).to(device)
+        
+        timesteps = pipe.scheduler.timesteps
+        
+        # Denoising loop for LCM
+        print(f"Running denoising loop for {len(timesteps)} steps...")
+        for i, t in enumerate(tqdm(timesteps)):
+            latent_model_input = latents
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
             noise_pred = pipe.unet(
                 latent_model_input,
                 t,
@@ -166,10 +173,41 @@ def main():
                 added_cond_kwargs=added_cond_kwargs,
                 return_dict=False,
             )[0]
-            
-            # No guidance is applied since cfg_scale is 1.0
+            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
 
-            # Compute the previous noisy sample x_t -> x_{t-1}
+        # --- Denoising with EulerAncestralDiscreteScheduler ---
+        print(f"\n--- Running last {len(eulera_timesteps)} steps with EulerAncestralDiscreteScheduler ---")
+        pipe.scheduler = eulera_scheduler
+
+        # Set and configure timesteps for Euler A
+        pipe.scheduler.set_timesteps(num_inference_steps, device=device) # This sets up alphas_cumprod
+        
+        eulera_timesteps_np = np.array(eulera_timesteps)
+        pipe.scheduler.timesteps = torch.from_numpy(eulera_timesteps_np).to(device)
+        
+        # Recalculate sigmas for the new timesteps for Euler A
+        scheduler = pipe.scheduler
+        sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
+        sigmas = np.interp(eulera_timesteps_np, np.arange(0, len(sigmas)), sigmas)
+        sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
+        scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
+
+        timesteps = pipe.scheduler.timesteps
+        
+        # Denoising loop for Euler A
+        print(f"Running denoising loop for {len(timesteps)} steps...")
+        for i, t in enumerate(tqdm(timesteps)):
+            latent_model_input = latents
+            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
+            noise_pred = pipe.unet(
+                latent_model_input,
+                t,
+                encoder_hidden_states=prompt_embeds,
+                cross_attention_kwargs=None,
+                added_cond_kwargs=added_cond_kwargs,
+                return_dict=False,
+            )[0]
             latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
         
         end_time = time.time()

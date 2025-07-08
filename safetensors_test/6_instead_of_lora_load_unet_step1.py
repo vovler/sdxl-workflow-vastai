@@ -120,6 +120,7 @@ def main():
         latents = latents * pipe.scheduler.init_noise_sigma
 
         # 3. Prepare timesteps and extra embeds for the denoising loop
+        pipe.scheduler.set_timesteps(num_inference_steps, device=device)
         # For 1-step, we use a specific timestep as per reference
         timesteps = torch.tensor([399], device=device, dtype=torch.long)
         

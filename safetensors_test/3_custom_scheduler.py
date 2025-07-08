@@ -154,6 +154,15 @@ def main():
         
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")
+        
+        script_name = Path(__file__).stem
+        image_idx = 0
+        while True:
+            # Check for the first step's file to determine a unique run index
+            if not Path(f"{script_name}__{image_idx:04d}_step0.png").exists():
+                break
+            image_idx += 1
+
         start_time = time.time()
         for i, t in enumerate(tqdm(timesteps)):
             # No CFG for cfg_scale=1.0, so we don't duplicate inputs
@@ -178,48 +187,19 @@ def main():
 
             # Compute the previous noisy sample x_t -> x_{t-1}
             latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
+
+            # --- Save intermediate image ---
+            latents_for_vae = latents / pipe.vae.config.scaling_factor
+            image_tensor = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
+            image = pipe.image_processor.postprocess(image_tensor, output_type="pil")[0]
+            
+            output_path = f"{script_name}__{image_idx:04d}_step{i:02d}.png"
+            image.save(output_path)
         
         end_time = time.time()
         print(f"Denoising loop took: {end_time - start_time:.4f} seconds")
         print("✓ Denoising loop complete.")
-        
-        # 5. Manually decode the latents with the VAE
-        print("Decoding latents with VAE...")
-
-        # --- VAE Debugging ---
-        print(f"VAE dtype: {pipe.vae.dtype}")
-        needs_upcasting = pipe.vae.dtype == torch.float16 and getattr(pipe.vae.config, "force_upcast", False)
-        print(f"Needs upcasting (pipeline logic): {needs_upcasting}")
-        print("Is 'upcast_vae' being run? No, because we are calling vae.decode() manually.")
-
-        latents_for_vae = latents / pipe.vae.config.scaling_factor
-        print(f"Latents to VAE - Shape: {latents_for_vae.shape}, DType: {latents_for_vae.dtype}")
-        
-        # The VAE scales the latents internally
-        start_time = time.time()
-        image = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
-        end_time = time.time()
-        print(f"VAE decoding took: {end_time - start_time:.4f} seconds")
-        
-        print(f"Image from VAE - Shape: {image.shape}, DType: {image.dtype}")
-
-        # 6. Post-process the image
-        images = pipe.image_processor.postprocess(image, output_type="pil")
-        
         print("✓ Images generated successfully!")
-        
-        # 7. Save the images
-        script_name = Path(__file__).stem
-        i = 0
-        for image in images:
-            while True:
-                output_path = f"{script_name}__{i:04d}.png"
-                if not Path(output_path).exists():
-                    break
-                i += 1
-            image.save(output_path)
-            print(f"✓ Image saved to: {output_path}")
-            i += 1
 
 if __name__ == "__main__":
     main()

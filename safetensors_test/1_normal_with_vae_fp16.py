@@ -32,6 +32,10 @@ def main():
         # Pipeline settings
         cfg_scale = 1.0
         num_inference_steps = 8
+        seed = 1020094661
+        generator = torch.Generator(device="cuda").manual_seed(seed)
+        height = 832
+        width = 1216
         
         # --- Load Model Components ---
         print("=== Loading models ===")
@@ -81,7 +85,6 @@ def main():
         
         # Instantiate pipeline from components
         print("Instantiating pipeline from components...")
-        pipe.enable_xformers_memory_efficient_attention()
         pipe = StableDiffusionXLPipeline(
             vae=vae,
             text_encoder=text_encoder,
@@ -91,6 +94,7 @@ def main():
             unet=unet,
             scheduler=scheduler,
         )
+        pipe.enable_xformers_memory_efficient_attention()
 
         # Load and set LoRA weights
         print("Loading LoRA...")
@@ -121,8 +125,8 @@ def main():
         # 2. Prepare latents
         print("Preparing latents...")
         latents = torch.randn(
-            (1, pipe.unet.config.in_channels, 1024 // 8, 1024 // 8),
-            generator=torch.manual_seed(42),
+            (1, pipe.unet.config.in_channels, height // 8, width // 8),
+            generator=generator,
             device=device,
             dtype=dtype,
         )
@@ -133,7 +137,7 @@ def main():
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = pipe.scheduler.timesteps
         
-        add_time_ids = pipe._get_add_time_ids((1024, 1024), (0,0), (1024,1024), dtype, device=device)
+        add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, device=device)
         
         # 4. Denoising loop
         print(f"Running denoising loop for {num_inference_steps} steps...")

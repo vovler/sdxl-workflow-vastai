@@ -132,7 +132,7 @@ def main():
         # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
 
         # Manually create a custom list of step numbers and pass it to the scheduler
-        custom_timesteps = [999, 749, 499, 249, 199, 149, 99, 50]
+        custom_timesteps = [876.0, 751.0, 626.0, 501.0, 376.0, 251.0, 126.0, 1.0]
         print(f"Using custom timesteps: {custom_timesteps}")
 
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)

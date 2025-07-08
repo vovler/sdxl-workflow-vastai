@@ -1,8 +1,3 @@
-
-
-
-watch -n 0.1 nvidia-smi ## create an alias for this
-
 https://docs.nvidia.com/deeplearning/tensorrt/10.12.0/_static/c-api/namespacemembers.html
 
 
@@ -22,7 +17,14 @@ cqyan/hybrid-sd-tinyvae-xl
 pip install onnxslim
 onnxslim --inspect model.onnx
 
-############## PIP ###############3
+###### RAM USAGE / SPEED #######
+FP16 UNET FP16 VAE Decoder - Height: 832  Width: 1216
+Batch 1 Without Tiling: 9891MB 0.67
+Batch 1 With Tiling: 7871MB 1.12s (2x time, -2gb of vram for
+
+Batch 2 With Tiling: 7871MB 2.24s (batch size: 2)
+
+###### PIP ######
 TMPDIR=/dev/shm/ pip install --no-cache-dir -r requirements.txt && rm -rf /dev/shm/*
 
 apt update -y; apt upgrade -y;
@@ -37,7 +39,7 @@ export PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True'
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 python your_training_script.py
 
-############## VLLM ###############
+###### VLLM ######
 
 pip install vllm flashinfer-python cuda-python==12.9.0
 
@@ -54,7 +56,7 @@ python -m vllm.entrypoints.openai.api_server \
 https://docs.vllm.ai/en/latest/examples/others/lmcache.html (KVCache in CPU RAM)
 https://docs.vllm.ai/en/latest/examples/others/tensorize_vllm_model.html (Fast Loading Of The Model - NOT TENSORRT)
 
-############## VAST AI ##############
+###### VAST AI ######
 vastai change bid
 
 show instance

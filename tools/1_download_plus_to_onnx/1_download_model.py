@@ -110,7 +110,7 @@ def main():
     print(f"Created directory: {vae_dir}")
     
     vae_files = [
-        ("https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl.vae.safetensors", "diffusion_pytorch_model.safetensors"),
+        ("https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/diffusion_pytorch_model.safetensors", "diffusion_pytorch_model.safetensors"),
         ("https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/config.json", "config.json")
     ]
     

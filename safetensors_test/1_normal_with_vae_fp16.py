@@ -45,7 +45,7 @@ def main():
         print("Loading VAE...")
         vae = AutoencoderKL.from_pretrained(
             base_dir / "vae",
-            torch_dtype=torch.float32
+            torch_dtype=dtype
         )
         vae.to(device)
 

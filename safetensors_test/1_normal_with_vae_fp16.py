@@ -39,7 +39,7 @@ def main():
         generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
         width = 1216
-        batch_size = 4
+        batch_size = 1
         
         # --- Load Model Components ---
         print("=== Loading models ===")
@@ -95,7 +95,7 @@ def main():
         )
         pipe.enable_xformers_memory_efficient_attention()
         pipe.enable_vae_tiling()
-        #pipe.enable_vae_slicing()
+        pipe.enable_vae_slicing()
 
         # Load and set LoRA weights
         print("Loading LoRA...")

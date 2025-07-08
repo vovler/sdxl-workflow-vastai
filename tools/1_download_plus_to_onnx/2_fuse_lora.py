@@ -60,15 +60,23 @@ def main():
         unfused_unet_dir = base_dir / "unet_unfused"
         unfused_unet_dir.mkdir(parents=True, exist_ok=True)
 
-        files_to_move = ["diffusion_pytorch_model.safetensors", "config.json"]
-        for filename in files_to_move:
-            original_file = unet_dir / filename
-            if original_file.exists():
-                backup_path = unfused_unet_dir / filename
-                print(f"Moving original {filename} to: {backup_path}")
-                shutil.move(str(original_file), backup_path)
-            else:
-                print(f"Warning: Original {filename} not found at {original_file}. Cannot create backup.")
+        # Move the safetensors model
+        original_unet_safetensors = unet_dir / "diffusion_pytorch_model.safetensors"
+        if original_unet_safetensors.exists():
+            backup_path = unfused_unet_dir / "diffusion_pytorch_model.safetensors"
+            print(f"Moving original UNet model to: {backup_path}")
+            shutil.move(str(original_unet_safetensors), backup_path)
+        else:
+            print(f"Warning: Original UNet safetensors not found at {original_unet_safetensors}. Cannot create backup.")
+        
+        # Copy the config file
+        original_config_json = unet_dir / "config.json"
+        if original_config_json.exists():
+            backup_path = unfused_unet_dir / "config.json"
+            print(f"Copying original config.json to: {backup_path}")
+            shutil.copy(str(original_config_json), backup_path)
+        else:
+            print(f"Warning: Original config.json not found at {original_config_json}. Cannot create backup.")
 
         # Save the fused pipeline
         print(f"Saving fused pipeline to: {base_model_path}")
@@ -86,7 +94,7 @@ def main():
 
     print("\n=== Fusion Summary ===")
     print("✓ LoRA has been fused with the UNet model.")
-    print(f"✓ Original UNet and config have been moved to the 'unet_unfused' directory as a backup.")
+    print(f"✓ Original UNet model moved and config.json copied to the 'unet_unfused' directory.")
     print(f"✓ Fused model available at: {base_model_path}")
 
 if __name__ == "__main__":

@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+import torch
+from diffusers import (
+    StableDiffusionXLPipeline,
+    UNet2DConditionModel,
+    AutoencoderKL,
+    EulerAncestralDiscreteScheduler,
+)
+from safetensors.torch import load_file
+from pathlib import Path
+import sys
+from PIL import Image
+
+def main():
+    """
+    Generates an image with SDXL using an unfused UNet, a separate VAE, and a LoRA.
+    The process is run manually to decode the UNet output with the VAE explicitly.
+    """
+    if not torch.cuda.is_available():
+        print("Error: CUDA is not available. This script requires a GPU.")
+        sys.exit(1)
+
+    # --- Configuration ---
+    base_dir = Path("/lab/model")
+    device = "cuda"
+    dtype = torch.float16
+
+    prompt = "a cute cat, masterpiece, best quality, ultra-detailed, cinematic lighting"
+    
+    # Pipeline settings
+    cfg_scale = 1.0
+    num_inference_steps = 8
+    
+    # --- Load Model Components ---
+    print("=== Loading models ===")
+    
+    # Load VAE from its own directory
+    print("Loading VAE...")
+    vae = AutoencoderKL.from_pretrained(
+        base_dir / "vae",
+        torch_dtype=dtype
+    )
+
+    # Load the base pipeline. This will also load the default (fused) UNet,
+    # which we will replace. It's a convenient way to get all other components
+    # like text encoders and tokenizers.
+    print("Loading base pipeline structure...")
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        str(base_dir),
+        vae=vae,
+        torch_dtype=dtype,
+        use_safetensors=True,
+    )
+
+    # Load the unfused UNet weights and replace the one in the pipeline
+    print("Loading unfused UNet...")
+    unet_config_path = base_dir / "unet" / "config.json"
+    unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model_unfused.safetensors"
+
+    if not unfused_unet_path.exists():
+        # Fallback to the default name if the rename script hasn't run
+        unfused_unet_path = base_dir / "unet" / "diffusion_pytorch_model.safetensors"
+        if not unfused_unet_path.exists():
+            print(f"Error: Could not find UNet weights at {unfused_unet_path} or its fallback.")
+            sys.exit(1)
+        print(f"Using UNet from default path: {unfused_unet_path}")
+
+    # Create a UNet from config and load the specific safetensors file
+    unet = UNet2DConditionModel.from_config(unet_config_path)
+    state_dict = load_file(unfused_unet_path, device="cpu")
+    unet.load_state_dict(state_dict)
+    pipe.unet = unet
+    print("✓ Unfused UNet loaded and replaced in pipeline.")
+    
+    # Load and set LoRA weights
+    print("Loading LoRA...")
+    lora_path = base_dir / "lora"
+    lora_filename = "dmd2_sdxl_4step_lora_fp16.safetensors"
+    pipe.load_lora_weights(lora_path, weight_name=lora_filename)
+    print("✓ LoRA loaded.")
+
+    # Move pipeline to GPU
+    pipe = pipe.to(device)
+
+    # Set the scheduler
+    pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(
+        pipe.scheduler.config, timestep_spacing="linspace"
+    )
+    print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
+
+    # --- Manual Inference Process ---
+    print("\n=== Starting Manual Inference ===")
+    with torch.no_grad():
+        # 1. Encode prompts
+        print("Encoding prompts...")
+        (
+            prompt_embeds,
+            _,
+            pooled_prompt_embeds,
+            _,
+        ) = pipe.encode_prompt(
+            prompt,
+            device=device,
+            num_images_per_prompt=1,
+            do_classifier_free_guidance=1
+        )
+
+        # 2. Prepare latents
+        print("Preparing latents...")
+        latents = torch.randn(
+            (1, pipe.unet.config.in_channels, 1024 // 8, 1024 // 8),
+            generator=torch.manual_seed(42),
+            device=device,
+            dtype=dtype,
+        )
+        # Scale the initial noise by the scheduler's standard deviation
+        latents = latents * pipe.scheduler.init_noise_sigma
+
+        # 3. Prepare timesteps and extra embeds for the denoising loop
+        pipe.scheduler.set_timesteps(num_inference_steps, device=device)
+        timesteps = pipe.scheduler.timesteps
+        
+        add_time_ids = pipe._get_add_time_ids((1024, 1024), (0,0), (1024,1024), dtype, device=device)
+        
+        # 4. Denoising loop
+        print(f"Running denoising loop for {num_inference_steps} steps...")
+        for i, t in enumerate(timesteps):
+            # No CFG for cfg_scale=1.0, so we don't duplicate inputs
+            latent_model_input = latents
+            
+            # Prepare added conditioning signals
+            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
+
+            # Predict the noise residual
+            noise_pred = pipe.unet(
+                latent_model_input,
+                t,
+                encoder_hidden_states=prompt_embeds,
+                cross_attention_kwargs=None,
+                added_cond_kwargs=added_cond_kwargs,
+                return_dict=False,
+            )[0]
+            
+            # No guidance is applied since cfg_scale is 1.0
+
+            # Compute the previous noisy sample x_t -> x_{t-1}
+            latents = pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+        
+        print("✓ Denoising loop complete.")
+        
+        # 5. Manually decode the latents with the VAE
+        print("Decoding latents with VAE...")
+        # The VAE scales the latents internally
+        image = pipe.vae.decode(latents / pipe.vae.config.scaling_factor, return_dict=False)[0]
+        
+        # 6. Post-process the image
+        image = pipe.image_processor.postprocess(image, output_type="pil")[0]
+        
+        print("✓ Image generated successfully!")
+        
+        # 7. Save the image
+        output_path = "output_manual_vae.png"
+        image.save(output_path)
+        print(f"✓ Image saved to: {output_path}")
+
+if __name__ == "__main__":
+    main()

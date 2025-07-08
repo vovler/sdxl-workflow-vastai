@@ -123,6 +123,7 @@ def main():
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)
         # For 1-step, we use a specific timestep as per reference
         timesteps = torch.tensor([399], device=device, dtype=torch.long)
+        pipe.scheduler.timesteps = timesteps
         
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)
         add_time_ids = add_time_ids.repeat(batch_size, 1)

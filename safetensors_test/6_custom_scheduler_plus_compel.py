@@ -125,7 +125,7 @@ def main():
             requires_pooled=[False, True]
         )
 
-        prompt_embeds, pooled_prompt_embeds= compel(prompt')
+        prompt_embeds, pooled_prompt_embeds= compel(prompt)
         print(f"prompt_embeds size: {prompt_embeds.size()}")
         print(f"pooled_prompt_embeds size: {pooled_prompt_embeds.size()}")
         

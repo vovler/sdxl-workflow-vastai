@@ -33,7 +33,7 @@ def main():
 
         prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
         #prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), face_focus, looking at viewer, volumetric_lighting"
-        #prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), dark lolita, running makeup, holding pipe, looking at viewer, volumetric_lighting, street, night, shiny clothes, shiny skin, detailed_background"
+        #prompt = "masterpiece, best quality, amazing quality, general, 1girl, aqua_(konosuba), dark lolita, running makeup, holding pipe, looking at viewer, volumetric_lighting, street, night, shiny clothes, shiny skin, detailed_background"
         
         # Pipeline settings
         cfg_scale = 1.0
@@ -165,8 +165,9 @@ def main():
         script_name = Path(__file__).stem
         image_idx = 0
         while True:
-            # Check for the first step's file to determine a unique run index
-            if not Path(f"{script_name}__{image_idx:04d}_step0.png").exists():
+            # Check for the final output file to determine a unique run index
+            output_path = f"{script_name}__{image_idx:04d}.png"
+            if not Path(output_path).exists():
                 break
             image_idx += 1
 
@@ -194,19 +195,19 @@ def main():
 
             # Compute the previous noisy sample x_t -> x_{t-1}
             latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
-
-            # --- Save intermediate image ---
-            latents_for_vae = latents / pipe.vae.config.scaling_factor
-            image_tensor = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
-            image = pipe.image_processor.postprocess(image_tensor, output_type="pil")[0]
-            
-            output_path = f"{script_name}__{image_idx:04d}_step{i:02d}.png"
-            image.save(output_path)
         
         end_time = time.time()
         print(f"Denoising loop took: {end_time - start_time:.4f} seconds")
         print("✓ Denoising loop complete.")
-        print("✓ Images generated successfully!")
+
+        # --- Save final image ---
+        print(f"Saving final image to {output_path}...")
+        latents_for_vae = latents / pipe.vae.config.scaling_factor
+        image_tensor = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
+        image = pipe.image_processor.postprocess(image_tensor, output_type="pil")[0]
+        image.save(output_path)
+        
+        print("✓ Image generated successfully!")
 
 if __name__ == "__main__":
     main()

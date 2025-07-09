@@ -33,3 +33,5 @@ psutil
 coloredlogs
 
 requests
+
+compel==0.1.9

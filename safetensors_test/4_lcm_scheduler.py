@@ -49,7 +49,7 @@ def main():
         cfg_scale = 1.0
         num_inference_steps = 4
         seed = 1020094661
-        generator = torch.Generator(device="cuda").manual_seed(seed)
+        generator = torch.Generator(device="cpu").manual_seed(seed)
         height = 832
         width = 1216
         batch_size = 1

@@ -155,7 +155,7 @@ def main():
         # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
 
         # Manually create a custom list of step numbers and pass it to the scheduler
-        custom_timesteps = [999, 749, 499, 249, 187, 125, 63, 1.0]
+        custom_timesteps = [999, 749, 499, 249, 187, 125, 63, 1]
         print(f"Using custom timesteps: {custom_timesteps}")
 
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -164,13 +164,14 @@ def main():
         timesteps_np = np.array(custom_timesteps)
         pipe.scheduler.timesteps = torch.from_numpy(timesteps_np).to(device)
 
-        # Recalculate sigmas for the new timesteps
-        scheduler = pipe.scheduler
-        sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
-        sigmas = np.interp(timesteps_np, np.arange(0, len(sigmas)), sigmas)
-        sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
-        scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
-        print(f"Recalculated sigmas: {sigmas.tolist()}")
+        if not args.lcm:
+            # Recalculate sigmas for the new timesteps
+            scheduler = pipe.scheduler
+            sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
+            sigmas = np.interp(timesteps_np, np.arange(0, len(sigmas)), sigmas)
+            sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
+            scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
+            print(f"Recalculated sigmas: {sigmas.tolist()}")
 
         timesteps = pipe.scheduler.timesteps
         
@@ -218,7 +219,10 @@ def main():
             # No guidance is applied since cfg_scale is 1.0
 
             # Compute the previous noisy sample x_t -> x_{t-1}
-            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
+            step_t = t
+            if args.lcm:
+                step_t = t.cpu()
+            latents = pipe.scheduler.step(noise_pred, step_t, latents, generator=generator, return_dict=False)[0]
         
         end_time = time.time()
         print(f"Denoising loop took: {end_time - start_time:.4f} seconds")

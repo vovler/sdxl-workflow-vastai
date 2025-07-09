@@ -51,6 +51,7 @@ def main():
         num_inference_steps = 8
         seed = 1020094661
         generator = torch.Generator(device="cpu").manual_seed(seed)
+        generator2 = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
         width = 1216
         batch_size = 1
@@ -205,7 +206,7 @@ def main():
             # No guidance is applied since cfg_scale is 1.0
 
             # Compute the previous noisy sample x_t -> x_{t-1}
-            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
+            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator2, return_dict=False)[0]
         
         end_time = time.time()
         print(f"Denoising loop took: {end_time - start_time:.4f} seconds")

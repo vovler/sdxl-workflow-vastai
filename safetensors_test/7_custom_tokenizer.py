@@ -147,27 +147,54 @@ def main():
         print("Encoding prompts with instant_clip_tokenizer...")
         
         # Manually tokenize and encode the prompt
-        tokens = tokenizer.encode(prompt)
-        # We need to handle long prompts by chunking them into 77-token segments
-        # The first and last token are BOS and EOS
-        max_length = 77
+        prompt_tokens = tokenizer.encode(prompt)
         
-        # This part is simplified and assumes tokenizer handles padding. A more robust implementation might be needed.
-        if len(tokens) > max_length:
-            print("Warning: prompt is longer than 77 tokens and will be truncated.")
-            tokens = tokens[:max_length]
+        # Define special token IDs and max length for CLIP
+        # These are standard for CLIP-based tokenizers like the one used in Stable Diffusion.
+        BOS_TOKEN_ID = 49406  # Beginning of sequence
+        EOS_TOKEN_ID = 49407  # End of sequence
+        PAD_TOKEN_ID = EOS_TOKEN_ID  # Padding token is the same as EOS for CLIP
+        MAX_LENGTH = 77
+
+        # Truncate prompt tokens if they are too long to fit with BOS and EOS
+        prompt_tokens = prompt_tokens[:MAX_LENGTH - 2]
+
+        # Prepare tokens with BOS, EOS, and padding
+        tokens = [BOS_TOKEN_ID] + prompt_tokens + [EOS_TOKEN_ID]
+        
+        # The 'weights' you mentioned are represented by an attention mask.
+        # It's 1 for real tokens and 0 for padding.
+        attention_mask = [1] * len(tokens)
+
+        # Pad tokens and attention mask to max length
+        padding_len = MAX_LENGTH - len(tokens)
+        tokens += [PAD_TOKEN_ID] * padding_len
+        attention_mask += [0] * padding_len
         
         tokens_tensor = torch.tensor([tokens], dtype=torch.long, device=device)
+        attention_mask_tensor = torch.tensor([attention_mask], dtype=torch.long, device=device)
+
         print(f"--- tokens_tensor ---")
         print(f"  Shape: {tokens_tensor.shape}")
+        print_tensor_stats("attention_mask_tensor", attention_mask_tensor)
 
         # Get embeddings from text_encoder 1
-        text_encoder_output = text_encoder(tokens_tensor, output_hidden_states=True, return_dict=True)
+        text_encoder_output = text_encoder(
+            input_ids=tokens_tensor,
+            attention_mask=attention_mask_tensor,
+            output_hidden_states=True,
+            return_dict=True
+        )
         prompt_embeds_1 = text_encoder_output.hidden_states[-2]
         print_tensor_stats("prompt_embeds_1", prompt_embeds_1)
 
         # Get embeddings from text_encoder 2
-        text_encoder_2_output = text_encoder_2(tokens_tensor, output_hidden_states=True, return_dict=True)
+        text_encoder_2_output = text_encoder_2(
+            input_ids=tokens_tensor,
+            attention_mask=attention_mask_tensor,
+            output_hidden_states=True,
+            return_dict=True
+        )
         prompt_embeds_2 = text_encoder_2_output.hidden_states[-2]
         pooled_prompt_embeds = text_encoder_2_output.text_embeds
         print_tensor_stats("prompt_embeds_2", prompt_embeds_2)

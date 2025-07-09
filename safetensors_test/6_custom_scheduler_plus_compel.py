@@ -33,6 +33,7 @@ def main():
         help="The prompt to use for image generation."
     )
     parser.add_argument("--random", action="store_true", help="Use a random seed for generation.")
+    parser.add_argument("--seed", type=int, default=1020094661, help="The seed to use for generation.")
     parser.add_argument("--lcm", action="store_true", help="Use LCMScheduler instead of EulerAncestralDiscreteScheduler.")
     args = parser.parse_args()
 
@@ -53,10 +54,9 @@ def main():
         # Pipeline settings
         cfg_scale = 1.0
         num_inference_steps = 8
+        seed = args.seed
         if args.random:
             seed = torch.randint(0, 2**32 - 1, (1,)).item()
-        else:
-            seed = 1020094661
         print(f"Using seed: {seed}")
         generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832

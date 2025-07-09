@@ -35,6 +35,7 @@ def main():
     parser.add_argument("--random", action="store_true", help="Use a random seed for generation.")
     parser.add_argument("--seed", type=int, default=1020094661, help="The seed to use for generation.")
     parser.add_argument("--lcm", action="store_true", help="Use LCMScheduler instead of EulerAncestralDiscreteScheduler.")
+    parser.add_argument("--batch", type=int, default=1, help="Number of images to generate in a loop.")
     args = parser.parse_args()
 
     with torch.no_grad():
@@ -54,11 +55,6 @@ def main():
         # Pipeline settings
         cfg_scale = 1.0
         num_inference_steps = 8
-        seed = args.seed
-        if args.random:
-            seed = torch.randint(0, 2**32 - 1, (1,)).item()
-        print(f"Using seed: {seed}")
-        generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
         width = 1216
         batch_size = 1
@@ -141,16 +137,6 @@ def main():
         print(f"prompt_embeds size: {prompt_embeds.size()}")
         print(f"pooled_prompt_embeds size: {pooled_prompt_embeds.size()}")
         
-        # 2. Prepare latents
-        print("Preparing latents...")
-        latents = torch.randn(
-            (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
-            generator=generator,
-            device=device,
-            dtype=dtype,
-        )
-        
-
         # 3. Prepare timesteps and extra embeds for the denoising loop
         # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
 
@@ -178,64 +164,85 @@ def main():
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)
         add_time_ids = add_time_ids.repeat(batch_size, 1)
         
-        # Scale the initial noise by the scheduler's standard deviation
-        print(f"Latents before noise sigma scaling: min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
-        latents = latents * pipe.scheduler.init_noise_sigma
-        print(f"Initial noise sigma: {pipe.scheduler.init_noise_sigma}")
-        print(f"Latents after noise sigma scaling:  min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
-
-        # 4. Denoising loop
-        print(f"Running denoising loop for {num_inference_steps} steps...")
-        
-        script_name = Path(__file__).stem
-        image_idx = 0
-        while True:
-            # Check for the final output file to determine a unique run index
-            output_path = f"{script_name}__{image_idx:04d}.png"
-            if not Path(output_path).exists():
-                break
-            image_idx += 1
-
-        start_time = time.time()
-        for i, t in enumerate(tqdm(timesteps)):
-            # No CFG for cfg_scale=1.0, so we don't duplicate inputs
-            latent_model_input = latents
+        for batch_idx in range(args.batch):
+            if args.random:
+                seed = torch.randint(0, 2**32 - 1, (1,)).item()
+            else:
+                seed = args.seed + batch_idx
             
-            latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+            print(f"\n--- Generating image {batch_idx+1}/{args.batch} with seed: {seed} ---")
+            generator = torch.Generator(device="cuda").manual_seed(seed)
+
+            # 2. Prepare latents
+            print("Preparing latents...")
+            latents = torch.randn(
+                (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
+                generator=generator,
+                device=device,
+                dtype=dtype,
+            )
             
-            # Prepare added conditioning signals
-            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
 
-            # Predict the noise residual
-            noise_pred = pipe.unet(
-                latent_model_input,
-                t,
-                encoder_hidden_states=prompt_embeds,
-                cross_attention_kwargs=None,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False,
-            )[0]
+            # Scale the initial noise by the scheduler's standard deviation
+            print(f"Latents before noise sigma scaling: min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
+            latents = latents * pipe.scheduler.init_noise_sigma
+            print(f"Initial noise sigma: {pipe.scheduler.init_noise_sigma}")
+            print(f"Latents after noise sigma scaling:  min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
+
+            # 4. Denoising loop
+            print(f"Running denoising loop for {num_inference_steps} steps...")
             
-            # No guidance is applied since cfg_scale is 1.0
+            script_name = Path(__file__).stem
+            image_idx = 0
+            while True:
+                # Check for the final output file to determine a unique run index
+                output_path = f"{script_name}__{image_idx:04d}.png"
+                if not Path(output_path).exists():
+                    break
+                image_idx += 1
 
-            # Compute the previous noisy sample x_t -> x_{t-1}
-            step_t = t
-            if args.lcm:
-                step_t = t.cpu()
-            latents = pipe.scheduler.step(noise_pred, step_t, latents, generator=generator, return_dict=False)[0]
-        
-        end_time = time.time()
-        print(f"Denoising loop took: {end_time - start_time:.4f} seconds")
-        print("✓ Denoising loop complete.")
+            start_time = time.time()
+            for i, t in enumerate(tqdm(timesteps)):
+                # No CFG for cfg_scale=1.0, so we don't duplicate inputs
+                latent_model_input = latents
+                
+                latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+                
+                # Prepare added conditioning signals
+                added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
 
-        # --- Save final image ---
-        print(f"Saving final image to {output_path}...")
-        latents_for_vae = latents / pipe.vae.config.scaling_factor
-        image_tensor = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
-        image = pipe.image_processor.postprocess(image_tensor, output_type="pil")[0]
-        image.save(output_path)
+                # Predict the noise residual
+                noise_pred = pipe.unet(
+                    latent_model_input,
+                    t,
+                    encoder_hidden_states=prompt_embeds,
+                    cross_attention_kwargs=None,
+                    added_cond_kwargs=added_cond_kwargs,
+                    return_dict=False,
+                )[0]
+                
+                # No guidance is applied since cfg_scale is 1.0
+
+                # Compute the previous noisy sample x_t -> x_{t-1}
+                step_t = t
+                if args.lcm:
+                    step_t = t.cpu()
+                latents = pipe.scheduler.step(noise_pred, step_t, latents, generator=generator, return_dict=False)[0]
+            
+            end_time = time.time()
+            print(f"Denoising loop took: {end_time - start_time:.4f} seconds")
+            print("✓ Denoising loop complete.")
+
+            # --- Save final image ---
+            print(f"Saving final image to {output_path}...")
+            latents_for_vae = latents / pipe.vae.config.scaling_factor
+            image_tensor = pipe.vae.decode(latents_for_vae, return_dict=False)[0]
+            image = pipe.image_processor.postprocess(image_tensor, output_type="pil")[0]
+            image.save(output_path)
+            
+            print("✓ Image generated successfully!")
         
-        print("✓ Image generated successfully!")
+        print("\n✓ Batch generation complete!")
 
 if __name__ == "__main__":
     main()

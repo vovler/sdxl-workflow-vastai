@@ -31,6 +31,7 @@ def main():
         default="masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background",
         help="The prompt to use for image generation."
     )
+    parser.add_argument("--random", action="store_true", help="Use a random seed for generation.")
     args = parser.parse_args()
 
     with torch.no_grad():
@@ -50,7 +51,11 @@ def main():
         # Pipeline settings
         cfg_scale = 1.0
         num_inference_steps = 8
-        seed = 1020094661
+        if args.random:
+            seed = torch.randint(0, 2**32 - 1, (1,)).item()
+        else:
+            seed = 1020094661
+        print(f"Using seed: {seed}")
         generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
         width = 1216

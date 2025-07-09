@@ -16,7 +16,7 @@ import time
 from tqdm import tqdm
 import numpy as np
 import argparse
-from compel import Compel
+from compel import Compel, ReturnedEmbeddingsType
 
 def main():
     """
@@ -121,8 +121,8 @@ def main():
         compel = Compel(
             tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
             text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
-            returned_embeddings_type="pt",
-            requires_pooled=[True, True]
+            returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
+            requires_pooled=[False, True]
         )
 
         prompt_embeds, _, pooled_prompt_embeds, _ = compel(prompt)

@@ -54,6 +54,7 @@ def main():
     parser.add_argument("--seed", type=int, default=1020094661, help="The seed to use for generation.")
     parser.add_argument("--lcm", action="store_true", help="Use LCMScheduler instead of EulerAncestralDiscreteScheduler.")
     parser.add_argument("--batch", type=int, default=1, help="Number of images to generate in a loop.")
+    parser.add_argument("--clip-normal", action="store_true", help="Use normal CLIP tokenizers instead of instant_clip_tokenizer.")
     args = parser.parse_args()
 
     with torch.no_grad():
@@ -90,9 +91,14 @@ def main():
 
         # Load text encoders and tokenizers
         print("Loading text encoders and tokenizers...")
-        #tokenizer = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
-        #tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
-        tokenizer = instant_clip_tokenizer.Tokenizer()
+        if args.clip_normal:
+            print("Using normal CLIP tokenizers.")
+            tokenizer = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
+            tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
+        else:
+            print("Using instant_clip_tokenizer.")
+            tokenizer = instant_clip_tokenizer.Tokenizer()
+            tokenizer_2 = None
         
         text_encoder = CLIPTextModel.from_pretrained(
             str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
@@ -131,8 +137,8 @@ def main():
             vae=vae,
             text_encoder=text_encoder,
             text_encoder_2=text_encoder_2,
-            tokenizer=None,
-            tokenizer_2=None,
+            tokenizer=tokenizer if args.clip_normal else None,
+            tokenizer_2=tokenizer_2 if args.clip_normal else None,
             unet=unet,
             scheduler=scheduler,
         )
@@ -144,64 +150,109 @@ def main():
         # --- Manual Inference Process ---
         print("\n=== Starting Manual Inference ===")
         # 1. Encode prompts
-        print("Encoding prompts with instant_clip_tokenizer...")
+        if args.clip_normal:
+            print("Encoding prompts with normal CLIP tokenizers...")
+    
+            # Tokenize with tokenizer 1
+            text_inputs_1 = tokenizer(
+                prompt, padding="max_length", max_length=tokenizer.model_max_length,
+                truncation=True, return_tensors="pt"
+            )
+            tokens_tensor_1 = text_inputs_1.input_ids.to(device)
+            attention_mask_1 = text_inputs_1.attention_mask.to(device)
+            print("--- tokens_tensor_1 (normal) ---")
+            print(f"  Shape: {tokens_tensor_1.shape}")
+
+            # Get embeddings from text_encoder 1
+            text_encoder_output_1 = text_encoder(
+                input_ids=tokens_tensor_1, attention_mask=attention_mask_1,
+                output_hidden_states=True, return_dict=True
+            )
+            prompt_embeds_1 = text_encoder_output_1.hidden_states[-2]
+            print_tensor_stats("prompt_embeds_1 (normal)", prompt_embeds_1)
+
+            # Tokenize with tokenizer 2
+            text_inputs_2 = tokenizer_2(
+                prompt, padding="max_length", max_length=tokenizer_2.model_max_length,
+                truncation=True, return_tensors="pt"
+            )
+            tokens_tensor_2 = text_inputs_2.input_ids.to(device)
+            attention_mask_2 = text_inputs_2.attention_mask.to(device)
+            print("--- tokens_tensor_2 (normal) ---")
+            print(f"  Shape: {tokens_tensor_2.shape}")
+
+            # Get embeddings from text_encoder 2
+            text_encoder_output_2 = text_encoder_2(
+                input_ids=tokens_tensor_2, attention_mask=attention_mask_2,
+                output_hidden_states=True, return_dict=True
+            )
+            prompt_embeds_2 = text_encoder_output_2.hidden_states[-2]
+            pooled_prompt_embeds = text_encoder_output_2.text_embeds
+            print_tensor_stats("prompt_embeds_2 (normal)", prompt_embeds_2)
+            print_tensor_stats("pooled_prompt_embeds (normal)", pooled_prompt_embeds)
+
+            # Concatenate embeddings
+            prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
         
-        # Manually tokenize and encode the prompt
-        prompt_tokens = tokenizer.encode(prompt)
-        
-        # Define special token IDs and max length for CLIP
-        # These are standard for CLIP-based tokenizers like the one used in Stable Diffusion.
-        BOS_TOKEN_ID = 49406  # Beginning of sequence
-        EOS_TOKEN_ID = 49407  # End of sequence
-        PAD_TOKEN_ID = EOS_TOKEN_ID  # Padding token is the same as EOS for CLIP
-        MAX_LENGTH = 77
+        else:
+            print("Encoding prompts with instant_clip_tokenizer...")
+            
+            # Manually tokenize and encode the prompt
+            prompt_tokens = tokenizer.encode(prompt)
+            
+            # Define special token IDs and max length for CLIP
+            # These are standard for CLIP-based tokenizers like the one used in Stable Diffusion.
+            BOS_TOKEN_ID = 49406  # Beginning of sequence
+            EOS_TOKEN_ID = 49407  # End of sequence
+            PAD_TOKEN_ID = EOS_TOKEN_ID  # Padding token is the same as EOS for CLIP
+            MAX_LENGTH = 77
 
-        # Truncate prompt tokens if they are too long to fit with BOS and EOS
-        prompt_tokens = prompt_tokens[:MAX_LENGTH - 2]
+            # Truncate prompt tokens if they are too long to fit with BOS and EOS
+            prompt_tokens = prompt_tokens[:MAX_LENGTH - 2]
 
-        # Prepare tokens with BOS, EOS, and padding
-        tokens = [BOS_TOKEN_ID] + prompt_tokens + [EOS_TOKEN_ID]
-        
-        # The 'weights' you mentioned are represented by an attention mask.
-        # It's 1 for real tokens and 0 for padding.
-        attention_mask = [1] * len(tokens)
+            # Prepare tokens with BOS, EOS, and padding
+            tokens = [BOS_TOKEN_ID] + prompt_tokens + [EOS_TOKEN_ID]
+            
+            # The 'weights' you mentioned are represented by an attention mask.
+            # It's 1 for real tokens and 0 for padding.
+            attention_mask = [1] * len(tokens)
 
-        # Pad tokens and attention mask to max length
-        padding_len = MAX_LENGTH - len(tokens)
-        tokens += [PAD_TOKEN_ID] * padding_len
-        attention_mask += [0] * padding_len
-        
-        tokens_tensor = torch.tensor([tokens], dtype=torch.long, device=device)
-        attention_mask_tensor = torch.tensor([attention_mask], dtype=torch.long, device=device)
+            # Pad tokens and attention mask to max length
+            padding_len = MAX_LENGTH - len(tokens)
+            tokens += [PAD_TOKEN_ID] * padding_len
+            attention_mask += [0] * padding_len
+            
+            tokens_tensor = torch.tensor([tokens], dtype=torch.long, device=device)
+            attention_mask_tensor = torch.tensor([attention_mask], dtype=torch.long, device=device)
 
-        print(f"--- tokens_tensor ---")
-        print(f"  Shape: {tokens_tensor.shape}")
-        print_tensor_stats("attention_mask_tensor", attention_mask_tensor)
+            print(f"--- tokens_tensor (instant) ---")
+            print(f"  Shape: {tokens_tensor.shape}")
+            print_tensor_stats("attention_mask_tensor (instant)", attention_mask_tensor)
 
-        # Get embeddings from text_encoder 1
-        text_encoder_output = text_encoder(
-            input_ids=tokens_tensor,
-            attention_mask=attention_mask_tensor,
-            output_hidden_states=True,
-            return_dict=True
-        )
-        prompt_embeds_1 = text_encoder_output.hidden_states[-2]
-        print_tensor_stats("prompt_embeds_1", prompt_embeds_1)
+            # Get embeddings from text_encoder 1
+            text_encoder_output = text_encoder(
+                input_ids=tokens_tensor,
+                attention_mask=attention_mask_tensor,
+                output_hidden_states=True,
+                return_dict=True
+            )
+            prompt_embeds_1 = text_encoder_output.hidden_states[-2]
+            print_tensor_stats("prompt_embeds_1 (instant)", prompt_embeds_1)
 
-        # Get embeddings from text_encoder 2
-        text_encoder_2_output = text_encoder_2(
-            input_ids=tokens_tensor,
-            attention_mask=attention_mask_tensor,
-            output_hidden_states=True,
-            return_dict=True
-        )
-        prompt_embeds_2 = text_encoder_2_output.hidden_states[-2]
-        pooled_prompt_embeds = text_encoder_2_output.text_embeds
-        print_tensor_stats("prompt_embeds_2", prompt_embeds_2)
-        print_tensor_stats("pooled_prompt_embeds", pooled_prompt_embeds)
+            # Get embeddings from text_encoder 2
+            text_encoder_2_output = text_encoder_2(
+                input_ids=tokens_tensor,
+                attention_mask=attention_mask_tensor,
+                output_hidden_states=True,
+                return_dict=True
+            )
+            prompt_embeds_2 = text_encoder_2_output.hidden_states[-2]
+            pooled_prompt_embeds = text_encoder_2_output.text_embeds
+            print_tensor_stats("prompt_embeds_2 (instant)", prompt_embeds_2)
+            print_tensor_stats("pooled_prompt_embeds (instant)", pooled_prompt_embeds)
 
-        # Concatenate embeddings
-        prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
+            # Concatenate embeddings
+            prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
 
         print(f"prompt_embeds size: {prompt_embeds.size()}")
         print(f"pooled_prompt_embeds size: {pooled_prompt_embeds.size()}")

@@ -51,7 +51,6 @@ def main():
         num_inference_steps = 8
         seed = 1020094661
         generator = torch.Generator(device="cuda").manual_seed(seed)
-        generator2 = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
         width = 1216
         batch_size = 1
@@ -134,16 +133,16 @@ def main():
         latents = torch.randn(
             (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
             generator=generator,
-            device="cuda",
+            device=device,
             dtype=dtype,
-        ).to(device)
+        )
         
 
         # 3. Prepare timesteps and extra embeds for the denoising loop
         # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
 
         # Manually create a custom list of step numbers and pass it to the scheduler
-        custom_timesteps = [999, 749, 499, 249, 187, 125, 63, 1.0]
+        custom_timesteps = [876.0, 751.0, 626.0, 501.0, 376.0, 251.0, 126.0, 1.0]
         print(f"Using custom timesteps: {custom_timesteps}")
 
         pipe.scheduler.set_timesteps(num_inference_steps, device=device)
@@ -206,7 +205,7 @@ def main():
             # No guidance is applied since cfg_scale is 1.0
 
             # Compute the previous noisy sample x_t -> x_{t-1}
-            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator2, return_dict=False)[0]
+            latents = pipe.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
         
         end_time = time.time()
         print(f"Denoising loop took: {end_time - start_time:.4f} seconds")

@@ -140,29 +140,10 @@ def main():
         # 3. Prepare timesteps and extra embeds for the denoising loop
         # pipe.scheduler.set_timesteps(num_inference_steps, device=device)
 
-        # Manually create a custom list of step numbers and pass it to the scheduler
-        custom_timesteps = [999, 749, 499, 249, 187, 125, 63, 1]
-        print(f"Using custom timesteps: {custom_timesteps}")
-
-        pipe.scheduler.set_timesteps(num_inference_steps, device=device)
-        
-        # Overwrite with custom timesteps and recalculate sigmas
-        timesteps_np = np.array(custom_timesteps)
-        pipe.scheduler.timesteps = torch.from_numpy(timesteps_np).to(device)
-
-        if not args.lcm:
-            # Recalculate sigmas for the new timesteps
-            scheduler = pipe.scheduler
-            sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
-            sigmas = np.interp(timesteps_np, np.arange(0, len(sigmas)), sigmas)
-            sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
-            scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
-            print(f"Recalculated sigmas: {sigmas.tolist()}")
-
-        timesteps = pipe.scheduler.timesteps
-        
         add_time_ids = pipe._get_add_time_ids((height, width), (0,0), (height, width), dtype, text_encoder_projection_dim=text_encoder_2.config.projection_dim).to(device)
         add_time_ids = add_time_ids.repeat(batch_size, 1)
+        
+        custom_timesteps = [999, 749, 499, 249, 187, 125, 63, 1]
         
         for batch_idx in range(args.batch):
             if args.random:
@@ -173,6 +154,23 @@ def main():
             print(f"\n--- Generating image {batch_idx+1}/{args.batch} with seed: {seed} ---")
             generator = torch.Generator(device="cuda").manual_seed(seed)
 
+            # Reset scheduler state for each generation
+            pipe.scheduler.set_timesteps(num_inference_steps, device=device)
+            timesteps_np = np.array(custom_timesteps)
+            pipe.scheduler.timesteps = torch.from_numpy(timesteps_np).to(device)
+
+            if not args.lcm:
+                scheduler = pipe.scheduler
+                sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
+                sigmas = np.interp(timesteps_np, np.arange(0, len(sigmas)), sigmas)
+                sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
+                scheduler.sigmas = torch.from_numpy(sigmas).to(device=device)
+                if batch_idx == 0:
+                    print(f"Using custom timesteps: {custom_timesteps}")
+                    print(f"Recalculated sigmas: {sigmas.tolist()}")
+
+            timesteps = pipe.scheduler.timesteps
+            
             # 2. Prepare latents
             print("Preparing latents...")
             latents = torch.randn(

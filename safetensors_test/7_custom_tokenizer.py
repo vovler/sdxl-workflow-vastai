@@ -20,6 +20,23 @@ import argparse
 import instant_clip_tokenizer
 # from compel import Compel, ReturnedEmbeddingsType
 
+def print_tensor_stats(name, tensor):
+    """Prints detailed statistics for a given tensor."""
+    print(f"--- {name} ---")
+    if tensor is None:
+        print("  Tensor is None")
+        return
+    print(f"  Shape: {tensor.shape}")
+    if tensor.numel() > 0:
+        # Cast to float32 for stats to avoid issues with other types
+        tensor_float = tensor.float()
+        print(f"  Mean:  {tensor_float.mean().item():.4f}")
+        print(f"  Min:   {tensor_float.min().item():.4f}")
+        print(f"  Max:   {tensor_float.max().item():.4f}")
+        print(f"  Has NaN: {torch.isnan(tensor_float).any().item()}")
+        print(f"  Has Inf: {torch.isinf(tensor_float).any().item()}")
+    print(f"  Dtype: {tensor.dtype}")
+
 def main():
     """
     Generates an image with SDXL using an unfused UNet, a separate VAE, and a LoRA.
@@ -141,15 +158,20 @@ def main():
             tokens = tokens[:max_length]
         
         tokens_tensor = torch.tensor([tokens], dtype=torch.long, device=device)
+        print(f"--- tokens_tensor ---")
+        print(f"  Shape: {tokens_tensor.shape}")
 
         # Get embeddings from text_encoder 1
         text_encoder_output = text_encoder(tokens_tensor, output_hidden_states=True, return_dict=True)
         prompt_embeds_1 = text_encoder_output.hidden_states[-2]
+        print_tensor_stats("prompt_embeds_1", prompt_embeds_1)
 
         # Get embeddings from text_encoder 2
         text_encoder_2_output = text_encoder_2(tokens_tensor, output_hidden_states=True, return_dict=True)
         prompt_embeds_2 = text_encoder_2_output.hidden_states[-2]
         pooled_prompt_embeds = text_encoder_2_output.text_embeds
+        print_tensor_stats("prompt_embeds_2", prompt_embeds_2)
+        print_tensor_stats("pooled_prompt_embeds", pooled_prompt_embeds)
 
         # Concatenate embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)

@@ -134,7 +134,7 @@ def main():
         latents = torch.randn(
             (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
             generator=generator,
-            device="cpu",
+            device="cuda",
             dtype=dtype,
         ).to(device)
         

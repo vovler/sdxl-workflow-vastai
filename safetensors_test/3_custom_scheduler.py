@@ -15,12 +15,23 @@ import shutil
 import time
 from tqdm import tqdm
 import numpy as np
+import argparse
 
 def main():
     """
     Generates an image with SDXL using an unfused UNet, a separate VAE, and a LoRA.
     The process is run manually to decode the UNet output with the VAE explicitly.
     """
+    # --- Argument Parser ---
+    parser = argparse.ArgumentParser(description="Generate an image with a custom prompt.")
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        default="masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background",
+        help="The prompt to use for image generation."
+    )
+    args = parser.parse_args()
+
     with torch.no_grad():
         if not torch.cuda.is_available():
             print("Error: CUDA is not available. This script requires a GPU.")
@@ -31,7 +42,7 @@ def main():
         device = "cuda"
         dtype = torch.float16
 
-        prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
+        prompt = args.prompt
         #prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), face_focus, looking at viewer, volumetric_lighting"
         #prompt = "masterpiece, best quality, amazing quality, general, 1girl, aqua_(konosuba), dark lolita, running makeup, holding pipe, looking at viewer, volumetric_lighting, street, night, shiny clothes, shiny skin, detailed_background"
         

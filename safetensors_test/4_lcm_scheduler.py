@@ -49,7 +49,7 @@ def main():
         cfg_scale = 1.0
         num_inference_steps = 4
         seed = 1020094661
-        generator = torch.Generator(device="cpu").manual_seed(seed)
+        generator = torch.Generator(device="cuda").manual_seed(seed)
         height = 832
         width = 1216
         batch_size = 1
@@ -132,7 +132,7 @@ def main():
         latents = torch.randn(
             (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
             generator=generator,
-            device="cpu",
+            device="cuda",
             dtype=dtype,
         ).to(device)
         # Scale the initial noise by the scheduler's standard deviation

@@ -21,7 +21,7 @@ from compel import Compel, ReturnedEmbeddingsType
 
 def main():
     """
-    Generates an image with SDXL using an unfused UNet, a separate VAE, and a LoRA.
+    Generates an image with SDXL using an UNet, a separate VAE, and a LoRA.
     The process is run manually to decode the UNet output with the VAE explicitly.
     """
     # --- Argument Parser ---
@@ -83,15 +83,15 @@ def main():
         )
         text_encoder_2.to(device)
 
-        # Load the unfused UNet weights
-        print("Loading unfused UNet...")
+        # Load the UNet weights
+        print("Loading UNet...")
         unet_dir = base_dir / "unet"
 
         unet = UNet2DConditionModel.from_pretrained(
             str(unet_dir), torch_dtype=dtype, use_safetensors=True
         )
         unet.to(device)
-        print("✓ Unfused UNet loaded.")
+        print("✓ UNet loaded.")
 
         # Create the scheduler
         if args.lcm:

@@ -130,7 +130,8 @@ def main():
             tokenizer=[pipe.tokenizer, pipe.tokenizer_2],
             text_encoder=[pipe.text_encoder, pipe.text_encoder_2],
             returned_embeddings_type=ReturnedEmbeddingsType.PENULTIMATE_HIDDEN_STATES_NON_NORMALIZED,
-            requires_pooled=[False, True]
+            requires_pooled=[False, True],
+            truncate_long_prompts=False
         )
 
         prompt_embeds, pooled_prompt_embeds = compel(prompt)

@@ -5,6 +5,7 @@ from diffusers import (
     UNet2DConditionModel,
     AutoencoderKL,
     EulerAncestralDiscreteScheduler,
+    LCMScheduler,
 )
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from safetensors.torch import load_file
@@ -32,6 +33,7 @@ def main():
         help="The prompt to use for image generation."
     )
     parser.add_argument("--random", action="store_true", help="Use a random seed for generation.")
+    parser.add_argument("--lcm", action="store_true", help="Use LCMScheduler instead of EulerAncestralDiscreteScheduler.")
     args = parser.parse_args()
 
     with torch.no_grad():
@@ -96,11 +98,16 @@ def main():
         print("✓ Unfused UNet loaded.")
 
         # Create the scheduler
-        scheduler = EulerAncestralDiscreteScheduler.from_config(
-            str(base_dir / "scheduler"), timestep_spacing="linspace"
-        )
-        #scheduler = scheduler.to(device)
-        print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
+        if args.lcm:
+            scheduler = LCMScheduler.from_config(
+                str(base_dir / "scheduler"), timestep_spacing="trailing"
+            )
+            print("✓ Scheduler set to LCMScheduler with 'trailing' spacing.")
+        else:
+            scheduler = EulerAncestralDiscreteScheduler.from_config(
+                str(base_dir / "scheduler"), timestep_spacing="linspace"
+            )
+            print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
         
         # Instantiate pipeline from components
         print("Instantiating pipeline from components...")

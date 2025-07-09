@@ -73,3 +73,12 @@ vastai create instance 19958699 --bid_price 0.039 --image vastai/pytorch:2.6.0-c
 vastai show instance 21964380
 
 vastai change bid 21964380 --price='0.01'
+
+
+###### Remove Logos ######
+https://huggingface.co/spaces/EduardoPacheco/Grounding-Dino-Inference
+https://huggingface.co/IDEA-Research/grounding-dino-tiny
+patreon, logo, text
+
+https://huggingface.co/spaces/Sanster/Lama-Cleaner-lama
+https://github.com/Sanster/IOPaint

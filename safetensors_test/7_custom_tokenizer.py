@@ -149,7 +149,7 @@ def main():
         # Get embeddings from text_encoder 2
         text_encoder_2_output = text_encoder_2(tokens_tensor, output_hidden_states=True, return_dict=True)
         prompt_embeds_2 = text_encoder_2_output.hidden_states[-2]
-        pooled_prompt_embeds = text_encoder_2_output.pooler_output
+        pooled_prompt_embeds = text_encoder_2_output.text_embeds
 
         # Concatenate embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)

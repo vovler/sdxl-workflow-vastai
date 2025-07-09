@@ -125,7 +125,7 @@ def main():
             requires_pooled=[False, True]
         )
 
-        prompt_embeds, _, pooled_prompt_embeds, _ = compel(prompt)
+        prompt_embeds, _, pooled_prompt_embeds, _ = compel('("masterpiece, best quality, amazing quality, explicit, 3girls", "left_side aqua_(konosuba), all_fours, anus, pussy, from_behind", "center darkness_(konosuba), all_fours, anus, pussy, anal_sex, from_behind", "right_side megumin, all_fours, anus, pussy, from_behind", "volumetric_lighting, shiny_skin, detailed_background").and()')
         
         # 2. Prepare latents
         print("Preparing latents...")

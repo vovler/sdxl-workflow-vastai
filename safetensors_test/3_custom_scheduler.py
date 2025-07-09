@@ -133,9 +133,9 @@ def main():
         latents = torch.randn(
             (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
             generator=generator,
-            device=device,
+            device="cpu",
             dtype=dtype,
-        )
+        ).to(device)
         
 
         # 3. Prepare timesteps and extra embeds for the denoising loop

@@ -132,9 +132,9 @@ def main():
         latents = torch.randn(
             (batch_size, pipe.unet.config.in_channels, height // 8, width // 8),
             generator=generator,
-            device=device,
+            device="cpu",
             dtype=dtype,
-        )
+        ).to(device)
         # Scale the initial noise by the scheduler's standard deviation
         latents = latents * pipe.scheduler.init_noise_sigma
 

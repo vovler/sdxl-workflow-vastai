@@ -237,15 +237,7 @@ def main():
         )
         print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
 
-        # --- Instantiate Monolithic Module ---
-        print("Instantiating monolithic module...")
-        monolith = MonolithicSDXL(
-            text_encoder_1=text_encoder_1,
-            text_encoder_2=text_encoder_2,
-            unet=unet,
-            vae=vae,
-            scheduler=scheduler,
-        )
+
 
         # --- Manual Inference Process ---
         print("\n=== Starting Manual Inference ===")
@@ -275,6 +267,16 @@ def main():
 
         print(f"Using custom timesteps: {timesteps.tolist()}")
         print(f"Recalculated sigmas: {sigmas.tolist()}")
+
+        # --- Instantiate Monolithic Module ---
+        print("Instantiating monolithic module...")
+        monolith = MonolithicSDXL(
+            text_encoder_1=text_encoder_1,
+            text_encoder_2=text_encoder_2,
+            unet=unet,
+            vae=vae,
+            scheduler=scheduler,
+        )
 
         # Tokenize prompts
         prompt_ids_1 = tokenizer_1(prompt, padding="max_length", max_length=tokenizer_1.model_max_length, truncation=True, return_tensors="pt").input_ids

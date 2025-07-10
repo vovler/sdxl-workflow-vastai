@@ -55,6 +55,7 @@ class DenoisingLoop(nn.Module):
         
         for i in tqdm(range(timesteps.shape[0])):
             t = timesteps[i]
+            print(f"Timestep: {t.item()}")
             sigma_t = sigmas[i]
             
             latent_model_input = latents
@@ -70,6 +71,7 @@ class DenoisingLoop(nn.Module):
 
             # --- Prepare UNet inputs ---
             timestep_input = t.unsqueeze(0)
+            print(f"Timestep input: {timestep_input.item()}")
             added_cond_kwargs_input = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
             
             # --- Debug prints for UNet inputs ---

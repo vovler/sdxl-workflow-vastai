@@ -227,7 +227,7 @@ def main():
                 
                 # --- Prepare UNet inputs ---
                 added_cond_kwargs_input = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
-
+                print(f"Timestep input: {t.item()}")
                 # --- Debug prints for UNet inputs ---
                 print_tensor_stats("UNet latent_model_input", latent_model_input)
                 print_tensor_stats("UNet timestep", t)

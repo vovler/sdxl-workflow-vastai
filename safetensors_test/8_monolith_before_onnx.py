@@ -15,6 +15,23 @@ from tqdm import tqdm
 import numpy as np
 import argparse
 
+def print_tensor_stats(name, tensor):
+    """Prints detailed statistics for a given tensor."""
+    print(f"--- {name} ---")
+    if tensor is None:
+        print("  Tensor is None")
+        return
+    print(f"  Shape: {tensor.shape}")
+    if tensor.numel() > 0:
+        # Cast to float32 for stats to avoid issues with other types
+        tensor_float = tensor.float()
+        print(f"  Mean:  {tensor_float.mean().item():.4f}")
+        print(f"  Min:   {tensor_float.min().item():.4f}")
+        print(f"  Max:   {tensor_float.max().item():.4f}")
+        print(f"  Has NaN: {torch.isnan(tensor_float).any().item()}")
+        print(f"  Has Inf: {torch.isinf(tensor_float).any().item()}")
+    print(f"  Dtype: {tensor.dtype}")
+
 # DenoisingLoop class remains unchanged.
 class DenoisingLoop(nn.Module):
     def __init__(self, unet: nn.Module, scheduler: EulerDiscreteScheduler):
@@ -46,10 +63,21 @@ class DenoisingLoop(nn.Module):
             latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
             print(f"\n--- Step {i} ---")
             print(f"Latent Input (scaled): min={latent_model_input.min():.4f}, max={latent_model_input.max():.4f}, mean={latent_model_input.mean():.4f}")
+            # --- Prepare UNet inputs ---
+            timestep_input = t.unsqueeze(0)
+            added_cond_kwargs_input = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
+            
+            # --- Debug prints for UNet inputs ---
+            print(f"\n--- Monolith UNet Inputs: Step {i} ---")
+            print_tensor_stats("latent_model_input", latent_model_input)
+            print_tensor_stats("timestep", timestep_input)
+            print_tensor_stats("encoder_hidden_states", text_embeddings)
+            print_tensor_stats("added_cond_kwargs['text_embeds']", added_cond_kwargs_input["text_embeds"])
+            print_tensor_stats("added_cond_kwargs['time_ids']", added_cond_kwargs_input["time_ids"])
 
-            noise_pred = self.unet(latent_model_input, t.unsqueeze(0),
+            noise_pred = self.unet(latent_model_input, timestep_input,
                                    encoder_hidden_states=text_embeddings,
-                                   added_cond_kwargs={"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids},
+                                   added_cond_kwargs=added_cond_kwargs_input,
                                    return_dict=False)[0]
             print(f"Noise Pred: min={noise_pred.min():.4f}, max={noise_pred.max():.4f}, mean={noise_pred.mean():.4f}")
 

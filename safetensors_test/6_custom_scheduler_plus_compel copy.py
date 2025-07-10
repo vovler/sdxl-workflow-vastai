@@ -209,8 +209,16 @@ def main():
                 print(f"\n--- Step {i} ---")
                 print(f"Latent Input (scaled): min={latent_model_input.min():.4f}, max={latent_model_input.max():.4f}, mean={latent_model_input.mean():.4f}")
                 
-                # Prepare added conditioning signals
-                added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
+                # --- Prepare UNet inputs ---
+                added_cond_kwargs_input = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
+
+                # --- Debug prints for UNet inputs ---
+                print(f"\n--- Reference UNet Inputs: Step {i} ---")
+                print_tensor_stats("latent_model_input", latent_model_input)
+                print_tensor_stats("timestep", t)
+                print_tensor_stats("encoder_hidden_states", prompt_embeds)
+                print_tensor_stats("added_cond_kwargs['text_embeds']", added_cond_kwargs_input["text_embeds"])
+                print_tensor_stats("added_cond_kwargs['time_ids']", added_cond_kwargs_input["time_ids"])
 
                 # Predict the noise residual
                 noise_pred = pipe.unet(
@@ -218,7 +226,7 @@ def main():
                     t,
                     encoder_hidden_states=prompt_embeds,
                     cross_attention_kwargs=None,
-                    added_cond_kwargs=added_cond_kwargs,
+                    added_cond_kwargs=added_cond_kwargs_input,
                     return_dict=False,
                 )[0]
                 print(f"Noise Pred: min={noise_pred.min():.4f}, max={noise_pred.max():.4f}, mean={noise_pred.mean():.4f}")

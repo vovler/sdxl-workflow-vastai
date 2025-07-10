@@ -97,7 +97,7 @@ class DenoisingLoop(nn.Module):
             
             # 2b. Add ancestral noise
             noise_std = torch.sqrt(sigma_t**2 - sigma_next**2)
-            ancestral_noise = torch.randn_like(latents, generator=generator) * noise_std
+            ancestral_noise = torch.randn(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype) * noise_std
             latents = denoised_latents + ancestral_noise
             
             print_tensor_stats("Latents after Euler Ancestral step", latents)

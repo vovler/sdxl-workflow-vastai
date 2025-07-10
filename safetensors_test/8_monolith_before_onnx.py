@@ -92,7 +92,9 @@ class MonolithicSDXL(nn.Module):
         initial_latents = torch.randn(latents_shape, generator=generator, device=device, dtype=torch.float16)
         
         # --- Encode prompts ---
-        prompt_embeds_1 = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)[0]
+        prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
+        prompt_embeds_1 = prompt_embeds_1_out[0]
+        
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
         prompt_embeds_2 = text_encoder_2_out[0]
         pooled_prompt_embeds = text_encoder_2_out[1]

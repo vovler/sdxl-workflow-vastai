@@ -161,11 +161,11 @@ class MonolithicSDXL(nn.Module):
         final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas, generator)
         
         final_latents = final_latents / self.vae_scale_factor
-        image = self.vae_decoder(final_latents.to(torch.float32), return_dict=False)[0]
+        image = self.vae_decoder(final_latents, return_dict=False)[0]
 
         # --- The NEW "Ready-to-Save" Post-Processing Block ---
         image = (image / 2 + 0.5).clamp(0, 1)
-        image = image.permute(0, 2, 3, 1)
+        image = image.cpu().permute(0, 2, 3, 1).float()
         image = (image * 255.0).round().to(torch.uint8)
         
         return image

@@ -5,6 +5,7 @@ from diffusers import (
     UNet2DConditionModel,
     AutoencoderKL,
     EulerDiscreteScheduler,
+    EulerAncestralDiscreteScheduler,
 )
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from pathlib import Path
@@ -34,7 +35,7 @@ class DenoisingLoop(nn.Module):
     def __init__(self, unet: nn.Module, scheduler: EulerDiscreteScheduler):
         super().__init__()
         self.unet = unet
-        self.scheduler = scheduler
+        # self.scheduler = scheduler
         self.init_sigma = scheduler.init_noise_sigma
 
     def forward(
@@ -59,10 +60,10 @@ class DenoisingLoop(nn.Module):
             latent_model_input = latents
             
             # scale the model input by the current sigma
-            # latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
+            latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
             
             # Use scheduler for now
-            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+            # latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             print(f"\n--- Monolith DenoisingLoop: Step {i} ---")
             print_tensor_stats("Latent Input (scaled)", latent_model_input)
 
@@ -89,14 +90,17 @@ class DenoisingLoop(nn.Module):
                 sigma_next = torch.tensor(0.0, device=sigmas.device)
             
             # 2. compute previous image: x_t -> x_t-1
-            # "Euler" method
-            # dt = sigma_next - sigma_t
-            # latents = latents + noise_pred * dt
-            # print_tensor_stats("Latents after Euler step", latents)
+            # "Euler Ancestral" method
+            # 2a. Denoise with a standard Euler step
+            dt = sigma_next - sigma_t
+            denoised_latents = latents + noise_pred * dt
             
-            # Use scheduler for now
-            latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
-            print_tensor_stats("Latents after scheduler step", latents)
+            # 2b. Add ancestral noise
+            noise_std = torch.sqrt(sigma_t**2 - sigma_next**2)
+            ancestral_noise = torch.randn_like(latents, generator=generator) * noise_std
+            latents = denoised_latents + ancestral_noise
+            
+            print_tensor_stats("Latents after Euler Ancestral step", latents)
         return latents
 
 # --- The Final, "Ready-to-Save" Monolithic Module ---
@@ -223,10 +227,10 @@ def main():
         unet.to(device)
         unet.enable_xformers_memory_efficient_attention()
 
-        scheduler = EulerDiscreteScheduler.from_config(
+        scheduler = EulerAncestralDiscreteScheduler.from_config(
             str(base_dir / "scheduler"), timestep_spacing="trailing" # linspace or trailing
         )
-        print(f"✓ Scheduler set to EulerDiscreteScheduler with 'trailing' spacing.")
+        print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'trailing' spacing.")
 
         # --- Instantiate Monolithic Module ---
         print("Instantiating monolithic module...")

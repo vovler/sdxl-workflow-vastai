@@ -34,6 +34,7 @@ class DenoisingLoop(nn.Module):
     def __init__(self, unet: nn.Module, scheduler: EulerDiscreteScheduler):
         super().__init__()
         self.unet = unet
+        self.scheduler = scheduler
         self.init_sigma = scheduler.init_noise_sigma
 
     def forward(
@@ -43,7 +44,8 @@ class DenoisingLoop(nn.Module):
         pooled_prompt_embeds: torch.Tensor,
         add_time_ids: torch.Tensor,
         timesteps: torch.Tensor,
-        sigmas: torch.Tensor
+        sigmas: torch.Tensor,
+        generator: torch.Generator
     ) -> torch.Tensor:
         print(f"Latents before noise sigma scaling: min={initial_latents.min():.4f}, max={initial_latents.max():.4f}, mean={initial_latents.mean():.4f}")
         print(f"Initial noise sigma: {self.init_sigma}")
@@ -85,9 +87,13 @@ class DenoisingLoop(nn.Module):
             
             # 2. compute previous image: x_t -> x_t-1
             # "Euler" method
-            dt = sigma_next - sigma_t
-            latents = latents + noise_pred * dt
-            print_tensor_stats("Latents after Euler step", latents)
+            # dt = sigma_next - sigma_t
+            # latents = latents + noise_pred * dt
+            # print_tensor_stats("Latents after Euler step", latents)
+            
+            # Use scheduler for now
+            latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
+            print_tensor_stats("Latents after scheduler step", latents)
         return latents
 
 # --- The Final, "Ready-to-Save" Monolithic Module ---
@@ -141,7 +147,7 @@ class MonolithicSDXL(nn.Module):
         # Concatenate the 3D prompt embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
         
-        final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas)
+        final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas, generator)
         
         final_latents = final_latents / self.vae_scale_factor
         image = self.vae_decoder(final_latents, return_dict=False)[0]

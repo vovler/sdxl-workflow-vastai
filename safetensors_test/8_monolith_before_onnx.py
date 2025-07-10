@@ -96,9 +96,29 @@ class MonolithicSDXL(nn.Module):
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
 
         print("--- prompt_embeds_1_out ---")
-        print(prompt_embeds_1_out)
+        for i, tensor in enumerate(prompt_embeds_1_out):
+            # The 'hidden_states' output is a tuple of tensors, so we skip it in this simple stats view
+            if tensor is not None and torch.is_tensor(tensor):
+                print(f"  Index {i}:")
+                print(f"    Shape: {tensor.shape}")
+                print(f"    Min: {tensor.min().item():.4f}")
+                print(f"    Mean: {tensor.mean().item():.4f}")
+                print(f"    Max: {tensor.max().item():.4f}")
+                print(f"    Has NaN: {torch.isnan(tensor).any().item()}")
+                print(f"    Has Inf: {torch.isinf(tensor).any().item()}")
+
         print("\n--- text_encoder_2_out ---")
-        print(text_encoder_2_out)
+        for i, tensor in enumerate(text_encoder_2_out):
+            # The 'hidden_states' output is a tuple of tensors, so we skip it in this simple stats view
+            if tensor is not None and torch.is_tensor(tensor):
+                print(f"  Index {i}:")
+                print(f"    Shape: {tensor.shape}")
+                print(f"    Min: {tensor.min().item():.4f}")
+                print(f"    Mean: {tensor.mean().item():.4f}")
+                print(f"    Max: {tensor.max().item():.4f}")
+                print(f"    Has NaN: {torch.isnan(tensor).any().item()}")
+                print(f"    Has Inf: {torch.isinf(tensor).any().item()}")
+
         sys.exit(0)
         
         # Get the output from the first text encoder

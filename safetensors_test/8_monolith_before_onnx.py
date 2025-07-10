@@ -76,7 +76,7 @@ class DenoisingLoop(nn.Module):
             
             # --- Debug prints for UNet inputs ---
             print_tensor_stats("UNet latent_model_input", latent_model_input)
-            print_tensor_stats("UNet timestep", timestep_input)
+            print_tensor_stats("UNet timestep", t)
             print_tensor_stats("UNet encoder_hidden_states", text_embeddings)
             print_tensor_stats("UNet added_cond_kwargs['text_embeds']", added_cond_kwargs_input["text_embeds"])
             print_tensor_stats("UNet added_cond_kwargs['time_ids']", added_cond_kwargs_input["time_ids"])

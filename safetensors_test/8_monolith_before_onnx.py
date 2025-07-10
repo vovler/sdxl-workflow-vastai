@@ -251,6 +251,8 @@ def main():
         
         scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = torch.tensor([999, 749, 499, 249, 187, 125, 63, 1], device=device)
+        timesteps_np = np.array(timesteps)
+        scheduler.timesteps = torch.from_numpy(timesteps_np).to(device)
         
         sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
         sigmas = np.interp(timesteps.cpu().numpy(), np.arange(0, len(sigmas)), sigmas)

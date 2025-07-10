@@ -95,30 +95,32 @@ class MonolithicSDXL(nn.Module):
         prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
 
-        print("--- prompt_embeds_1_out ---")
-        for i, tensor in enumerate(prompt_embeds_1_out):
-            # The 'hidden_states' output is a tuple of tensors, so we skip it in this simple stats view
+        def print_tensor_stats(name, tensor):
+            print(f"  --- {name} ---")
             if tensor is not None and torch.is_tensor(tensor):
-                print(f"  Index {i}:")
                 print(f"    Shape: {tensor.shape}")
                 print(f"    Min: {tensor.min().item():.4f}")
                 print(f"    Mean: {tensor.mean().item():.4f}")
                 print(f"    Max: {tensor.max().item():.4f}")
                 print(f"    Has NaN: {torch.isnan(tensor).any().item()}")
                 print(f"    Has Inf: {torch.isinf(tensor).any().item()}")
+            else:
+                print(f"    Tensor is None or not a tensor.")
 
-        print("\n--- text_encoder_2_out ---")
-        for i, tensor in enumerate(text_encoder_2_out):
-            # The 'hidden_states' output is a tuple of tensors, so we skip it in this simple stats view
-            if tensor is not None and torch.is_tensor(tensor):
-                print(f"  Index {i}:")
-                print(f"    Shape: {tensor.shape}")
-                print(f"    Min: {tensor.min().item():.4f}")
-                print(f"    Mean: {tensor.mean().item():.4f}")
-                print(f"    Max: {tensor.max().item():.4f}")
-                print(f"    Has NaN: {torch.isnan(tensor).any().item()}")
-                print(f"    Has Inf: {torch.isinf(tensor).any().item()}")
-
+        print("--- prompt_embeds_1_out.hidden_states ---")
+        if hasattr(prompt_embeds_1_out, 'hidden_states') and prompt_embeds_1_out.hidden_states is not None:
+            for i, tensor in enumerate(prompt_embeds_1_out.hidden_states):
+                print_tensor_stats(f"Hidden State {i}", tensor)
+        
+        print("\n--- text_encoder_2_out.hidden_states ---")
+        if hasattr(text_encoder_2_out, 'hidden_states') and text_encoder_2_out.hidden_states is not None:
+            for i, tensor in enumerate(text_encoder_2_out.hidden_states):
+                print_tensor_stats(f"Hidden State {i}", tensor)
+        
+        print("\n--- text_encoder_2_out.text_embeds ---")
+        if hasattr(text_encoder_2_out, 'text_embeds'):
+            print_tensor_stats("Text Embeds", text_encoder_2_out.text_embeds)
+        
         sys.exit(0)
         
         # Get the output from the first text encoder

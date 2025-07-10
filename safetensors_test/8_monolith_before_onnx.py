@@ -65,6 +65,7 @@ class DenoisingLoop(nn.Module):
             # Use scheduler for now
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             print(f"\n--- Monolith DenoisingLoop: Step {i} ---")
+            print(f"Timestep: {t.item()}, Sigma: {sigma_t.item():.4f}")
             print_tensor_stats("Latent Input (scaled)", latent_model_input)
 
             # --- Prepare UNet inputs ---

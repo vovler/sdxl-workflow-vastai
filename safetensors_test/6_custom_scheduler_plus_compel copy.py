@@ -221,6 +221,8 @@ def main():
                 
                 latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
                 print(f"\n--- Reference DenoisingLoop: Step {i} ---")
+                current_sigma = pipe.scheduler.sigmas[i]
+                print(f"Timestep: {t.item()}, Sigma: {current_sigma.item():.4f}")
                 print_tensor_stats("Latent Input (scaled)", latent_model_input)
                 
                 # --- Prepare UNet inputs ---

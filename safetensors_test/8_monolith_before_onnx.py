@@ -106,7 +106,7 @@ class DenoisingLoop(nn.Module):
             # print_tensor_stats("Latents after Euler Ancestral step", latents)
 
             # Use scheduler for now
-            latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
+            latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False).prev_sample
             print_tensor_stats("Latents after scheduler step", latents)
         return latents
 
@@ -163,6 +163,7 @@ class MonolithicSDXL(nn.Module):
         
         final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas, generator)
         
+        print(f"VAE Scale Factor: {self.vae_scale_factor}")
         final_latents = final_latents / self.vae_scale_factor
         image = self.vae_decoder(final_latents, return_dict=False)[0]
 

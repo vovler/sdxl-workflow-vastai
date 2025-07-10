@@ -138,7 +138,7 @@ class MonolithicSDXL(nn.Module):
             print_tensor_stats(f"Hidden State {i}", tensor)
         
         # Use the last hidden state as requested
-        prompt_embeds_1 = prompt_embeds_1_out.hidden_states[-1]
+        prompt_embeds_1 = prompt_embeds_1_out.hidden_states[-2]
 
         # Get the output from the second text encoder
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
@@ -151,7 +151,7 @@ class MonolithicSDXL(nn.Module):
         print_tensor_stats("text_embeds", text_encoder_2_out.text_embeds)
 
         # Use the second-to-last hidden state as requested
-        prompt_embeds_2 = text_encoder_2_out.hidden_states[-2]
+        prompt_embeds_2 = text_encoder_2_out.hidden_states[-1]
         # Get the pooled and projected output
         pooled_prompt_embeds = text_encoder_2_out.text_embeds
 
@@ -161,7 +161,6 @@ class MonolithicSDXL(nn.Module):
         print("\n--- final prompt_embeds after concat ---")
         print_tensor_stats("prompt_embeds", prompt_embeds)
         
-        sys.exit(0)
         
         final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas)
         

@@ -186,7 +186,6 @@ def main():
     )
     parser.add_argument("--random", action="store_true", help="Use a random seed for generation.")
     parser.add_argument("--seed", type=int, default=1020094661, help="The seed to use for generation.")
-    parser.add_argument("--batch", type=int, default=1, help="Number of images to generate in a loop.")
     args = parser.parse_args()
 
     with torch.no_grad():
@@ -282,47 +281,44 @@ def main():
         prompt_ids_1 = tokenizer_1(prompt, padding="max_length", max_length=tokenizer_1.model_max_length, truncation=True, return_tensors="pt").input_ids
         prompt_ids_2 = tokenizer_2(prompt, padding="max_length", max_length=tokenizer_2.model_max_length, truncation=True, return_tensors="pt").input_ids
 
-        for batch_idx in range(args.batch):
-            if args.random:
-                seed = torch.randint(0, 2**32 - 1, (1,)).item()
-            else:
-                seed = args.seed + batch_idx
-            
-            print(f"\n--- Generating image {batch_idx+1}/{args.batch} with seed: {seed} ---")
-            generator = torch.Generator(device="cuda").manual_seed(seed)
-            
-            script_name = Path(__file__).stem
-            image_idx = 0
-            while True:
-                output_path = f"{script_name}__{image_idx:04d}.png"
-                if not Path(output_path).exists():
-                    break
-                image_idx += 1
-
-            start_time = time.time()
-            
-            # --- Call the monolith ---
-            image_tensor_uint8 = monolith(
-                prompt_ids_1=prompt_ids_1.to(device),
-                prompt_ids_2=prompt_ids_2.to(device),
-                timesteps=timesteps,
-                sigmas=sigmas,
-                height=torch.tensor(height),
-                width=torch.tensor(width),
-                generator=generator,
-            )
-
-            end_time = time.time()
-            print(f"Monolith execution took: {end_time - start_time:.4f} seconds")
-            
-            # --- Save final image ---
-            print(f"Saving final image to {output_path}...")
-            image = Image.fromarray(image_tensor_uint8.cpu().numpy()[0])
-            image.save(output_path)
-            
-            print("✓ Image generated successfully!")
+        if args.random:
+            seed = torch.randint(0, 2**32 - 1, (1,)).item()
+        else:
+            seed = args.seed
         
-        print("\n✓ Batch generation complete!")
+        print(f"\n--- Generating image with seed: {seed} ---")
+        generator = torch.Generator(device="cuda").manual_seed(seed)
+        
+        script_name = Path(__file__).stem
+        image_idx = 0
+        while True:
+            output_path = f"{script_name}__{image_idx:04d}.png"
+            if not Path(output_path).exists():
+                break
+            image_idx += 1
+
+        start_time = time.time()
+        
+        # --- Call the monolith ---
+        image_tensor_uint8 = monolith(
+            prompt_ids_1=prompt_ids_1.to(device),
+            prompt_ids_2=prompt_ids_2.to(device),
+            timesteps=timesteps,
+            sigmas=sigmas,
+            height=torch.tensor(height),
+            width=torch.tensor(width),
+            generator=generator,
+        )
+
+        end_time = time.time()
+        print(f"Monolith execution took: {end_time - start_time:.4f} seconds")
+        
+        # --- Save final image ---
+        print(f"Saving final image to {output_path}...")
+        image = Image.fromarray(image_tensor_uint8.cpu().numpy()[0])
+        image.save(output_path)
+        
+        print("✓ Image generated successfully!")
 
 if __name__ == "__main__":
     main()

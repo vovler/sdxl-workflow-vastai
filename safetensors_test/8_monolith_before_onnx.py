@@ -232,9 +232,9 @@ def main():
         unet.enable_xformers_memory_efficient_attention()
 
         scheduler = EulerAncestralDiscreteScheduler.from_config(
-            str(base_dir / "scheduler"), timestep_spacing="trailing" # linspace or trailing
+            str(base_dir / "scheduler"), timestep_spacing="linspace" # linspace or trailing
         )
-        print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'trailing' spacing.")
+        print(f"✓ Scheduler set to EulerAncestralDiscreteScheduler with 'linspace' spacing.")
 
         # --- Instantiate Monolithic Module ---
         print("Instantiating monolithic module...")

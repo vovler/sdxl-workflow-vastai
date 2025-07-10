@@ -44,8 +44,8 @@ class DenoisingLoop(nn.Module):
         text_embeddings: torch.Tensor,
         pooled_prompt_embeds: torch.Tensor,
         add_time_ids: torch.Tensor,
-        timesteps: torch.Tensor,
-        sigmas: torch.Tensor,
+        #timesteps: torch.Tensor,
+        #sigmas: torch.Tensor,
         generator: torch.Generator
     ) -> torch.Tensor:
         print(f"Latents before noise sigma scaling: min={initial_latents.min():.4f}, max={initial_latents.max():.4f}, mean={initial_latents.mean():.4f}")
@@ -53,10 +53,11 @@ class DenoisingLoop(nn.Module):
         latents = initial_latents * self.init_sigma
         print(f"Latents after noise sigma scaling:  min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
         
-        for i in tqdm(range(timesteps.shape[0])):
-            t = timesteps[i]
+        #for i in tqdm(range(timesteps.shape[0])):
+        for i, t in enumerate(tqdm(timesteps)):
+            # t = timesteps[i]
             print(f"Timestep: {t.item()}")
-            sigma_t = sigmas[i]
+            #sigma_t = sigmas[i]
             
             latent_model_input = latents
             
@@ -66,7 +67,7 @@ class DenoisingLoop(nn.Module):
             # Use scheduler for now
             latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             print(f"\n--- Monolith DenoisingLoop: Step {i} ---")
-            print(f"Timestep: {t.item()}, Sigma: {sigma_t.item():.4f}")
+            #print(f"Timestep: {t.item()}, Sigma: {sigma_t.item():.4f}")
             print_tensor_stats("Latent Input (scaled)", latent_model_input)
 
             # --- Prepare UNet inputs ---
@@ -87,10 +88,10 @@ class DenoisingLoop(nn.Module):
                                    return_dict=False)[0]
             print_tensor_stats("Noise Pred", noise_pred)
 
-            if i < sigmas.shape[0] - 1:
-                sigma_next = sigmas[i + 1]
-            else:
-                sigma_next = torch.tensor(0.0, device=sigmas.device)
+            #if i < sigmas.shape[0] - 1:
+            #    sigma_next = sigmas[i + 1]
+            #else:
+            #    sigma_next = torch.tensor(0.0, device=sigmas.device)
             
             # 2. compute previous image: x_t -> x_t-1
             # "Euler Ancestral" method
@@ -245,30 +246,30 @@ def main():
         print("\n=== Starting Manual Inference ===")
         
         scheduler.set_timesteps(num_inference_steps, device=device)
-        timesteps = torch.tensor([999, 749, 499, 249, 187, 125, 63, 1], device=device)
-        scheduler.timesteps = timesteps
+        #timesteps = torch.tensor([999, 749, 499, 249, 187, 125, 63, 1], device=device)
+        #scheduler.timesteps = timesteps
         
-        # Calculate sigmas using pure PyTorch on the correct device
-        alphas_cumprod = scheduler.alphas_cumprod.to(device)
-        all_sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
+        ## Calculate sigmas using pure PyTorch on the correct device
+        #alphas_cumprod = scheduler.alphas_cumprod.to(device)
+        #all_sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
         
-        # Simple 1D linear interpolation in PyTorch
-        # Get the indices and weights for interpolation
-        indices = timesteps / (scheduler.config.num_train_timesteps - 1) * (len(all_sigmas) - 1)
-        low_indices = indices.floor().long()
-        high_indices = indices.ceil().long()
-        weights = indices.frac()
+        ## Simple 1D linear interpolation in PyTorch
+        ## Get the indices and weights for interpolation
+        #indices = timesteps / (scheduler.config.num_train_timesteps - 1) * (len(all_sigmas) - 1)
+        #low_indices = indices.floor().long()
+        #high_indices = indices.ceil().long()
+        #weights = indices.frac()
         
         # Interpolate
-        low_sigmas = all_sigmas[low_indices]
-        high_sigmas = all_sigmas[high_indices]
-        sigmas = torch.lerp(low_sigmas, high_sigmas, weights)
+        #low_sigmas = all_sigmas[low_indices]
+        #high_sigmas = all_sigmas[high_indices]
+        #sigmas = torch.lerp(low_sigmas, high_sigmas, weights)
 
         # Add the final sigma (0.0)
-        sigmas = torch.cat([sigmas, torch.tensor([0.0], device=device)])
+        #sigmas = torch.cat([sigmas, torch.tensor([0.0], device=device)])
 
-        print(f"Using custom timesteps: {timesteps.tolist()}")
-        print(f"Recalculated sigmas: {sigmas.tolist()}")
+        #print(f"Using custom timesteps: {timesteps.tolist()}")
+        #print(f"Recalculated sigmas: {sigmas.tolist()}")
 
         # --- Instantiate Monolithic Module ---
         print("Instantiating monolithic module...")
@@ -306,8 +307,8 @@ def main():
         image_tensor_uint8 = monolith(
             prompt_ids_1=prompt_ids_1.to(device),
             prompt_ids_2=prompt_ids_2.to(device),
-            timesteps=timesteps,
-            sigmas=sigmas,
+            #timesteps=timesteps,
+            #sigmas=sigmas,
             height=torch.tensor(height),
             width=torch.tensor(width),
             generator=generator,

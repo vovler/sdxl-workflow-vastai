@@ -35,7 +35,7 @@ class DenoisingLoop(nn.Module):
     def __init__(self, unet: nn.Module, scheduler: EulerDiscreteScheduler):
         super().__init__()
         self.unet = unet
-        # self.scheduler = scheduler
+        self.scheduler = scheduler
         self.init_sigma = scheduler.init_noise_sigma
 
     def forward(
@@ -60,10 +60,10 @@ class DenoisingLoop(nn.Module):
             latent_model_input = latents
             
             # scale the model input by the current sigma
-            latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
+            # latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
             
             # Use scheduler for now
-            # latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             print(f"\n--- Monolith DenoisingLoop: Step {i} ---")
             print_tensor_stats("Latent Input (scaled)", latent_model_input)
 
@@ -92,15 +92,19 @@ class DenoisingLoop(nn.Module):
             # 2. compute previous image: x_t -> x_t-1
             # "Euler Ancestral" method
             # 2a. Denoise with a standard Euler step
-            dt = sigma_next - sigma_t
-            denoised_latents = latents + noise_pred * dt
+            # dt = sigma_next - sigma_t
+            # denoised_latents = latents + noise_pred * dt
             
             # 2b. Add ancestral noise
-            noise_std = torch.sqrt(sigma_t**2 - sigma_next**2)
-            ancestral_noise = torch.randn(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype) * noise_std
-            latents = denoised_latents + ancestral_noise
+            # noise_std = torch.sqrt(sigma_t**2 - sigma_next**2)
+            # ancestral_noise = torch.randn(latents.shape, generator=generator, device=latents.device, dtype=latents.dtype) * noise_std
+            # latents = denoised_latents + ancestral_noise
             
-            print_tensor_stats("Latents after Euler Ancestral step", latents)
+            # print_tensor_stats("Latents after Euler Ancestral step", latents)
+
+            # Use scheduler for now
+            latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
+            print_tensor_stats("Latents after scheduler step", latents)
         return latents
 
 # --- The Final, "Ready-to-Save" Monolithic Module ---

@@ -251,13 +251,26 @@ def main():
         
         scheduler.set_timesteps(num_inference_steps, device=device)
         timesteps = torch.tensor([999, 749, 499, 249, 187, 125, 63, 1], device=device)
-        timesteps_np = np.array(timesteps)
-        scheduler.timesteps = torch.from_numpy(timesteps_np).to(device)
+        scheduler.timesteps = timesteps
         
-        sigmas = np.array(((1 - scheduler.alphas_cumprod.cpu().numpy()) / scheduler.alphas_cumprod.cpu().numpy()) ** 0.5)
-        sigmas = np.interp(timesteps.cpu().numpy(), np.arange(0, len(sigmas)), sigmas)
-        sigmas = np.concatenate([sigmas, [0.0]]).astype(np.float32)
-        sigmas = torch.from_numpy(sigmas).to(device=device)
+        # Calculate sigmas using pure PyTorch on the correct device
+        alphas_cumprod = scheduler.alphas_cumprod.to(device)
+        all_sigmas = ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5
+        
+        # Simple 1D linear interpolation in PyTorch
+        # Get the indices and weights for interpolation
+        indices = timesteps / (scheduler.config.num_train_timesteps - 1) * (len(all_sigmas) - 1)
+        low_indices = indices.floor().long()
+        high_indices = indices.ceil().long()
+        weights = indices.frac()
+        
+        # Interpolate
+        low_sigmas = all_sigmas[low_indices]
+        high_sigmas = all_sigmas[high_indices]
+        sigmas = torch.lerp(low_sigmas, high_sigmas, weights)
+
+        # Add the final sigma (0.0)
+        sigmas = torch.cat([sigmas, torch.tensor([0.0], device=device)])
 
         print(f"Using custom timesteps: {timesteps.tolist()}")
         print(f"Recalculated sigmas: {sigmas.tolist()}")

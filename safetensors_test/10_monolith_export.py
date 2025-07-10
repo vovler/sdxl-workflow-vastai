@@ -79,7 +79,7 @@ class ONNXEulerAncestralDiscreteScheduler(nn.Module):
         
         self.register_buffer('sigmas', sigmas_buffer.to(dtype=dtype))
         self.register_buffer('timesteps', timesteps)
-        self.register_buffer('init_noise_sigma', torch.tensor(init_noise_sigma_val, dtype=dtype))
+        self.register_buffer('init_noise_sigma', init_noise_sigma_val.clone().detach().to(dtype=dtype))
 
     def scale_model_input(self, sample: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
         """Scales the model input by 1 / sqrt(sigma^2 + 1)."""

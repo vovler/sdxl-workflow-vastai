@@ -65,6 +65,11 @@ def main():
     try:
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        
+        # Use all available CPU cores for loading and CPU operations to speed up initialization
+        sess_options.inter_op_num_threads = 0
+        sess_options.intra_op_num_threads = 0
+
         ort_session = ort.InferenceSession(args.onnx_path, sess_options=sess_options, providers=providers)
     except Exception as e:
         print(f"✗ Error loading ONNX session: {e}")

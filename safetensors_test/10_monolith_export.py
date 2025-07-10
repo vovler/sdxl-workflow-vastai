@@ -10,6 +10,7 @@ from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjecti
 from pathlib import Path
 import sys
 import argparse
+import gc
 
 def print_tensor_stats(name, tensor):
     """Prints detailed statistics for a given tensor on a single line."""
@@ -212,20 +213,24 @@ def main():
     # --- Load Model Components ---
     print("=== Loading models ===")
     
-    vae = AutoencoderKL.from_pretrained(base_dir / "vae", torch_dtype=dtype)
+    vae = AutoencoderKL.from_pretrained(base_dir / "vae", torch_dtype=dtype).to(device)
     
     tokenizer_1 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
     tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
     
     text_encoder_1 = CLIPTextModel.from_pretrained(
         str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
-    )
+    ).to(device)
     text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
         str(base_dir), subfolder="text_encoder_2", torch_dtype=dtype, use_safetensors=True
-    )
+    ).to(device)
     unet = UNet2DConditionModel.from_pretrained(
         str(base_dir / "unet"), torch_dtype=dtype, use_safetensors=True
-    )
+    ).to(device)
+    
+    # --- Memory Optimization ---
+    print("Enabling memory-efficient attention...")
+    unet.enable_xformers_memory_efficient_attention()
     
     # --- Instantiate Monolithic Module ---
     print("Instantiating monolithic module...")
@@ -245,7 +250,13 @@ def main():
         unet=unet,
         vae=vae,
         scheduler_module=onnx_scheduler,
-    ).to(device).eval()
+    ).eval()
+
+    # --- Clean up memory ---
+    print("Cleaning up memory before export...")
+    del text_encoder_1, text_encoder_2, vae # Keep unet for config
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # --- Create Dummy Inputs for ONNX Export ---
     print("\n=== Creating dummy inputs for ONNX export ===")
@@ -256,6 +267,9 @@ def main():
     dummy_prompt_ids_1 = torch.randint(0, tokenizer_1.vocab_size, (batch_size, max_length_1), dtype=torch.int64, device=device)
     dummy_prompt_ids_2 = torch.randint(0, tokenizer_2.vocab_size, (batch_size, max_length_2), dtype=torch.int64, device=device)
     
+    del tokenizer_1, tokenizer_2
+    gc.collect()
+
     latents_shape = (batch_size, unet.config.in_channels, height // 8, width // 8)
     dummy_initial_latents = torch.randn(latents_shape, device=device, dtype=dtype)
     
@@ -264,6 +278,10 @@ def main():
     
     dummy_add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], device=device, dtype=dtype).repeat(batch_size, 1)
     
+    del unet # No longer needed
+    gc.collect()
+    torch.cuda.empty_cache()
+
     dummy_inputs = (
         dummy_prompt_ids_1,
         dummy_prompt_ids_2,

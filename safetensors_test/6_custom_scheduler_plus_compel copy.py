@@ -19,6 +19,23 @@ import numpy as np
 import argparse
 from compel import Compel, ReturnedEmbeddingsType
 
+def print_tensor_stats(name, tensor):
+    """Prints detailed statistics for a given tensor."""
+    print(f"--- {name} ---")
+    if tensor is None:
+        print("  Tensor is None")
+        return
+    print(f"  Shape: {tensor.shape}")
+    if tensor.numel() > 0:
+        # Cast to float32 for stats to avoid issues with other types
+        tensor_float = tensor.float()
+        print(f"  Mean:  {tensor_float.mean().item():.4f}")
+        print(f"  Min:   {tensor_float.min().item():.4f}")
+        print(f"  Max:   {tensor_float.max().item():.4f}")
+        print(f"  Has NaN: {torch.isnan(tensor_float).any().item()}")
+        print(f"  Has Inf: {torch.isinf(tensor_float).any().item()}")
+    print(f"  Dtype: {tensor.dtype}")
+    
 def main():
     """
     Generates an image with SDXL using an UNet, a separate VAE, and a LoRA.

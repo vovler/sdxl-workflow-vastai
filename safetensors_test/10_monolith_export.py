@@ -230,8 +230,8 @@ def main():
         ).to(device)
         
         # --- Memory Optimization ---
-        print("Enabling memory-efficient attention...")
-        unet.enable_xformers_memory_efficient_attention()
+        # print("Enabling memory-efficient attention...")
+        # unet.enable_xformers_memory_efficient_attention()
         
         # --- Instantiate Monolithic Module ---
         print("Instantiating monolithic module...")

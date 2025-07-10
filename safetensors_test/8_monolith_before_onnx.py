@@ -106,7 +106,7 @@ class DenoisingLoop(nn.Module):
             # print_tensor_stats("Latents after Euler Ancestral step", latents)
 
             # Use scheduler for now
-            latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False).prev_sample
+            latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
             print_tensor_stats("Latents after scheduler step", latents)
         return latents
 

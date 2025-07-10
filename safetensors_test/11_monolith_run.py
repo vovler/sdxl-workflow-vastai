@@ -63,7 +63,9 @@ def main():
 
     providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
     try:
-        ort_session = ort.InferenceSession(args.onnx_path, providers=providers)
+        sess_options = ort.SessionOptions()
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        ort_session = ort.InferenceSession(args.onnx_path, sess_options=sess_options, providers=providers)
     except Exception as e:
         print(f"✗ Error loading ONNX session: {e}")
         sys.exit(1)

@@ -54,7 +54,7 @@ class DenoisingLoop(nn.Module):
         print(f"Latents after noise sigma scaling:  min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
         
         #for i in tqdm(range(timesteps.shape[0])):
-        for i, t in enumerate(tqdm(timesteps)):
+        for i, t in enumerate(tqdm(self.scheduler.timesteps)):
             # t = timesteps[i]
             print(f"Timestep: {t.item()}")
             #sigma_t = sigmas[i]

@@ -70,6 +70,13 @@ def main():
         
     print(f"✓ ONNX session loaded with providers: {ort_session.get_providers()}")
 
+    # Check that CUDA is being used
+    if "CUDAExecutionProvider" not in ort_session.get_providers():
+        print("✗ Error: CUDAExecutionProvider is not available in ONNX Runtime.")
+        print("  This can happen if 'onnxruntime' is installed alongside 'onnxruntime-gpu'.")
+        print("  Please uninstall 'onnxruntime' and ensure 'onnxruntime-gpu' and CUDA are correctly installed.")
+        sys.exit(1)
+
     tokenizer_1 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
     tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
     

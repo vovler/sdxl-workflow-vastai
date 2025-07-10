@@ -206,6 +206,8 @@ def main():
                 latent_model_input = latents
                 
                 latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
+                print(f"\n--- Step {i} ---")
+                print(f"Latent Input (scaled): min={latent_model_input.min():.4f}, max={latent_model_input.max():.4f}, mean={latent_model_input.mean():.4f}")
                 
                 # Prepare added conditioning signals
                 added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
@@ -219,6 +221,7 @@ def main():
                     added_cond_kwargs=added_cond_kwargs,
                     return_dict=False,
                 )[0]
+                print(f"Noise Pred: min={noise_pred.min():.4f}, max={noise_pred.max():.4f}, mean={noise_pred.mean():.4f}")
                 
                 # No guidance is applied since cfg_scale is 1.0
 
@@ -227,6 +230,7 @@ def main():
                 if args.lcm:
                     step_t = t.cpu()
                 latents = pipe.scheduler.step(noise_pred, step_t, latents, generator=generator, return_dict=False)[0]
+                print(f"Latents after scheduler step: min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
             
             end_time = time.time()
             print(f"Denoising loop took: {end_time - start_time:.4f} seconds")

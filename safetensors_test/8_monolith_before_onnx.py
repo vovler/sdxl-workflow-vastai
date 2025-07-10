@@ -44,11 +44,15 @@ class DenoisingLoop(nn.Module):
             
             # scale the model input by the current sigma
             latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
+            print(f"\n--- Step {i} ---")
+            print(f"Latent Input (scaled): min={latent_model_input.min():.4f}, max={latent_model_input.max():.4f}, mean={latent_model_input.mean():.4f}")
 
             noise_pred = self.unet(latent_model_input, t.unsqueeze(0),
                                    encoder_hidden_states=text_embeddings,
                                    added_cond_kwargs={"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids},
                                    return_dict=False)[0]
+            print(f"Noise Pred: min={noise_pred.min():.4f}, max={noise_pred.max():.4f}, mean={noise_pred.mean():.4f}")
+
             if i < sigmas.shape[0] - 1:
                 sigma_next = sigmas[i + 1]
             else:
@@ -59,6 +63,7 @@ class DenoisingLoop(nn.Module):
             derivative = (latents - noise_pred) / sigma_t
             dt = sigma_next - sigma_t
             latents = latents + derivative * dt
+            print(f"Latents after Euler step: min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
         return latents
 
 # --- The Final, "Ready-to-Save" Monolithic Module ---

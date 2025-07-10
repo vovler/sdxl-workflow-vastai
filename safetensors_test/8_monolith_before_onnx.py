@@ -61,25 +61,25 @@ class DenoisingLoop(nn.Module):
             
             # scale the model input by the current sigma
             latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
-            print(f"\n--- Step {i} ---")
-            print(f"Latent Input (scaled): min={latent_model_input.min():.4f}, max={latent_model_input.max():.4f}, mean={latent_model_input.mean():.4f}")
+            print(f"\n--- Monolith DenoisingLoop: Step {i} ---")
+            print_tensor_stats("Latent Input (scaled)", latent_model_input)
+
             # --- Prepare UNet inputs ---
             timestep_input = t.unsqueeze(0)
             added_cond_kwargs_input = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
             
             # --- Debug prints for UNet inputs ---
-            print(f"\n--- Monolith UNet Inputs: Step {i} ---")
-            print_tensor_stats("latent_model_input", latent_model_input)
-            print_tensor_stats("timestep", timestep_input)
-            print_tensor_stats("encoder_hidden_states", text_embeddings)
-            print_tensor_stats("added_cond_kwargs['text_embeds']", added_cond_kwargs_input["text_embeds"])
-            print_tensor_stats("added_cond_kwargs['time_ids']", added_cond_kwargs_input["time_ids"])
+            print_tensor_stats("UNet latent_model_input", latent_model_input)
+            print_tensor_stats("UNet timestep", timestep_input)
+            print_tensor_stats("UNet encoder_hidden_states", text_embeddings)
+            print_tensor_stats("UNet added_cond_kwargs['text_embeds']", added_cond_kwargs_input["text_embeds"])
+            print_tensor_stats("UNet added_cond_kwargs['time_ids']", added_cond_kwargs_input["time_ids"])
 
             noise_pred = self.unet(latent_model_input, timestep_input,
                                    encoder_hidden_states=text_embeddings,
                                    added_cond_kwargs=added_cond_kwargs_input,
                                    return_dict=False)[0]
-            print(f"Noise Pred: min={noise_pred.min():.4f}, max={noise_pred.max():.4f}, mean={noise_pred.mean():.4f}")
+            print_tensor_stats("Noise Pred", noise_pred)
 
             if i < sigmas.shape[0] - 1:
                 sigma_next = sigmas[i + 1]
@@ -91,7 +91,7 @@ class DenoisingLoop(nn.Module):
             derivative = (latents - noise_pred) / sigma_t
             dt = sigma_next - sigma_t
             latents = latents + derivative * dt
-            print(f"Latents after Euler step: min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
+            print_tensor_stats("Latents after Euler step", latents)
         return latents
 
 # --- The Final, "Ready-to-Save" Monolithic Module ---
@@ -132,11 +132,24 @@ class MonolithicSDXL(nn.Module):
         # --- Encode prompts ---
         # Get the output from the first text encoder
         prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
+
+        print("\n--- prompt_embeds_1_out.hidden_states ---")
+        for i, tensor in enumerate(prompt_embeds_1_out.hidden_states):
+            print_tensor_stats(f"Hidden State {i}", tensor)
+        
         # Use the last hidden state as requested
         prompt_embeds_1 = prompt_embeds_1_out.hidden_states[-1]
 
         # Get the output from the second text encoder
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
+
+        print("\n--- text_encoder_2_out.hidden_states ---")
+        for i, tensor in enumerate(text_encoder_2_out.hidden_states):
+            print_tensor_stats(f"Hidden State {i}", tensor)
+            
+        print("\n--- text_encoder_2_out.text_embeds ---")
+        print_tensor_stats("text_embeds", text_encoder_2_out.text_embeds)
+
         # Use the second-to-last hidden state as requested
         prompt_embeds_2 = text_encoder_2_out.hidden_states[-2]
         # Get the pooled and projected output
@@ -144,6 +157,11 @@ class MonolithicSDXL(nn.Module):
 
         # Concatenate the 3D prompt embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
+
+        print("\n--- final prompt_embeds after concat ---")
+        print_tensor_stats("prompt_embeds", prompt_embeds)
+        
+        sys.exit(0)
         
         final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas)
         

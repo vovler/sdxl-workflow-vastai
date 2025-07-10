@@ -223,19 +223,18 @@ def main():
                 latent_model_input = latents
                 
                 latent_model_input = pipe.scheduler.scale_model_input(latent_model_input, t)
-                print(f"\n--- Step {i} ---")
-                print(f"Latent Input (scaled): min={latent_model_input.min():.4f}, max={latent_model_input.max():.4f}, mean={latent_model_input.mean():.4f}")
+                print(f"\n--- Reference DenoisingLoop: Step {i} ---")
+                print_tensor_stats("Latent Input (scaled)", latent_model_input)
                 
                 # --- Prepare UNet inputs ---
                 added_cond_kwargs_input = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
 
                 # --- Debug prints for UNet inputs ---
-                print(f"\n--- Reference UNet Inputs: Step {i} ---")
-                print_tensor_stats("latent_model_input", latent_model_input)
-                print_tensor_stats("timestep", t)
-                print_tensor_stats("encoder_hidden_states", prompt_embeds)
-                print_tensor_stats("added_cond_kwargs['text_embeds']", added_cond_kwargs_input["text_embeds"])
-                print_tensor_stats("added_cond_kwargs['time_ids']", added_cond_kwargs_input["time_ids"])
+                print_tensor_stats("UNet latent_model_input", latent_model_input)
+                print_tensor_stats("UNet timestep", t)
+                print_tensor_stats("UNet encoder_hidden_states", prompt_embeds)
+                print_tensor_stats("UNet added_cond_kwargs['text_embeds']", added_cond_kwargs_input["text_embeds"])
+                print_tensor_stats("UNet added_cond_kwargs['time_ids']", added_cond_kwargs_input["time_ids"])
 
                 # Predict the noise residual
                 noise_pred = pipe.unet(
@@ -246,7 +245,7 @@ def main():
                     added_cond_kwargs=added_cond_kwargs_input,
                     return_dict=False,
                 )[0]
-                print(f"Noise Pred: min={noise_pred.min():.4f}, max={noise_pred.max():.4f}, mean={noise_pred.mean():.4f}")
+                print_tensor_stats("Noise Pred", noise_pred)
                 
                 # No guidance is applied since cfg_scale is 1.0
 
@@ -255,7 +254,7 @@ def main():
                 if args.lcm:
                     step_t = t.cpu()
                 latents = pipe.scheduler.step(noise_pred, step_t, latents, generator=generator, return_dict=False)[0]
-                print(f"Latents after scheduler step: min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
+                print_tensor_stats("Latents after scheduler step", latents)
             
             end_time = time.time()
             print(f"Denoising loop took: {end_time - start_time:.4f} seconds")

@@ -85,9 +85,8 @@ class DenoisingLoop(nn.Module):
             
             # 2. compute previous image: x_t -> x_t-1
             # "Euler" method
-            derivative = (latents - noise_pred) / sigma_t
             dt = sigma_next - sigma_t
-            latents = latents + derivative * dt
+            latents = latents + noise_pred * dt
             print_tensor_stats("Latents after Euler step", latents)
         return latents
 
@@ -129,35 +128,18 @@ class MonolithicSDXL(nn.Module):
         # --- Encode prompts ---
         # Get the output from the first text encoder
         prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
-
-        print("\n--- prompt_embeds_1_out.hidden_states ---")
-        for i, tensor in enumerate(prompt_embeds_1_out.hidden_states):
-            print_tensor_stats(f"Hidden State {i}", tensor)
-        
-        # Use the last hidden state as requested
+        # Use the second-to-last hidden state as requested
         prompt_embeds_1 = prompt_embeds_1_out.hidden_states[-2]
 
         # Get the output from the second text encoder
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
-
-        print("\n--- text_encoder_2_out.hidden_states ---")
-        for i, tensor in enumerate(text_encoder_2_out.hidden_states):
-            print_tensor_stats(f"Hidden State {i}", tensor)
-            
-        print("\n--- text_encoder_2_out.text_embeds ---")
-        print_tensor_stats("text_embeds", text_encoder_2_out.text_embeds)
-
-        # Use the second-to-last hidden state as requested
+        # Use the last hidden state as requested
         prompt_embeds_2 = text_encoder_2_out.hidden_states[-1]
         # Get the pooled and projected output
         pooled_prompt_embeds = text_encoder_2_out.text_embeds
 
         # Concatenate the 3D prompt embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
-
-        print("\n--- final prompt_embeds after concat ---")
-        print_tensor_stats("prompt_embeds", prompt_embeds)
-        
         
         final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas)
         

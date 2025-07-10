@@ -26,7 +26,8 @@ class DenoisingLoop(nn.Module):
         self,
         initial_latents: torch.Tensor,
         text_embeddings: torch.Tensor,
-        added_text_embeds: torch.Tensor,
+        pooled_prompt_embeds: torch.Tensor,
+        add_time_ids: torch.Tensor,
         timesteps: torch.Tensor,
         sigmas: torch.Tensor
     ) -> torch.Tensor:
@@ -42,7 +43,7 @@ class DenoisingLoop(nn.Module):
 
             noise_pred = self.unet(latent_model_input, t.unsqueeze(0),
                                    encoder_hidden_states=text_embeddings,
-                                   added_cond_kwargs={"text_embeds": added_text_embeds, "time_ids": None}, # time_ids are already in added_text_embeds
+                                   added_cond_kwargs={"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids},
                                    return_dict=False)[0]
             if i < sigmas.shape[0] - 1:
                 sigma_next = sigmas[i + 1]
@@ -107,10 +108,7 @@ class MonolithicSDXL(nn.Module):
         # Concatenate the 3D prompt embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
         
-        # Create the added text embeddings
-        add_text_embeds = torch.cat((pooled_prompt_embeds, add_time_ids.to(pooled_prompt_embeds.dtype)), dim=-1)
-        
-        final_latents = self.denoising_loop(initial_latents, prompt_embeds, add_text_embeds, timesteps, sigmas)
+        final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas)
         
         final_latents = final_latents / self.vae_scale_factor
         image = self.vae_decoder(final_latents, return_dict=False)[0]

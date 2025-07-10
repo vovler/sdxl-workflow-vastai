@@ -59,7 +59,10 @@ class DenoisingLoop(nn.Module):
             latent_model_input = latents
             
             # scale the model input by the current sigma
-            latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
+            # latent_model_input = latent_model_input / ((sigma_t**2 + 1) ** 0.5)
+            
+            # Use scheduler for now
+            latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
             print(f"\n--- Monolith DenoisingLoop: Step {i} ---")
             print_tensor_stats("Latent Input (scaled)", latent_model_input)
 

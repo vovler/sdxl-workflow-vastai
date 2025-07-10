@@ -93,9 +93,18 @@ class MonolithicSDXL(nn.Module):
         
         # --- Encode prompts ---
         prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
-        prompt_embeds_1 = prompt_embeds_1_out[0]
-        
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
+
+        print("--- prompt_embeds_1_out ---")
+        print(prompt_embeds_1_out)
+        print("\n--- text_encoder_2_out ---")
+        print(text_encoder_2_out)
+        sys.exit(0)
+        
+        # Get the output from the first text encoder
+        prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
+        
+        # Get the output from the second text encoder
         prompt_embeds_2 = text_encoder_2_out[0]
         pooled_prompt_embeds = text_encoder_2_out[1]
 

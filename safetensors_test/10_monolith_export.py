@@ -250,11 +250,11 @@ def main():
         unet=unet,
         vae=vae,
         scheduler_module=onnx_scheduler,
-    ).eval()
+    ).to(device).eval()
 
     # --- Clean up memory ---
     print("Cleaning up memory before export...")
-    del text_encoder_1, text_encoder_2, vae # Keep unet for config
+    del text_encoder_1, text_encoder_2, vae
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -278,7 +278,7 @@ def main():
     
     dummy_add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], device=device, dtype=dtype).repeat(batch_size, 1)
     
-    del unet # No longer needed
+    del unet
     gc.collect()
     torch.cuda.empty_cache()
 

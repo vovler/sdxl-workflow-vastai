@@ -163,6 +163,10 @@ class MonolithicSDXL(nn.Module):
         final_latents = final_latents / self.vae_scale_factor
         image = self.vae_decoder(final_latents, return_dict=False)[0]
 
+        print("\\n--- Raw VAE Output ---")
+        print_tensor_stats("image_tensor_from_vae", image)
+        sys.exit(0)
+
         # --- The NEW "Ready-to-Save" Post-Processing Block ---
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.permute(0, 2, 3, 1)

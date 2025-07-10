@@ -106,7 +106,17 @@ class DenoisingLoop(nn.Module):
             # Use scheduler for now
             latents = self.scheduler.step(noise_pred, t, latents, generator=generator, return_dict=False)[0]
             print_tensor_stats("Latents after scheduler step", latents)
-        return latents
+        
+        # --- NEW: Final denoising step ---
+        # A common practice is to compute the final denoised latents directly
+        # from the last noise prediction. This can sometimes produce a cleaner result
+        # than the iterative ancestral steps for the very last step.
+        # x_0 = x_t - sigma_t * noise_pred
+        last_sigma = sigmas[timesteps.shape[0]-1]
+        denoised_latents = latents - last_sigma * noise_pred
+        print_tensor_stats("Final Denoised Latents", denoised_latents)
+
+        return denoised_latents
 
 # --- The Final, "Ready-to-Save" Monolithic Module ---
 class MonolithicSDXL(nn.Module):

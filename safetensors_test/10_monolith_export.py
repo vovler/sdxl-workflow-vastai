@@ -11,6 +11,11 @@ from pathlib import Path
 import sys
 import argparse
 import gc
+import os
+import onnx
+from onnxconverter_common import float16
+import glob
+import shutil
 
 def print_tensor_stats(name, tensor):
     """Prints detailed statistics for a given tensor on a single line."""
@@ -182,6 +187,79 @@ class MonolithicSDXL(nn.Module):
         return image
 
 
+def analyze_onnx_model(onnx_path):
+    """Analyze ONNX model to understand weight precision and size."""
+    print("\n" + "="*50)
+    print(f"ONNX MODEL ANALYSIS: {os.path.basename(onnx_path)}")
+    print("="*50)
+    
+    if not os.path.exists(onnx_path):
+        print(f"Error: ONNX file not found at {onnx_path}")
+        return
+    
+    try:
+        model = onnx.load(onnx_path, load_external_data=True)
+        
+        total_params = 0
+        precision_counts = {}
+        precision_sizes = {}
+        
+        # Bytes per data type
+        bytes_per_type = {
+            1: 4,   # FLOAT
+            10: 2,  # FLOAT16
+            7: 8,   # INT64
+            3: 1,   # INT8
+        }
+        
+        for initializer in model.graph.initializer:
+            param_count = 1
+            for dim in initializer.dims:
+                param_count *= dim
+            total_params += param_count
+            
+            data_type = initializer.data_type
+            type_name = onnx.TensorProto.DataType.Name(data_type)
+            bytes_per_param = bytes_per_type.get(data_type, 0) # Default to 0 for unknown types
+            param_size = param_count * bytes_per_param
+            
+            precision_counts[type_name] = precision_counts.get(type_name, 0) + param_count
+            precision_sizes[type_name] = precision_sizes.get(type_name, 0) + param_size
+        
+        total_size_bytes = sum(precision_sizes.values())
+        total_size_gb = total_size_bytes / (1024**3)
+        
+        print(f"Total parameters: {total_params:,}")
+        print(f"Total calculated size: {total_size_gb:.3f} GB")
+        
+        print("\nPrecision breakdown:")
+        for precision, count in precision_counts.items():
+            size_gb = precision_sizes[precision] / (1024**3)
+            percentage = (precision_sizes[precision] / total_size_bytes) * 100 if total_size_bytes > 0 else 0
+            print(f"  {precision}: {count:,} params ({size_gb:.3f} GB, {percentage:.1f}%)")
+            
+        # Check file sizes
+        onnx_file_size = os.path.getsize(onnx_path) / (1024**3)
+        print(f"\nActual ONNX file size: {onnx_file_size:.3f} GB")
+        
+        # Check for external data file, using the convention we will establish
+        directory = os.path.dirname(onnx_path)
+        filename = os.path.basename(onnx_path)
+        base_name = os.path.splitext(filename)[0]
+        data_filename = f"{base_name}.data"
+        data_path = os.path.join(directory, data_filename)
+        
+        if os.path.exists(data_path):
+            data_file_size = os.path.getsize(data_path) / (1024**3)
+            print(f"External data file size: {data_file_size:.3f} GB")
+            print(f"Total combined size: {(onnx_file_size + data_file_size):.3f} GB")
+        
+    except Exception as e:
+        print(f"Error analyzing ONNX model: {e}")
+    
+    print("="*50)
+
+
 def main():
     """
     Exports the MonolithicSDXL model to ONNX format.
@@ -292,7 +370,12 @@ def main():
         )
         
         # --- Export to ONNX ---
-        print(f"\n=== Exporting model to {args.output_path} with opset 18 ===")
+        onnx_output_path = args.output_path
+        temp_dir = onnx_output_path + "_temp"
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_onnx_path = os.path.join(temp_dir, "model.onnx")
+
+        print(f"\n=== Exporting model to temporary directory: {temp_dir} ===")
         
         input_names = [
             "prompt_ids_1", "prompt_ids_2", "initial_latents",
@@ -313,19 +396,58 @@ def main():
             torch.onnx.export(
                 monolith,
                 dummy_inputs,
-                args.output_path,
+                temp_onnx_path,
                 opset_version=18,
                 input_names=input_names,
                 output_names=output_names,
                 dynamic_axes=dynamic_axes,
-                verbose=True
+                verbose=False # Quieter export
             )
-            print(f"✓ Model exported successfully to {args.output_path}")
+            print("✓ ONNX export complete.")
+            
+            # --- Consolidate and Convert Model ---
+            print("\n=== Consolidating and Converting ONNX model ===")
+            temp_model = onnx.load(temp_onnx_path, load_external_data=True)
+            
+            #fp32_count = sum(1 for init in temp_model.graph.initializer if init.data_type == onnx.TensorProto.FLOAT)
+            #if fp32_count > 0:
+            #    print(f"Found {fp32_count} FP32 initializers. Converting model to FP16...")
+            #    model = float16.convert_float_to_float16(temp_model, keep_io_types=True)
+            #    print("✓ Model converted to FP16.")
+            #else:
+            #    print("Model is already FP16. No conversion needed.")
+            #    model = temp_model
+            
+            model = temp_model
+            # Save consolidated model
+            base_name = os.path.splitext(os.path.basename(onnx_output_path))[0]
+            data_filename = f"{base_name}.data"
+            
+            print(f"Saving consolidated model to {onnx_output_path} with external data '{data_filename}'...")
+            onnx.save(
+                model,
+                onnx_output_path,
+                save_as_external_data=True,
+                all_tensors_to_one_file=True,
+                location=data_filename,
+                size_threshold=1024 # Store tensors > 1KB externally
+            )
+            print(f"✓ Model consolidated and saved successfully.")
+
         except Exception as e:
-            print(f"✗ ONNX export failed: {e}")
+            print(f"✗ ONNX export or consolidation failed: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
+        finally:
+            # --- Clean up temporary directory ---
+            if os.path.exists(temp_dir):
+                print(f"Cleaning up temporary directory: {temp_dir}")
+                shutil.rmtree(temp_dir)
+
+        # --- Final Analysis ---
+        print(f"\nFinal analysis of consolidated model: {onnx_output_path}")
+        analyze_onnx_model(onnx_output_path)
 
 
 if __name__ == "__main__":

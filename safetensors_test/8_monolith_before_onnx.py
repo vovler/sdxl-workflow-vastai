@@ -92,45 +92,22 @@ class MonolithicSDXL(nn.Module):
         initial_latents = torch.randn(latents_shape, generator=generator, device=device, dtype=torch.float16)
         
         # --- Encode prompts ---
-        prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
-        text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
-
-        def print_tensor_stats(name, tensor):
-            print(f"  --- {name} ---")
-            if tensor is not None and torch.is_tensor(tensor):
-                print(f"    Shape: {tensor.shape}")
-                print(f"    Min: {tensor.min().item():.4f}")
-                print(f"    Mean: {tensor.mean().item():.4f}")
-                print(f"    Max: {tensor.max().item():.4f}")
-                print(f"    Has NaN: {torch.isnan(tensor).any().item()}")
-                print(f"    Has Inf: {torch.isinf(tensor).any().item()}")
-            else:
-                print(f"    Tensor is None or not a tensor.")
-
-        print("--- prompt_embeds_1_out.hidden_states ---")
-        if hasattr(prompt_embeds_1_out, 'hidden_states') and prompt_embeds_1_out.hidden_states is not None:
-            for i, tensor in enumerate(prompt_embeds_1_out.hidden_states):
-                print_tensor_stats(f"Hidden State {i}", tensor)
-        
-        print("\n--- text_encoder_2_out.hidden_states ---")
-        if hasattr(text_encoder_2_out, 'hidden_states') and text_encoder_2_out.hidden_states is not None:
-            for i, tensor in enumerate(text_encoder_2_out.hidden_states):
-                print_tensor_stats(f"Hidden State {i}", tensor)
-        
-        print("\n--- text_encoder_2_out.text_embeds ---")
-        if hasattr(text_encoder_2_out, 'text_embeds'):
-            print_tensor_stats("Text Embeds", text_encoder_2_out.text_embeds)
-        
-        sys.exit(0)
-        
         # Get the output from the first text encoder
         prompt_embeds_1_out = self.text_encoder_1(prompt_ids_1, output_hidden_states=True)
-        
-        # Get the output from the second text encoder
-        prompt_embeds_2 = text_encoder_2_out[0]
-        pooled_prompt_embeds = text_encoder_2_out[1]
+        # Use the last hidden state as requested
+        prompt_embeds_1 = prompt_embeds_1_out.hidden_states[-1]
 
+        # Get the output from the second text encoder
+        text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
+        # Use the second-to-last hidden state as requested
+        prompt_embeds_2 = text_encoder_2_out.hidden_states[-2]
+        # Get the pooled and projected output
+        pooled_prompt_embeds = text_encoder_2_out.text_embeds
+
+        # Concatenate the 3D prompt embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
+        
+        # Create the added text embeddings
         add_text_embeds = torch.cat((pooled_prompt_embeds, add_time_ids.to(pooled_prompt_embeds.dtype)), dim=-1)
         
         final_latents = self.denoising_loop(initial_latents, prompt_embeds, add_text_embeds, timesteps, sigmas)

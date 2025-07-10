@@ -127,8 +127,8 @@ class MonolithicSDXL(nn.Module):
         self,
         prompt_ids_1: torch.Tensor,
         prompt_ids_2: torch.Tensor,
-        timesteps: torch.Tensor,
-        sigmas: torch.Tensor,
+        #timesteps: torch.Tensor,
+        #sigmas: torch.Tensor,
         height: torch.Tensor,
         width: torch.Tensor,
         generator: torch.Generator
@@ -162,8 +162,8 @@ class MonolithicSDXL(nn.Module):
         # Concatenate the 3D prompt embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
         
-        final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas, generator)
-        
+        #final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, timesteps, sigmas, generator)
+        final_latents = self.denoising_loop(initial_latents, prompt_embeds, pooled_prompt_embeds, add_time_ids, generator)
         print(f"VAE Scale Factor: {self.vae_scale_factor}")
         final_latents = final_latents / self.vae_scale_factor
         image = self.vae_decoder(final_latents, return_dict=False)[0]

@@ -8,6 +8,7 @@ from PIL import Image
 import time
 import argparse
 import onnxruntime as ort
+import os
 
 def print_np_stats(name, arr):
     """Prints detailed statistics for a given numpy array on a single line."""
@@ -61,14 +62,20 @@ def main():
         print(f"✗ Error: ONNX model not found at {args.onnx_path}")
         sys.exit(1)
 
+    # --- Environment setup for multi-core loading ---
+    cpu_cores = os.cpu_count() or 1 # Fallback to 1 if cpu_count is None
+    os.environ['OMP_NUM_THREADS'] = str(cpu_cores)
+    os.environ['OMP_THREAD_LIMIT'] = str(cpu_cores)
+    print(f"Attempting to use {cpu_cores} CPU cores for ONNX session loading...")
+
     providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
     try:
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
         
-        # Use all available CPU cores for loading and CPU operations to speed up initialization
-        sess_options.inter_op_num_threads = 0
-        sess_options.intra_op_num_threads = 0
+        # Explicitly set the number of threads
+        sess_options.inter_op_num_threads = cpu_cores
+        sess_options.intra_op_num_threads = cpu_cores
 
         ort_session = ort.InferenceSession(args.onnx_path, sess_options=sess_options, providers=providers)
     except Exception as e:

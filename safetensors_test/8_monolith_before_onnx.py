@@ -31,7 +31,11 @@ class DenoisingLoop(nn.Module):
         timesteps: torch.Tensor,
         sigmas: torch.Tensor
     ) -> torch.Tensor:
+        print(f"Latents before noise sigma scaling: min={initial_latents.min():.4f}, max={initial_latents.max():.4f}, mean={initial_latents.mean():.4f}")
+        print(f"Initial noise sigma: {self.init_sigma}")
         latents = initial_latents * self.init_sigma
+        print(f"Latents after noise sigma scaling:  min={latents.min():.4f}, max={latents.max():.4f}, mean={latents.mean():.4f}")
+        
         for i in tqdm(range(timesteps.shape[0])):
             t = timesteps[i]
             sigma_t = sigmas[i]

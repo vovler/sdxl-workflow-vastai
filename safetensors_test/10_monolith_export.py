@@ -195,136 +195,137 @@ def main():
     )
     args = parser.parse_args()
 
-    if not torch.cuda.is_available():
-        print("Error: CUDA is not available. This script requires a GPU for model loading.")
-        sys.exit(1)
+    with torch.no_grad():
+        if not torch.cuda.is_available():
+            print("Error: CUDA is not available. This script requires a GPU for model loading.")
+            sys.exit(1)
 
-    # --- Configuration ---
-    base_dir = Path("/lab/model")
-    device = "cuda"
-    dtype = torch.float16
+        # --- Configuration ---
+        base_dir = Path("/lab/model")
+        device = "cuda"
+        dtype = torch.float16
 
-    # Pipeline settings
-    num_inference_steps = 8
-    height = 832
-    width = 1216
-    batch_size = 1
-    
-    # --- Load Model Components ---
-    print("=== Loading models ===")
-    
-    vae = AutoencoderKL.from_pretrained(base_dir / "vae", torch_dtype=dtype).to(device)
-    
-    tokenizer_1 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
-    tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
-    
-    text_encoder_1 = CLIPTextModel.from_pretrained(
-        str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
-    ).to(device)
-    text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
-        str(base_dir), subfolder="text_encoder_2", torch_dtype=dtype, use_safetensors=True
-    ).to(device)
-    unet = UNet2DConditionModel.from_pretrained(
-        str(base_dir / "unet"), torch_dtype=dtype, use_safetensors=True
-    ).to(device)
-    
-    # --- Memory Optimization ---
-    print("Enabling memory-efficient attention...")
-    unet.enable_xformers_memory_efficient_attention()
-    
-    # --- Instantiate Monolithic Module ---
-    print("Instantiating monolithic module...")
-    
-    onnx_scheduler = ONNXEulerAncestralDiscreteScheduler(
-        num_inference_steps=num_inference_steps,
-        dtype=dtype,
-        timestep_spacing="linspace",
-        beta_schedule="scaled_linear",
-        beta_start=0.00085,
-        beta_end=0.012
-    )
-    
-    monolith = MonolithicSDXL(
-        text_encoder_1=text_encoder_1,
-        text_encoder_2=text_encoder_2,
-        unet=unet,
-        vae=vae,
-        scheduler_module=onnx_scheduler,
-    ).to(device).eval()
-
-    # --- Clean up memory ---
-    print("Cleaning up memory before export...")
-    del text_encoder_1, text_encoder_2, vae
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    # --- Create Dummy Inputs for ONNX Export ---
-    print("\n=== Creating dummy inputs for ONNX export ===")
-
-    max_length_1 = tokenizer_1.model_max_length
-    max_length_2 = tokenizer_2.model_max_length
-    
-    dummy_prompt_ids_1 = torch.randint(0, tokenizer_1.vocab_size, (batch_size, max_length_1), dtype=torch.int64, device=device)
-    dummy_prompt_ids_2 = torch.randint(0, tokenizer_2.vocab_size, (batch_size, max_length_2), dtype=torch.int64, device=device)
-    
-    del tokenizer_1, tokenizer_2
-    gc.collect()
-
-    latents_shape = (batch_size, unet.config.in_channels, height // 8, width // 8)
-    dummy_initial_latents = torch.randn(latents_shape, device=device, dtype=dtype)
-    
-    noise_shape = (num_inference_steps, batch_size, unet.config.in_channels, height // 8, width // 8)
-    dummy_all_noises = torch.randn(noise_shape, device=device, dtype=dtype)
-    
-    dummy_add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], device=device, dtype=dtype).repeat(batch_size, 1)
-    
-    del unet
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    dummy_inputs = (
-        dummy_prompt_ids_1,
-        dummy_prompt_ids_2,
-        dummy_initial_latents,
-        dummy_all_noises,
-        dummy_add_time_ids,
-    )
-    
-    # --- Export to ONNX ---
-    print(f"\n=== Exporting model to {args.output_path} with opset 18 ===")
-    
-    input_names = [
-        "prompt_ids_1", "prompt_ids_2", "initial_latents",
-        "all_noises", "add_time_ids"
-    ]
-    output_names = ["image"]
-    
-    dynamic_axes = {
-        "prompt_ids_1": {0: "batch_size"},
-        "prompt_ids_2": {0: "batch_size"},
-        "initial_latents": {0: "batch_size", 2: "height_div_8", 3: "width_div_8"},
-        "all_noises": {1: "batch_size", 3: "height_div_8", 4: "width_div_8"},
-        "add_time_ids": {0: "batch_size"},
-        "image": {0: "batch_size", 2: "height", 3: "width"},
-    }
-
-    try:
-        torch.onnx.export(
-            monolith,
-            dummy_inputs,
-            args.output_path,
-            opset_version=18,
-            input_names=input_names,
-            output_names=output_names,
-            dynamic_axes=dynamic_axes,
-            verbose=True
+        # Pipeline settings
+        num_inference_steps = 8
+        height = 832
+        width = 1216
+        batch_size = 1
+        
+        # --- Load Model Components ---
+        print("=== Loading models ===")
+        
+        vae = AutoencoderKL.from_pretrained(base_dir / "vae", torch_dtype=dtype).to(device)
+        
+        tokenizer_1 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
+        tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")
+        
+        text_encoder_1 = CLIPTextModel.from_pretrained(
+            str(base_dir), subfolder="text_encoder", torch_dtype=dtype, use_safetensors=True
+        ).to(device)
+        text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
+            str(base_dir), subfolder="text_encoder_2", torch_dtype=dtype, use_safetensors=True
+        ).to(device)
+        unet = UNet2DConditionModel.from_pretrained(
+            str(base_dir / "unet"), torch_dtype=dtype, use_safetensors=True
+        ).to(device)
+        
+        # --- Memory Optimization ---
+        print("Enabling memory-efficient attention...")
+        unet.enable_xformers_memory_efficient_attention()
+        
+        # --- Instantiate Monolithic Module ---
+        print("Instantiating monolithic module...")
+        
+        onnx_scheduler = ONNXEulerAncestralDiscreteScheduler(
+            num_inference_steps=num_inference_steps,
+            dtype=dtype,
+            timestep_spacing="linspace",
+            beta_schedule="scaled_linear",
+            beta_start=0.00085,
+            beta_end=0.012
         )
-        print(f"✓ Model exported successfully to {args.output_path}")
-    except Exception as e:
-        print(f"✗ ONNX export failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        
+        monolith = MonolithicSDXL(
+            text_encoder_1=text_encoder_1,
+            text_encoder_2=text_encoder_2,
+            unet=unet,
+            vae=vae,
+            scheduler_module=onnx_scheduler,
+        ).to(device).eval()
+
+        # --- Clean up memory ---
+        print("Cleaning up memory before export...")
+        del text_encoder_1, text_encoder_2, vae
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # --- Create Dummy Inputs for ONNX Export ---
+        print("\n=== Creating dummy inputs for ONNX export ===")
+
+        max_length_1 = tokenizer_1.model_max_length
+        max_length_2 = tokenizer_2.model_max_length
+        
+        dummy_prompt_ids_1 = torch.randint(0, tokenizer_1.vocab_size, (batch_size, max_length_1), dtype=torch.int64, device=device)
+        dummy_prompt_ids_2 = torch.randint(0, tokenizer_2.vocab_size, (batch_size, max_length_2), dtype=torch.int64, device=device)
+        
+        del tokenizer_1, tokenizer_2
+        gc.collect()
+
+        latents_shape = (batch_size, unet.config.in_channels, height // 8, width // 8)
+        dummy_initial_latents = torch.randn(latents_shape, device=device, dtype=dtype)
+        
+        noise_shape = (num_inference_steps, batch_size, unet.config.in_channels, height // 8, width // 8)
+        dummy_all_noises = torch.randn(noise_shape, device=device, dtype=dtype)
+        
+        dummy_add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], device=device, dtype=dtype).repeat(batch_size, 1)
+        
+        del unet
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        dummy_inputs = (
+            dummy_prompt_ids_1,
+            dummy_prompt_ids_2,
+            dummy_initial_latents,
+            dummy_all_noises,
+            dummy_add_time_ids,
+        )
+        
+        # --- Export to ONNX ---
+        print(f"\n=== Exporting model to {args.output_path} with opset 18 ===")
+        
+        input_names = [
+            "prompt_ids_1", "prompt_ids_2", "initial_latents",
+            "all_noises", "add_time_ids"
+        ]
+        output_names = ["image"]
+        
+        dynamic_axes = {
+            "prompt_ids_1": {0: "batch_size"},
+            "prompt_ids_2": {0: "batch_size"},
+            "initial_latents": {0: "batch_size", 2: "height_div_8", 3: "width_div_8"},
+            "all_noises": {1: "batch_size", 3: "height_div_8", 4: "width_div_8"},
+            "add_time_ids": {0: "batch_size"},
+            "image": {0: "batch_size", 2: "height", 3: "width"},
+        }
+
+        try:
+            torch.onnx.export(
+                monolith,
+                dummy_inputs,
+                args.output_path,
+                opset_version=18,
+                input_names=input_names,
+                output_names=output_names,
+                dynamic_axes=dynamic_axes,
+                verbose=True
+            )
+            print(f"✓ Model exported successfully to {args.output_path}")
+        except Exception as e:
+            print(f"✗ ONNX export failed: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 
 if __name__ == "__main__":

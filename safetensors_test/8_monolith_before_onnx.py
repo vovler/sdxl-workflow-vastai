@@ -16,21 +16,18 @@ import numpy as np
 import argparse
 
 def print_tensor_stats(name, tensor):
-    """Prints detailed statistics for a given tensor."""
-    print(f"--- {name} ---")
+    """Prints detailed statistics for a given tensor on a single line."""
     if tensor is None:
-        print("  Tensor is None")
+        print(f"--- {name}: Tensor is None ---")
         return
-    print(f"  Shape: {tensor.shape}")
+    
+    stats = f"Shape: {str(tuple(tensor.shape)):<20} | Dtype: {str(tensor.dtype):<15}"
     if tensor.numel() > 0:
-        # Cast to float32 for stats to avoid issues with other types
         tensor_float = tensor.float()
-        print(f"  Mean:  {tensor_float.mean().item():.4f}")
-        print(f"  Min:   {tensor_float.min().item():.4f}")
-        print(f"  Max:   {tensor_float.max().item():.4f}")
-        print(f"  Has NaN: {torch.isnan(tensor_float).any().item()}")
-        print(f"  Has Inf: {torch.isinf(tensor_float).any().item()}")
-    print(f"  Dtype: {tensor.dtype}")
+        stats += f" | Mean: {tensor_float.mean().item():<8.4f} | Min: {tensor_float.min().item():<8.4f} | Max: {tensor_float.max().item():<8.4f}"
+        stats += f" | Has NaN: {str(torch.isnan(tensor_float).any().item()):<5} | Has Inf: {str(torch.isinf(tensor_float).any().item()):<5}"
+    
+    print(f"--- {name+':':<30} {stats} ---")
 
 # DenoisingLoop class remains unchanged.
 class DenoisingLoop(nn.Module):

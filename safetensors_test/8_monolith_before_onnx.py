@@ -143,7 +143,7 @@ class MonolithicSDXL(nn.Module):
         # Get the output from the second text encoder
         text_encoder_2_out = self.text_encoder_2(prompt_ids_2, output_hidden_states=True)
         # Use the last hidden state as requested
-        prompt_embeds_2 = text_encoder_2_out.hidden_states[-1]
+        prompt_embeds_2 = text_encoder_2_out.hidden_states[-2]
         # Get the pooled and projected output
         pooled_prompt_embeds = text_encoder_2_out.text_embeds
 

@@ -172,8 +172,8 @@ def build_engine(
 
 def main():
     parser = argparse.ArgumentParser(description="Export the monolithic ONNX model to a TensorRT engine.")
-    parser.add_argument("--onnx_path", type=str, default="monolith_opt.onnx", help="Path to the input ONNX model file.")
-    parser.add_argument("--engine_path", type=str, default="monolith.plan", help="Path to save the output TensorRT engine.")
+    parser.add_argument("--onnx_path", type=str, default="onnx/monolith_opt.onnx", help="Path to the input ONNX model file.")
+    parser.add_argument("--engine_path", type=str, default="plan/monolith.plan", help="Path to save the output TensorRT engine.")
     parser.add_argument("--fp16", action="store_true", help="Enable FP16 mode for the engine (enabled by default).")
     parser.add_argument("--steps", type=int, default=8, help="Number of inference steps used in the model.")
     parser.add_argument("--timing_cache_path", type=str, default="monolith.cache", help="Path to save and load the timing cache.")

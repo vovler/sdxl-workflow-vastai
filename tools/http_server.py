@@ -19,34 +19,23 @@ async def serve_path(file_path: str = ""):
     Serves a file or provides a browsable directory listing.
     This single endpoint handles both file downloads and directory browsing.
     """
-    print(f"--- New Request ---")
-    print(f"Received request for path: '{file_path}'")
     try:
         # Construct the full, absolute path for the requested file or directory.
         requested_path = BASE_DIR.joinpath(file_path).resolve()
-        print(f"Resolved requested path to: {requested_path}")
 
         # Security check: Prevent directory traversal attacks.
         # Ensure the resolved path is within the designated BASE_DIR.
-        print(f"Checking if {requested_path} is within {BASE_DIR.resolve()}")
         if BASE_DIR.resolve() not in requested_path.parents and requested_path != BASE_DIR.resolve():
-             print("Security check FAILED: Path is outside the base directory.")
              raise HTTPException(status_code=403, detail="Forbidden: Access denied.")
-        print("Security check PASSED.")
 
     except Exception as e:
-         print(f"Error resolving path or security check failed: {e}")
          # Broad exception to catch potential resolution errors.
          raise HTTPException(status_code=404, detail="File or directory not found.")
 
-    print(f"Checking existence of: {requested_path}")
     if not requested_path.exists():
-        print("Path does NOT exist.")
         raise HTTPException(status_code=404, detail="File or directory not found")
-    print("Path exists.")
 
     if requested_path.is_dir():
-        print("Path is a directory. Generating directory listing.")
         # Generate an HTML page with a list of directory contents.
         # The page will be titled with the current directory path.
         html_content = f"<html><head><title>Index of /{file_path}</title></head><body><h1>Index of /{file_path}</h1><ul>"
@@ -69,12 +58,10 @@ async def serve_path(file_path: str = ""):
         return HTMLResponse(content=html_content)
     
     elif requested_path.is_file():
-        print("Path is a file. Serving file for download.")
         # Serve the file for download.
         return FileResponse(requested_path)
     
     else:
-        print("Path is not a file or directory (e.g., symlink).")
         # This case handles other path types, like symlinks, which are not supported.
         raise HTTPException(status_code=400, detail="Unsupported path type.")
 
@@ -112,14 +99,23 @@ if __name__ == "__main__":
         print(f"Error: Could not fetch public IP address.")
         print(f"Details: {e}")
         exit(1)
+
+    # Set a fixed number of workers.
+    worker_count = 20
     
     print(f"Serving files from: {BASE_DIR.resolve()}")
-    print("Starting server on http://0.0.0.0:80")
+    print(f"Starting server on http://0.0.0.0:80 with {worker_count} workers.")
     print(f"You can access it on http://{public_ip}:{port}")
     
     try:
         # Attempt to run the server on the privileged port 80.
-        uvicorn.run(app, host="0.0.0.0", port=80)
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=80,
+            workers=worker_count,
+            log_level="warning"
+        )
     except (PermissionError, OSError) as e:
         # Fail gracefully if port 80 is not available.
         print(f"\nERROR: Could not bind to port 80. Please ensure it is not in use and you have sufficient permissions.")

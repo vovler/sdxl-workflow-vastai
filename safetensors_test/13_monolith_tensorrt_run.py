@@ -111,7 +111,7 @@ def main():
     parser.add_argument("--height", type=int, default=832, help="Image height for generation.")
     parser.add_argument("--width", type=int, default=1216, help="Image width for generation.")
     parser.add_argument("--steps", type=int, default=8, help="Number of inference steps.")
-    parser.add_argument("--seed", type=int, default=12345, help="Seed for random generation.")
+    parser.add_argument("--seed", type=int, default=1020094661, help="Seed for random generation.")
     parser.add_argument("--random_seed", action="store_true", help="Use a random seed.")
     args = parser.parse_args()
 

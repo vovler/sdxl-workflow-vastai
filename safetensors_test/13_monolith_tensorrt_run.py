@@ -8,11 +8,33 @@ from PIL import Image
 import time
 import argparse
 import tensorrt as trt
-import pycuda.driver as cuda
-import pycuda.autoinit
+from cuda import runtime as cudart
+
+def check_cudart_err(err):
+    if isinstance(err, cudart.cudaError_t) and err != cudart.cudaError_t.cudaSuccess:
+        raise RuntimeError(f"CUDA Runtime Error: {cudart.cudaGetErrorString(err)}")
+    # Some functions return a tuple (error, value)
+    if isinstance(err, tuple) and isinstance(err[0], cudart.cudaError_t) and err[0] != cudart.cudaError_t.cudaSuccess:
+        raise RuntimeError(f"CUDA Runtime Error: {cudart.cudaGetErrorString(err[0])}")
+
+def trt_dtype_to_torch(dtype: trt.DataType) -> torch.dtype:
+    if dtype == trt.float16:
+        return torch.float16
+    elif dtype == trt.float32:
+        return torch.float32
+    elif dtype == trt.int32:
+        return torch.int32
+    elif dtype == trt.int64:
+        return torch.int64
+    else:
+        raise TypeError(f"Unsupported TensorRT data type: {dtype}")
 
 def print_np_stats(name, arr):
     """Prints detailed statistics for a given numpy array on a single line."""
+    if not isinstance(arr, np.ndarray):
+        # If it's a tensor, convert to numpy for stats
+        arr = arr.cpu().numpy()
+
     if arr is None:
         print(f"--- {name}: Array is None ---")
         return
@@ -27,6 +49,7 @@ def print_np_stats(name, arr):
 
 class TensorRTRunner:
     def __init__(self, engine_path):
+        self.device = torch.device("cuda")
         self.engine_path = engine_path
         self.logger = trt.Logger(trt.Logger.WARNING)
         self.runtime = trt.Runtime(self.logger)
@@ -42,46 +65,44 @@ class TensorRTRunner:
         print(f"✓ Engine loaded from {self.engine_path}")
         
         self.context = self.engine.create_execution_context()
-        self.stream = cuda.Stream()
+        err, self.stream = cudart.cudaStreamCreate()
+        check_cudart_err(err)
         
-        # Allocate device memory for bindings
+        # Allocate device memory for bindings using PyTorch for better integration
         self.device_buffers = {}
-        self.output_info = {}
+        self.output_tensors = {}
         
         for binding_name in self.engine:
-            # We use get_tensor_shape for the v3 API
             shape = self.engine.get_tensor_shape(binding_name)
-            dtype = trt.nptype(self.engine.get_tensor_dtype(binding_name))
+            dtype = trt_dtype_to_torch(self.engine.get_tensor_dtype(binding_name))
             
-            # Allocate memory
-            size = trt.volume(shape) * np.dtype(dtype).itemsize
-            mem = cuda.mem_alloc(size)
+            # Allocate memory with PyTorch
+            tensor = torch.empty(tuple(shape), dtype=dtype, device=self.device)
+            self.device_buffers[binding_name] = tensor
             
-            # Store buffer and set its address on the context
-            self.device_buffers[binding_name] = mem
-            self.context.set_tensor_address(binding_name, int(mem))
+            # Set address on context
+            self.context.set_tensor_address(binding_name, tensor.data_ptr())
             
             if self.engine.get_tensor_mode(binding_name) == trt.TensorIOMode.OUTPUT:
-                self.output_info[binding_name] = {'shape': shape, 'dtype': dtype}
+                self.output_tensors[binding_name] = tensor
 
     def run(self, inputs: dict):
-        # --- Transfer inputs to GPU ---
+        # inputs is a dict of {name: torch.Tensor}
+        
+        # --- Copy inputs to device buffers ---
         for name, arr in inputs.items():
-            cuda.memcpy_htod_async(self.device_buffers[name], arr, self.stream)
+            expected_dtype = self.device_buffers[name].dtype
+            # This copy handles device placement and dtype conversion automatically
+            self.device_buffers[name].copy_(arr.to(self.device, dtype=expected_dtype))
             
         # --- Execute Model with enqueueV3 ---
-        self.context.execute_async_v3(stream_handle=self.stream.handle)
-        self.stream.synchronize()
+        self.context.execute_async_v3(stream_handle=self.stream)
+        check_cudart_err(cudart.cudaStreamSynchronize(self.stream))
         
-        # --- Transfer outputs from GPU ---
-        outputs = {}
-        for name, info in self.output_info.items():
-            output_arr = np.empty(info['shape'], dtype=info['dtype'])
-            cuda.memcpy_dtoh_async(output_arr, self.device_buffers[name], self.stream)
-            outputs[name] = output_arr
-            
-        self.stream.synchronize()
-        return outputs
+        # --- Return clones of output buffers ---
+        # Cloning is important to avoid returning a reference to an internal buffer
+        # that might be overwritten in the next run.
+        return {name: tensor.clone() for name, tensor in self.output_tensors.items()}
 
 def main():
     parser = argparse.ArgumentParser(description="Run inference with the exported TensorRT monolithic model.")
@@ -124,25 +145,26 @@ def main():
     else:
         seed = args.seed
     print(f"\n--- Generating image with seed: {seed} ---")
-    generator = torch.Generator(device="cpu").manual_seed(seed) # Generate on CPU
+    generator = torch.Generator(device=device).manual_seed(seed)
     
     # Latents and noise
     latents_shape = (1, 4, args.height // 8, args.width // 8)
-    initial_latents = torch.randn(latents_shape, generator=generator, device="cpu", dtype=dtype)
+    initial_latents = torch.randn(latents_shape, generator=generator, device=device, dtype=dtype)
     
     noise_shape = (args.steps, 1, 4, args.height // 8, args.width // 8)
-    all_noises = torch.randn(noise_shape, generator=generator, device="cpu", dtype=dtype)
+    all_noises = torch.randn(noise_shape, generator=generator, device=device, dtype=dtype)
     
     # Time IDs
-    add_time_ids = torch.tensor([[args.height, args.width, 0, 0, args.height, args.width]], device="cpu", dtype=dtype)
+    add_time_ids = torch.tensor([[args.height, args.width, 0, 0, args.height, args.width]], device=device, dtype=dtype)
 
     # --- Create input dictionary for TRT ---
+    # We now pass torch tensors directly
     trt_inputs = {
-        "prompt_ids_1": prompt_ids_1.numpy().astype(np.int64),
-        "prompt_ids_2": prompt_ids_2.numpy().astype(np.int64),
-        "initial_latents": initial_latents.numpy(),
-        "all_noises": all_noises.numpy(),
-        "add_time_ids": add_time_ids.numpy(),
+        "prompt_ids_1": prompt_ids_1.to(torch.int32),
+        "prompt_ids_2": prompt_ids_2.to(torch.int32),
+        "initial_latents": initial_latents,
+        "all_noises": all_noises,
+        "add_time_ids": add_time_ids,
     }
     
     print("\n--- Input Tensor Stats ---")
@@ -154,27 +176,26 @@ def main():
     start_time_1 = time.time()
     
     outputs_1 = runner.run(trt_inputs)
-    raw_image_np = outputs_1['image']
+    raw_image_tensor = outputs_1['image']
 
     end_time_1 = time.time()
     print(f"✓ First TensorRT inference took: {end_time_1 - start_time_1:.4f} seconds")
-    print_np_stats("TRT Output 1 (raw_image_np)", raw_image_np)
+    print_np_stats("TRT Output 1 (raw_image_tensor)", raw_image_tensor)
 
     print("\n=== Running TensorRT inference (2nd run) ===")
     start_time_2 = time.time()
 
     outputs_2 = runner.run(trt_inputs)
-    raw_image_np = outputs_2['image']
+    raw_image_tensor = outputs_2['image']
     
     end_time_2 = time.time()
     print(f"✓ Second TensorRT inference took: {end_time_2 - start_time_2:.4f} seconds")
-    print_np_stats("TRT Output 2 (raw_image_np)", raw_image_np)
+    print_np_stats("TRT Output 2 (raw_image_tensor)", raw_image_tensor)
 
     # --- Post-process and save final image ---
     print("\n--- Saving final image (from 2nd run) ---")
-    image = torch.from_numpy(raw_image_np)
-    image = (image / 2 + 0.5).clamp(0, 1)
-    image_uint8 = image.permute(0, 2, 3, 1).mul(255).round().to(torch.uint8)
+    image = (raw_image_tensor / 2 + 0.5).clamp(0, 1)
+    image_uint8 = image.cpu().permute(0, 2, 3, 1).mul(255).round().to(torch.uint8)
     
     pil_image = Image.fromarray(image_uint8.numpy()[0])
     

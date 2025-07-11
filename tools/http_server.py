@@ -9,7 +9,11 @@ import requests
 
 # The base directory for serving files. This will be configured at runtime
 # based on command-line arguments or environment variables.
-BASE_DIR = None
+_BASE_DIR_ENV = "HTTP_SERVER_BASE_DIR"
+
+# The base directory for serving files. This is initialized from an environment
+# variable, which is essential for worker processes to know the directory.
+BASE_DIR = Path(os.getenv(_BASE_DIR_ENV)) if os.getenv(_BASE_DIR_ENV) else None
 
 app = FastAPI()
 
@@ -77,7 +81,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
+    # The BASE_DIR for the main process is set from arguments.
     BASE_DIR = Path(args.directory)
+    
+    # We set an environment variable so that worker processes can inherit it and
+    # initialize their own BASE_DIR. This must be done before Uvicorn starts.
+    os.environ[_BASE_DIR_ENV] = str(BASE_DIR.resolve())
 
     # Before starting the server, check if the target directory exists and is a directory.
     if not BASE_DIR.is_dir():
@@ -109,8 +118,9 @@ if __name__ == "__main__":
     
     try:
         # Attempt to run the server on the privileged port 80.
+        # Pass the application as an import string to enable multiple workers.
         uvicorn.run(
-            app,
+            "http_server:app",
             host="0.0.0.0",
             port=80,
             workers=worker_count,

@@ -145,13 +145,13 @@ def main():
         model_path = default_model_path
 
     # Quantization parameters from user command
-    batch_size = 2
+    batch_size = 1
     calib_size = 32
     collect_method = "min-mean"
     percentile = 1.0
     alpha = 0.8
     quant_level = 3.0
-    n_steps = 20
+    n_steps = 8
     quant_algo = "smoothquant"
     model_dtype = torch.float16
 

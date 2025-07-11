@@ -44,43 +44,40 @@ class TensorRTRunner:
         self.context = self.engine.create_execution_context()
         self.stream = cuda.Stream()
         
-        self.bindings = []
-        self.output_shapes = {}
-        self.output_dtypes = {}
+        # Allocate device memory for bindings
+        self.device_buffers = {}
+        self.output_info = {}
         
-        for binding in self.engine:
-            shape = self.engine.get_binding_shape(binding)
-            dtype = trt.nptype(self.engine.get_binding_dtype(binding))
+        for binding_name in self.engine:
+            # We use get_tensor_shape for the v3 API
+            shape = self.engine.get_tensor_shape(binding_name)
+            dtype = trt.nptype(self.engine.get_tensor_dtype(binding_name))
             
             # Allocate memory
             size = trt.volume(shape) * np.dtype(dtype).itemsize
             mem = cuda.mem_alloc(size)
-            self.bindings.append(int(mem))
             
-            if not self.engine.binding_is_input(binding):
-                self.output_shapes[binding] = shape
-                self.output_dtypes[binding] = dtype
+            # Store buffer and set its address on the context
+            self.device_buffers[binding_name] = mem
+            self.context.set_tensor_address(binding_name, int(mem))
+            
+            if self.engine.get_tensor_mode(binding_name) == trt.TensorIOMode.OUTPUT:
+                self.output_info[binding_name] = {'shape': shape, 'dtype': dtype}
 
     def run(self, inputs: dict):
-        # inputs should be a dict of {name: numpy_array}
-        
         # --- Transfer inputs to GPU ---
         for name, arr in inputs.items():
-            binding_idx = self.engine.get_binding_index(name)
-            cuda.memcpy_htod_async(self.bindings[binding_idx], arr, self.stream)
+            cuda.memcpy_htod_async(self.device_buffers[name], arr, self.stream)
             
-        # --- Execute Model ---
-        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.handle)
+        # --- Execute Model with enqueueV3 ---
+        self.context.execute_async_v3(stream_handle=self.stream.handle)
         self.stream.synchronize()
         
         # --- Transfer outputs from GPU ---
         outputs = {}
-        for name, shape in self.output_shapes.items():
-            binding_idx = self.engine.get_binding_index(name)
-            dtype = self.output_dtypes[name]
-            
-            output_arr = np.empty(shape, dtype=dtype)
-            cuda.memcpy_dtoh_async(output_arr, self.bindings[binding_idx], self.stream)
+        for name, info in self.output_info.items():
+            output_arr = np.empty(info['shape'], dtype=info['dtype'])
+            cuda.memcpy_dtoh_async(output_arr, self.device_buffers[name], self.stream)
             outputs[name] = output_arr
             
         self.stream.synchronize()

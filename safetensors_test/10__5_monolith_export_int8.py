@@ -294,6 +294,8 @@ def main():
         print("=== Loading models ===")
         
         vae = AutoencoderKL.from_pretrained(base_dir / "vae", torch_dtype=dtype).to(device)
+        print("Enabling VAE tiling for memory-efficient decoding...")
+        vae.enable_tiling()
         
         tokenizer_1 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer")
         tokenizer_2 = CLIPTokenizer.from_pretrained(str(base_dir), subfolder="tokenizer_2")

@@ -79,7 +79,8 @@ def build_engine(
     onnx_path: str,
     input_profiles: dict,
     fp16: bool = True,
-    workspace_size: int = 2048 # in MB
+    workspace_size: int = 2048, # in MB
+    timing_cache_path: str = None
 ):
     """Builds a TensorRT engine from an ONNX model, following a standardized configuration."""
     
@@ -113,6 +114,20 @@ def build_engine(
     print(f"Hardware Compatibility Level: {config.hardware_compatibility_level}")
     print(f"Tiling Optimization Level: {config.tiling_optimization_level}")
 
+    # --- Timing Cache ---
+    if timing_cache_path:
+        if os.path.exists(timing_cache_path):
+            print(f"Loading timing cache from: {timing_cache_path}")
+            with open(timing_cache_path, "rb") as f:
+                cache_data = f.read()
+            timing_cache = config.create_timing_cache(cache_data)
+        else:
+            print("Creating a new timing cache.")
+            timing_cache = config.create_timing_cache(b"")
+        
+        if timing_cache:
+            config.set_timing_cache(timing_cache, ignore_mismatch=False)
+
     # --- Create Profile ---
     profile = builder.create_optimization_profile()
     for name, dims in input_profiles.items():
@@ -140,6 +155,14 @@ def build_engine(
     if not plan:
         raise RuntimeError("Failed to build TensorRT engine.")
 
+    # Save the timing cache
+    if timing_cache_path:
+        new_timing_cache = config.get_timing_cache()
+        if new_timing_cache:
+            with open(timing_cache_path, "wb") as f:
+                f.write(new_timing_cache.serialize())
+            print(f"Timing cache saved to: {timing_cache_path}")
+
     print(f"Writing TensorRT engine to: {engine_path}")
     with open(engine_path, "wb") as f:
         f.write(plan)
@@ -154,6 +177,7 @@ def main():
     parser.add_argument("--engine_path", type=str, default="monolith.plan", help="Path to save the output TensorRT engine.")
     parser.add_argument("--fp16", action="store_true", help="Enable FP16 mode for the engine (enabled by default).")
     parser.add_argument("--steps", type=int, default=8, help="Number of inference steps used in the model.")
+    parser.add_argument("--timing_cache_path", type=str, default="monolith.cache", help="Path to save and load the timing cache.")
     args = parser.parse_args()
 
     # Define the optimization profile. We'll start with a static profile for 
@@ -199,6 +223,7 @@ def main():
         onnx_path=args.onnx_path,
         input_profiles=input_profiles,
         fp16=True, 
+        timing_cache_path=args.timing_cache_path,
     )
 
 

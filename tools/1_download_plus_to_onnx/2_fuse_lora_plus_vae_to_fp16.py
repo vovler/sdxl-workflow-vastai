@@ -55,11 +55,6 @@ def main():
             
             print("Fusing complete. Unloading LoRA weights.")
             pipeline.unload_lora_weights()
-    
-            # Convert VAE to FP16, as its original weights are often in FP32
-            #print("Converting VAE to FP16 as requested...")
-            #pipeline.vae = pipeline.vae.to(torch.float16)
-            #print("✓ VAE converted to FP16. It will be saved as part of the pipeline.")
 
             # Move original UNet to a backup directory before saving the fused one
             unet_dir = base_dir / "unet"

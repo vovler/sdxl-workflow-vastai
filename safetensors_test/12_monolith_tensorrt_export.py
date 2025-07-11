@@ -106,9 +106,9 @@ def build_engine(
     
     # Apply settings based on reference scripts
     config.set_flag(trt.BuilderFlag.FP16) # Ensure FP16 is enabled by default
-    config.builder_optimization_level = 5
+    config.builder_optimization_level = 4
     config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.NONE
-    config.tiling_optimization_level = trt.TilingOptimizationLevel.FAST
+    config.tiling_optimization_level = trt.TilingOptimizationLevel.NONE
     
     print(f"Builder Optimization Level: {config.builder_optimization_level}")
     print(f"Hardware Compatibility Level: {config.hardware_compatibility_level}")
@@ -140,8 +140,7 @@ def build_engine(
     config.progress_monitor = TQDMProgressMonitor()
 
     # --- Create Network & Parse ONNX ---
-    EXPLICIT_BATCH = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-    network = builder.create_network(EXPLICIT_BATCH)
+    network = builder.create_network()
     parser = trt.OnnxParser(network, logger)
 
     if not parser.parse_from_file(onnx_path):

@@ -373,7 +373,7 @@ def main():
         onnx_output_path = args.output_path
         temp_dir = onnx_output_path + "_temp"
         os.makedirs(temp_dir, exist_ok=True)
-        temp_onnx_path = os.path.join(temp_dir, "model.onnx")
+        onnx_output_path = os.path.join(temp_dir, "model.onnx")
 
         print(f"\n=== Exporting model to temporary directory: {temp_dir} ===")
         
@@ -396,43 +396,18 @@ def main():
             torch.onnx.export(
                 monolith,
                 dummy_inputs,
-                temp_onnx_path,
+                onnx_output_path,
                 opset_version=18,
                 input_names=input_names,
                 output_names=output_names,
                 dynamic_axes=dynamic_axes,
-                verbose=False # Quieter export
+                verbose=False,
+                do_constant_folding=False,
+                verify=False,
+                optimize=False,
+                dynamo=True
             )
             print("✓ ONNX export complete.")
-            
-            # --- Consolidate and Convert Model ---
-            print("\n=== Consolidating and Converting ONNX model ===")
-            temp_model = onnx.load(temp_onnx_path, load_external_data=True)
-            
-            #fp32_count = sum(1 for init in temp_model.graph.initializer if init.data_type == onnx.TensorProto.FLOAT)
-            #if fp32_count > 0:
-            #    print(f"Found {fp32_count} FP32 initializers. Converting model to FP16...")
-            #    model = float16.convert_float_to_float16(temp_model, keep_io_types=True)
-            #    print("✓ Model converted to FP16.")
-            #else:
-            #    print("Model is already FP16. No conversion needed.")
-            #    model = temp_model
-            
-            model = temp_model
-            # Save consolidated model
-            base_name = os.path.splitext(os.path.basename(onnx_output_path))[0]
-            data_filename = f"{base_name}.data"
-            
-            print(f"Saving consolidated model to {onnx_output_path} with external data '{data_filename}'...")
-            onnx.save(
-                model,
-                onnx_output_path,
-                save_as_external_data=True,
-                all_tensors_to_one_file=True,
-                location=data_filename,
-                size_threshold=1024 # Store tensors > 1KB externally
-            )
-            print(f"✓ Model consolidated and saved successfully.")
 
         except Exception as e:
             print(f"✗ ONNX export or consolidation failed: {e}")

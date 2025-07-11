@@ -415,29 +415,14 @@ def main():
                 input_names=input_names,
                 output_names=output_names,
                 dynamic_axes=dynamic_axes,
-                verbose=False # Quieter export
+                verbose=False,
+                do_constant_folding=False,
+                verify=False,
+                optimize=False,
+                dynamo=True
             )
             print("✓ ONNX export complete.")
             
-            # --- Consolidate and Convert Model ---
-            print("\n=== Consolidating and Converting ONNX model ===")
-            temp_model = onnx.load(temp_onnx_path, load_external_data=True)
-            
-            model = temp_model
-            # Save consolidated model
-            base_name = os.path.splitext(os.path.basename(onnx_output_path))[0]
-            data_filename = f"{base_name}.data"
-            
-            print(f"Saving consolidated model to {onnx_output_path} with external data '{data_filename}'...")
-            onnx.save(
-                model,
-                onnx_output_path,
-                save_as_external_data=True,
-                all_tensors_to_one_file=True,
-                location=data_filename,
-                size_threshold=1024 # Store tensors > 1KB externally
-            )
-            print(f"✓ Model consolidated and saved successfully.")
 
         except Exception as e:
             print(f"✗ ONNX export or consolidation failed: {e}")

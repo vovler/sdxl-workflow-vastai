@@ -8,7 +8,7 @@ from PIL import Image
 import time
 import argparse
 import tensorrt as trt
-from cuda import runtime as cudart
+from cuda.bindings import runtime as cudart
 
 def check_cudart_err(err):
     if isinstance(err, cudart.cudaError_t) and err != cudart.cudaError_t.cudaSuccess:

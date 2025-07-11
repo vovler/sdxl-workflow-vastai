@@ -13,7 +13,6 @@ import argparse
 import gc
 import os
 import onnx
-from onnxconverter_common import float16
 import glob
 import shutil
 import modelopt.torch.opt as mto
@@ -423,15 +422,6 @@ def main():
             # --- Consolidate and Convert Model ---
             print("\n=== Consolidating and Converting ONNX model ===")
             temp_model = onnx.load(temp_onnx_path, load_external_data=True)
-            
-            #fp32_count = sum(1 for init in temp_model.graph.initializer if init.data_type == onnx.TensorProto.FLOAT)
-            #if fp32_count > 0:
-            #    print(f"Found {fp32_count} FP32 initializers. Converting model to FP16...")
-            #    model = float16.convert_float_to_float16(temp_model, keep_io_types=True)
-            #    print("✓ Model converted to FP16.")
-            #else:
-            #    print("Model is already FP16. No conversion needed.")
-            #    model = temp_model
             
             model = temp_model
             # Save consolidated model

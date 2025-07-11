@@ -16,6 +16,8 @@ import onnx
 import glob
 import shutil
 import modelopt.torch.opt as mto
+from modelopt.torch.quantization.calib.max import MaxCalibrator
+from modelopt.torch.quantization import utils as quant_utils
 
 def print_tensor_stats(name, tensor):
     """Prints detailed statistics for a given tensor on a single line."""

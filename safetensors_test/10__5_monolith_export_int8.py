@@ -385,11 +385,12 @@ def main():
         
         # --- Export to ONNX ---
         onnx_output_path = args.output_path
-        temp_dir = onnx_output_path + "_temp"
-        os.makedirs(temp_dir, exist_ok=True)
-        temp_onnx_path = os.path.join(temp_dir, "model.onnx")
+        # temp_dir = onnx_output_path + "_temp"
+        # os.makedirs(temp_dir, exist_ok=True)
+        # temp_onnx_path = os.path.join(temp_dir, "model.onnx")
 
-        print(f"\n=== Exporting model to temporary directory: {temp_dir} ===")
+        # print(f"\n=== Exporting model to temporary directory: {temp_dir} ===")
+        print(f"\n=== Exporting model to: {onnx_output_path} ===")
         
         input_names = [
             "prompt_ids_1", "prompt_ids_2", "initial_latents",
@@ -410,7 +411,7 @@ def main():
             torch.onnx.export(
                 monolith,
                 dummy_inputs,
-                temp_onnx_path,
+                onnx_output_path,
                 opset_version=18,
                 input_names=input_names,
                 output_names=output_names,
@@ -418,10 +419,25 @@ def main():
                 verbose=False,
                 do_constant_folding=False,
                 verify=False,
-                optimize=False
+                optimize=False,
+                # dynamo=True
             )
             print("✓ ONNX export complete.")
             
+            # # --- Consolidate Model Files ---
+            # print(f"Consolidating model from {temp_dir} to {onnx_output_path}...")
+            # # Move the main ONNX file
+            # final_onnx_path_unversioned = os.path.join(os.path.dirname(onnx_output_path), os.path.splitext(os.path.basename(onnx_output_path))[0])
+            
+            # shutil.move(temp_onnx_path, onnx_output_path)
+            
+            # # Move any external data files (.data)
+            # for data_file in glob.glob(os.path.join(temp_dir, "*.data")):
+            #     final_data_path = os.path.join(os.path.dirname(onnx_output_path), os.path.basename(data_file))
+            #     print(f"Moving data file: {data_file} to {final_data_path}")
+            #     shutil.move(data_file, final_data_path)
+
+            # print("✓ Model consolidation complete.")
 
         except Exception as e:
             print(f"✗ ONNX export or consolidation failed: {e}")
@@ -430,9 +446,10 @@ def main():
             sys.exit(1)
         finally:
             # --- Clean up temporary directory ---
-            if os.path.exists(temp_dir):
-                print(f"Cleaning up temporary directory: {temp_dir}")
-                shutil.rmtree(temp_dir)
+            # if os.path.exists(temp_dir):
+            #     print(f"Cleaning up temporary directory: {temp_dir}")
+            #     shutil.rmtree(temp_dir)
+            pass
 
         # --- Final Analysis ---
         print(f"\nFinal analysis of consolidated model: {onnx_output_path}")

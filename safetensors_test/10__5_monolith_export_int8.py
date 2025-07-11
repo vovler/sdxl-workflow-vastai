@@ -397,12 +397,13 @@ def main():
         ]
         output_names = ["image"]
         
-        dynamic_shapes = {
+        dynamic_axes = {
             "prompt_ids_1": {0: "batch_size"},
             "prompt_ids_2": {0: "batch_size"},
             "initial_latents": {0: "batch_size", 2: "height_div_8", 3: "width_div_8"},
             "all_noises": {1: "batch_size", 3: "height_div_8", 4: "width_div_8"},
             "add_time_ids": {0: "batch_size"},
+            "image": {0: "batch_size", 2: "height", 3: "width"},
         }
 
         try:
@@ -413,12 +414,11 @@ def main():
                 opset_version=18,
                 input_names=input_names,
                 output_names=output_names,
-                dynamic_shapes=dynamic_shapes,
+                dynamic_axes=dynamic_axes,
                 verbose=False,
                 do_constant_folding=False,
                 verify=False,
-                optimize=False,
-                dynamo=True
+                optimize=False
             )
             print("✓ ONNX export complete.")
             

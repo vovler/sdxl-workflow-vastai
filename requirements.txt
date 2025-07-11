@@ -16,6 +16,7 @@ accelerate>=0.20.0
 safetensors>=0.3.0
 xformers==0.0.31
 peft==0.15.2
+nvidia-modelopt[all]
 
 fastapi==0.104.1
 uvicorn[standard]==0.24.0

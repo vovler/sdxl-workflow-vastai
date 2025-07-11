@@ -45,7 +45,6 @@ BUILDER_CONFIG = {
     # Preview features to enable. These are experimental features that may change
     # or be removed in future TensorRT versions.
     "PREVIEW_FEATURES": {
-        "RUNTIME_ACTIVATION_RESIZE_10_10": True,
     },
 
     # Builder flags.

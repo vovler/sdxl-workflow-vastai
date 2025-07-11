@@ -68,7 +68,7 @@ def main():
     os.environ['OMP_THREAD_LIMIT'] = str(cpu_cores)
     print(f"Attempting to use {cpu_cores} CPU cores for ONNX session loading...")
 
-    providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+    providers = ['CUDAExecutionProvider']
     try:
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL

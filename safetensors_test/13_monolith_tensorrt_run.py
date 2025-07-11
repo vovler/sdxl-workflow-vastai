@@ -86,6 +86,10 @@ class TensorRTRunner:
             if self.engine.get_tensor_mode(binding_name) == trt.TensorIOMode.OUTPUT:
                 self.output_tensors[binding_name] = tensor
 
+        # CUDA Graph related attributes
+        self.graph_instance = None
+        self.is_graph_captured = False
+
     def run(self, inputs: dict):
         # inputs is a dict of {name: torch.Tensor}
         
@@ -94,14 +98,40 @@ class TensorRTRunner:
             expected_dtype = self.device_buffers[name].dtype
             # This copy handles device placement and dtype conversion automatically
             self.device_buffers[name].copy_(arr.to(self.device, dtype=expected_dtype))
+
+        if not self.is_graph_captured:
+            print("--- Capturing CUDA Graph for the first run ---")
+            check_cudart_err(cudart.cudaStreamBeginCapture(self.stream, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal))
             
-        # --- Execute Model with enqueueV3 ---
-        self.context.execute_async_v3(stream_handle=self.stream)
-        check_cudart_err(cudart.cudaStreamSynchronize(self.stream))
+            self.context.execute_async_v3(stream_handle=self.stream)
+            
+            err, graph = cudart.cudaStreamEndCapture(self.stream)
+            check_cudart_err(err)
+
+            # --- Measure VRAM usage of the graph instance ---
+            torch.cuda.synchronize()
+            free_mem_before, _ = torch.cuda.mem_get_info()
+
+            err, instance = cudart.cudaGraphInstantiate(graph, 0)
+            check_cudart_err(err)
+
+            torch.cuda.synchronize()
+            free_mem_after, _ = torch.cuda.mem_get_info()
+            vram_used_mb = (free_mem_before - free_mem_after) / (1024**2)
+            print(f"✓ CUDA Graph Instance VRAM usage: {vram_used_mb:.2f} MB")
+            
+            self.graph_instance = instance
+            self.is_graph_captured = True
+            print("--- CUDA Graph Captured ---")
+            
+            # The first run needs to be synchronized to get the output
+            check_cudart_err(cudart.cudaStreamSynchronize(self.stream))
+        else:
+            # --- Launch CUDA Graph ---
+            check_cudart_err(cudart.cudaGraphLaunch(self.graph_instance, self.stream))
+            check_cudart_err(cudart.cudaStreamSynchronize(self.stream))
         
         # --- Return clones of output buffers ---
-        # Cloning is important to avoid returning a reference to an internal buffer
-        # that might be overwritten in the next run.
         return {name: tensor.clone() for name, tensor in self.output_tensors.items()}
 
 def main():
@@ -172,28 +202,38 @@ def main():
         print_np_stats(name, arr)
 
     # --- Run Inference ---
-    print("\n=== Running TensorRT inference (1st run) ===")
+    print("\n=== Running TensorRT inference (1st run, with graph capture) ===")
     start_time_1 = time.time()
     
     outputs_1 = runner.run(trt_inputs)
     raw_image_tensor = outputs_1['image']
 
     end_time_1 = time.time()
-    print(f"✓ First TensorRT inference took: {end_time_1 - start_time_1:.4f} seconds")
+    print(f"✓ First TensorRT inference (with graph capture) took: {end_time_1 - start_time_1:.4f} seconds")
     print_np_stats("TRT Output 1 (raw_image_tensor)", raw_image_tensor)
 
-    print("\n=== Running TensorRT inference (2nd run) ===")
+    print("\n=== Running TensorRT inference (2nd run, launching graph) ===")
     start_time_2 = time.time()
 
     outputs_2 = runner.run(trt_inputs)
     raw_image_tensor = outputs_2['image']
     
     end_time_2 = time.time()
-    print(f"✓ Second TensorRT inference took: {end_time_2 - start_time_2:.4f} seconds")
+    print(f"✓ Second TensorRT inference (launching graph) took: {end_time_2 - start_time_2:.4f} seconds")
     print_np_stats("TRT Output 2 (raw_image_tensor)", raw_image_tensor)
 
+    print("\n=== Running TensorRT inference (3rd run, launching graph) ===")
+    start_time_3 = time.time()
+
+    outputs_3 = runner.run(trt_inputs)
+    raw_image_tensor = outputs_3['image']
+    
+    end_time_3 = time.time()
+    print(f"✓ Third TensorRT inference (launching graph) took: {end_time_3 - start_time_3:.4f} seconds")
+    print_np_stats("TRT Output 3 (raw_image_tensor)", raw_image_tensor)
+
     # --- Post-process and save final image ---
-    print("\n--- Saving final image (from 2nd run) ---")
+    print("\n--- Saving final image (from 3rd run) ---")
     image = (raw_image_tensor / 2 + 0.5).clamp(0, 1)
     image_uint8 = image.cpu().permute(0, 2, 3, 1).mul(255).round().to(torch.uint8)
     

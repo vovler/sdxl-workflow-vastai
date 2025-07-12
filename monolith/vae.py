@@ -8,6 +8,98 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+@torch.jit.script
+def _vae_blend_h(a, b, blend_extent: int):
+    ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent)
+    
+    a_fp32 = a.to(torch.float32)
+    b_fp32 = b.to(torch.float32)
+
+    slice_a = a_fp32[..., -blend_extent:]
+    slice_b = b_fp32[..., :blend_extent]
+    
+    blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
+
+    b_fp32[..., :blend_extent] = blended_slice
+    
+    return b_fp32.to(a.dtype)
+
+@torch.jit.script
+def _vae_blend_v(a, b, blend_extent: int):
+    ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, blend_extent, 1)
+    
+    a_fp32 = a.to(torch.float32)
+    b_fp32 = b.to(torch.float32)
+
+    slice_a = a_fp32[..., -blend_extent:, :]
+    slice_b = b_fp32[..., :blend_extent, :]
+
+    blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
+    
+    b_fp32[..., :blend_extent, :] = blended_slice
+    
+    return b_fp32.to(a.dtype)
+
+@torch.jit.script
+def vae_encode(module, x, sample_posterior: bool = False):
+    h = module.encoder(x)
+    moments = module.quant_conv(h)
+    
+    mean, logvar = torch.chunk(moments, 2, dim=1)
+    logvar = torch.clamp(logvar, -30.0, 20.0)
+    
+    if sample_posterior:
+        std = torch.exp(0.5 * logvar)
+        z = mean + std * torch.randn_like(std)
+    else:
+        z = mean
+    return z
+
+@torch.jit.script
+def vae_tiled_decode(module, z):
+    overlap_size = int(module.tile_latent_min_size * (1.0 - module.tile_overlap_factor))
+    blend_extent = int(module.tile_sample_min_size * module.tile_overlap_factor)
+    row_limit = module.tile_sample_min_size - blend_extent
+
+    h_steps = list(range(0, z.shape[2], overlap_size))
+    w_steps = list(range(0, z.shape[3], overlap_size))
+
+    output_rows = []
+    prev_row_tiles: list[torch.Tensor] = []
+
+    for i in h_steps:
+        decoded_row_tiles = []
+        for j in w_steps:
+            tile_z = z[:, :, i : i + module.tile_latent_min_size, j : j + module.tile_latent_min_size]
+            decoded_tile = module.decoder(module.post_quant_conv(tile_z))
+            decoded_row_tiles.append(decoded_tile)
+        
+        if len(prev_row_tiles) > 0:
+            for j in range(len(w_steps)):
+                decoded_row_tiles[j] = _vae_blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
+
+        stitched_row_tiles = []
+        for j in range(len(w_steps)):
+            tile = decoded_row_tiles[j]
+            if j > 0:
+                tile = _vae_blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
+            
+            is_last_col = (j == len(w_steps) - 1)
+            slice_width = tile.shape[-1] if is_last_col else row_limit
+            stitched_row_tiles.append(tile[..., :slice_width])
+        
+        output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
+        prev_row_tiles = decoded_row_tiles
+
+    final_image_cat = []
+    for i in range(len(h_steps)):
+        row = output_rows[i]
+        is_last_row = (i == len(h_steps) - 1)
+        slice_height = row.shape[-2] if is_last_row else row_limit
+        final_image_cat.append(row[..., :slice_height, :])
+
+    return torch.cat(final_image_cat, dim=-2)
+
 class DiagonalGaussianDistribution:
     def __init__(self, parameters):
         self.parameters = parameters
@@ -30,7 +122,6 @@ class AttentionBlock(nn.Module):
         self.to_v = nn.Linear(channels, channels)
         self.to_out = nn.Sequential(nn.Linear(channels, channels))
 
-    @torch.no_grad()
     def forward(self, hidden_states):
         residual = hidden_states
         batch, channel, height, width = hidden_states.shape
@@ -314,6 +405,11 @@ class AutoEncoderKL(nn.Module):
         else:
             self.post_quant_conv = nn.Identity()
 
+        self.encoder = torch.jit.script(self.encoder)
+        self.decoder = torch.jit.script(self.decoder)
+        self.quant_conv = torch.jit.script(self.quant_conv)
+        self.post_quant_conv = torch.jit.script(self.post_quant_conv)
+
         self.tile_decode = False
         self.tile_sample_min_size = config.get("sample_size", 512)
         self.tile_overlap_factor = config.get("tile_overlap_factor", 0.25)
@@ -355,52 +451,9 @@ class AutoEncoderKL(nn.Module):
         
         return b_fp32.to(a.dtype)
 
-    @torch.jit.script
-    def _blend_h(self, a, b, blend_extent: int):
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, 1, blend_extent)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[..., -blend_extent:]
-        slice_b = b_fp32[..., :blend_extent]
-        
-        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
-
-        b_fp32[..., :blend_extent] = blended_slice
-        
-        return b_fp32.to(a.dtype)
-
-    @torch.jit.script
-    def _blend_v(self, a, b, blend_extent: int):
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent, 1)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[..., -blend_extent:, :]
-        slice_b = b_fp32[..., :blend_extent, :]
-
-        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
-        
-        b_fp32[..., :blend_extent, :] = blended_slice
-        
-        return b_fp32.to(a.dtype)
-
     @torch.no_grad()
-    @torch.jit.script
     def encode(self, x, sample_posterior: bool = False):
-        h = self.encoder(x)
-        moments = self.quant_conv(h)
-        
-        mean, logvar = torch.chunk(moments, 2, dim=1)
-        logvar = torch.clamp(logvar, -30.0, 20.0)
-        
-        if sample_posterior:
-            std = torch.exp(0.5 * logvar)
-            return mean + std * torch.randn_like(std)
-        else:
-            return mean
+        return vae_encode(self, x, sample_posterior)
 
     @torch.no_grad()
     def decode(self, z):
@@ -410,53 +463,8 @@ class AutoEncoderKL(nn.Module):
         z = self.post_quant_conv(z)
         return self.decoder(z)
     
-    @torch.jit.script
     def tiled_decode(self, z):
-        r"""
-        Decode a batch of images using a tiled decoder.
-        """
-        overlap_size = int(self.tile_latent_min_size * (1.0 - self.tile_overlap_factor))
-        blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
-        row_limit = self.tile_sample_min_size - blend_extent
-
-        h_steps = list(range(0, z.shape[2], overlap_size))
-        w_steps = list(range(0, z.shape[3], overlap_size))
-
-        output_rows = []
-        prev_row_tiles = None
-
-        for i in h_steps:
-            decoded_row_tiles = []
-            for j in w_steps:
-                tile_z = z[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
-                decoded_tile = self.decoder(self.post_quant_conv(tile_z))
-                decoded_row_tiles.append(decoded_tile)
-            
-            if prev_row_tiles is not None:
-                for j in range(len(w_steps)):
-                    decoded_row_tiles[j] = self.blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
-
-            stitched_row_tiles = []
-            for j in range(len(w_steps)):
-                tile = decoded_row_tiles[j]
-                if j > 0:
-                    tile = self.blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
-                
-                is_last_col = (j == len(w_steps) - 1)
-                slice_width = tile.shape[-1] if is_last_col else row_limit
-                stitched_row_tiles.append(tile[..., :slice_width])
-            
-            output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
-            prev_row_tiles = decoded_row_tiles
-
-        final_image_cat = []
-        for i in range(len(h_steps)):
-            row = output_rows[i]
-            is_last_row = (i == len(h_steps) - 1)
-            slice_height = row.shape[-2] if is_last_row else row_limit
-            final_image_cat.append(row[..., :slice_height, :])
-
-        return torch.cat(final_image_cat, dim=-2)
+        return vae_tiled_decode(self, z)
 
     def forward(self, sample, sample_posterior=False):
         z = self.encode(sample, sample_posterior)

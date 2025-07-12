@@ -57,6 +57,9 @@ def main():
 
         # --- Instantiate Wrapper for Export ---
         vae_decoder_exportable = VAETiledDecoder(vae).to(device).eval()
+        print("\n=== Scripting the VAE Tiled Decoder model for export ===")
+        vae_decoder_exportable = torch.jit.script(vae_decoder_exportable)
+        print("Model scripted successfully.")
 
         # --- Create Dummy Inputs for ONNX Export ---
         print("\n=== Creating dummy inputs for ONNX export ===")

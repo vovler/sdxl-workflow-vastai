@@ -232,6 +232,9 @@ def main():
     consumer_thread = threading.Thread(target=consumer, args=(results_queue, runner, args))
     consumer_thread.start()
 
+    # Measure the total time from the first submission until the last result is processed.
+    total_start_time = time.time()
+
     # In this example, we'll submit two inference jobs.
     # In a real application, this could be a loop consuming requests from a web server.
     for i in range(2):
@@ -284,6 +287,9 @@ def main():
     results_queue.put(None) # Sentinel to stop the consumer
     results_queue.join() # Wait for all tasks to be processed
     consumer_thread.join()
+    
+    total_end_time = time.time()
+    print(f"\n--- Total execution time for all runs: {total_end_time - total_start_time:.4f} seconds ---")
     
     print("\nGeneration complete.")
 

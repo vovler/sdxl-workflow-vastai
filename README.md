@@ -2,6 +2,9 @@ https://docs.nvidia.com/deeplearning/tensorrt/10.12.0/_static/c-api/namespacemem
 https://civitai.com/articles/16016/illustrious-prompt-guide-optimized-and-complete
 https://civitai.com/articles/16297/using-civitai-for-generation-and-my-personal-generation-guide-as-of-62925
 
+
+onnxslim --skip-fusion-patterns
+
 #### Deployment should use #####
 pip install tensorrt-lean
 

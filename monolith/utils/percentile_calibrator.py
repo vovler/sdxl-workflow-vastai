@@ -1,3 +1,7 @@
+import torch
+from modelopt.torch.quantization.calib.max import MaxCalibrator
+from modelopt.torch.quantization import utils as quant_utils
+
 class PercentileCalibrator(MaxCalibrator):
     def __init__(self, num_bits=8, axis=None, unsigned=False, track_amax=False, **kwargs):
         super().__init__(num_bits, axis, unsigned, track_amax)

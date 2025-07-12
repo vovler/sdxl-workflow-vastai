@@ -7,10 +7,10 @@ from diffusers import (
 )
 # --- MODIFICATION START ---
 # 1. Import your custom UNet and the original diffusers UNet with an alias
-from monolith.sdxl import UNet2DConditionModel as CustomUNet2DConditionModel
+from sdxl import UNet2DConditionModel as CustomUNet2DConditionModel
 from diffusers import UNet2DConditionModel as DiffusersUNet2DConditionModel
-from monolith.scheduler import ONNXEulerAncestralDiscreteScheduler
-from monolith.monolith import MonolithicSDXL
+from scheduler import ONNXEulerAncestralDiscreteScheduler
+from monolith import MonolithicSDXL
 # --- MODIFICATION END ---
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from pathlib import Path

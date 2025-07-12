@@ -1,3 +1,6 @@
+import torch
+import torch.nn as nn
+
 class ONNXEulerAncestralDiscreteScheduler(nn.Module):
     """
     A custom implementation of the EulerAncestralDiscreteScheduler that is designed

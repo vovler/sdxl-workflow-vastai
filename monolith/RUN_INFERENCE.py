@@ -11,6 +11,8 @@ from sdxl import UNet2DConditionModel as CustomUNet2DConditionModel
 from diffusers import UNet2DConditionModel as DiffusersUNet2DConditionModel
 from scheduler import ONNXEulerAncestralDiscreteScheduler
 from monolith import MonolithicSDXL
+
+from utils.percentile_calibrator import PercentileCalibrator
 # --- MODIFICATION END ---
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from pathlib import Path

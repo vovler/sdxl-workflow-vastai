@@ -28,7 +28,7 @@ class AttentionBlock(nn.Module):
         self.to_q = nn.Linear(channels, channels)
         self.to_k = nn.Linear(channels, channels)
         self.to_v = nn.Linear(channels, channels)
-        self.to_out = nn.Linear(channels, channels)
+        self.to_out = nn.Sequential(nn.Linear(channels, channels))
 
     @torch.no_grad()
     def forward(self, hidden_states):
@@ -87,6 +87,23 @@ class ResnetBlock2D(nn.Module):
             input_tensor = self.conv_shortcut(input_tensor)
 
         return input_tensor + hidden_states
+
+class VAEMidBlock(nn.Module):
+    def __init__(self, in_channels, norm_num_groups=32):
+        super().__init__()
+        self.resnets = nn.ModuleList([
+            ResnetBlock2D(in_channels, in_channels, norm_num_groups=norm_num_groups),
+            ResnetBlock2D(in_channels, in_channels, norm_num_groups=norm_num_groups),
+        ])
+        self.attentions = nn.ModuleList([
+            AttentionBlock(in_channels, norm_num_groups=norm_num_groups),
+        ])
+
+    def forward(self, hidden_states):
+        hidden_states = self.resnets[0](hidden_states)
+        hidden_states = self.attentions[0](hidden_states)
+        hidden_states = self.resnets[1](hidden_states)
+        return hidden_states
 
 class Downsample(nn.Module):
     def __init__(self, channels, use_conv=True, padding=1):
@@ -197,13 +214,9 @@ class Encoder(nn.Module):
         
         self.mid_block = None
         if mid_block_add_attention:
-            self.mid_block = nn.ModuleList([
-                ResnetBlock2D(block_out_channels[-1], block_out_channels[-1], norm_num_groups=norm_num_groups),
-                AttentionBlock(block_out_channels[-1], norm_num_groups=norm_num_groups),
-                ResnetBlock2D(block_out_channels[-1], block_out_channels[-1], norm_num_groups=norm_num_groups),
-            ])
+            self.mid_block = VAEMidBlock(block_out_channels[-1], norm_num_groups=norm_num_groups)
             
-        self.norm_out = nn.GroupNorm(norm_num_groups, block_out_channels[-1], eps=1e-6, affine=True)
+        self.conv_norm_out = nn.GroupNorm(norm_num_groups, block_out_channels[-1], eps=1e-6, affine=True)
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(block_out_channels[-1], 2 * latent_channels, kernel_size=3, stride=1, padding=1)
 
@@ -213,11 +226,9 @@ class Encoder(nn.Module):
             x = block(x)
 
         if self.mid_block is not None:
-            x = self.mid_block[0](x)
-            x = self.mid_block[1](x)
-            x = self.mid_block[2](x)
+            x = self.mid_block(x)
         
-        x = self.norm_out(x)
+        x = self.conv_norm_out(x)
         x = self.conv_act(x)
         x = self.conv_out(x)
         
@@ -231,11 +242,7 @@ class Decoder(nn.Module):
 
         self.mid_block = None
         if mid_block_add_attention:
-            self.mid_block = nn.ModuleList([
-                ResnetBlock2D(block_out_channels[-1], block_out_channels[-1], norm_num_groups=norm_num_groups),
-                AttentionBlock(block_out_channels[-1], norm_num_groups=norm_num_groups),
-                ResnetBlock2D(block_out_channels[-1], block_out_channels[-1], norm_num_groups=norm_num_groups),
-            ])
+            self.mid_block = VAEMidBlock(block_out_channels[-1], norm_num_groups=norm_num_groups)
 
         self.up_blocks = nn.ModuleList([])
         reversed_block_out_channels = list(reversed(block_out_channels))
@@ -256,7 +263,7 @@ class Decoder(nn.Module):
                 )
                 self.up_blocks.append(up_block)
         
-        self.norm_out = nn.GroupNorm(norm_num_groups, block_out_channels[0], eps=1e-6, affine=True)
+        self.conv_norm_out = nn.GroupNorm(norm_num_groups, block_out_channels[0], eps=1e-6, affine=True)
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, kernel_size=3, stride=1, padding=1)
 
@@ -264,14 +271,12 @@ class Decoder(nn.Module):
         z = self.conv_in(z)
 
         if self.mid_block is not None:
-            z = self.mid_block[0](z)
-            z = self.mid_block[1](z)
-            z = self.mid_block[2](z)
+            z = self.mid_block(z)
         
         for block in self.up_blocks:
             z = block(z)
 
-        z = self.norm_out(z)
+        z = self.conv_norm_out(z)
         z = self.conv_act(z)
         z = self.conv_out(z)
         

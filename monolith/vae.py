@@ -386,6 +386,7 @@ class AutoEncoderKL(nn.Module):
                     w_end = width
                     w_start = width - tile_size
                 
+                print(f"Processing tile ({i}, {j}) of size {h_end - h_start}x{w_end - w_start}")
                 tile_z = z[:, :, h_start:h_end, w_start:w_end]
                 
                 # decode the tile

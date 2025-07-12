@@ -113,6 +113,7 @@ def main():
     parser.add_argument("--steps", type=int, default=8, help="Number of inference steps.")
     parser.add_argument("--seed", type=int, default=1020094661, help="Seed for random generation.")
     parser.add_argument("--random_seed", action="store_true", help="Use a random seed.")
+    parser.add_argument("--num_images", type=int, default=10, help="Number of images to generate in a loop.")
     args = parser.parse_args()
 
     # --- Configuration ---
@@ -135,6 +136,7 @@ def main():
     # --- Prepare Inputs ---
     print("\n=== Preparing inputs for TensorRT model ===")
     
+    prep_start_time = time.time()
     # Tokenize prompts
     prompt_ids_1 = tokenizer_1(args.prompt, padding="max_length", max_length=tokenizer_1.model_max_length, truncation=True, return_tensors="pt").input_ids
     prompt_ids_2 = tokenizer_2(args.prompt, padding="max_length", max_length=tokenizer_2.model_max_length, truncation=True, return_tensors="pt").input_ids
@@ -156,6 +158,8 @@ def main():
     
     # Time IDs
     add_time_ids = torch.tensor([[args.height, args.width, 0, 0, args.height, args.width]], device=device, dtype=dtype)
+    prep_end_time = time.time()
+    print(f"✓ Input preparation took: {prep_end_time - prep_start_time:.4f} seconds")
 
     # --- Create input dictionary for TRT ---
     # We now pass torch tensors directly
@@ -167,33 +171,25 @@ def main():
         "add_time_ids": add_time_ids,
     }
     
-    print("\n--- Input Tensor Stats ---")
-    for name, arr in trt_inputs.items():
-        print_np_stats(name, arr)
-
-    # --- Run Inference ---
-    print("\n=== Running TensorRT inference (1st run) ===")
-    start_time_1 = time.time()
+    # --- Run Inference Loop ---
+    print(f"\n=== Running TensorRT inference for {args.num_images} iterations ===")
     
-    outputs_1 = runner.run(trt_inputs)
-    raw_image_tensor = outputs_1['image']
+    raw_image_tensor = None
+    for i in range(args.num_images):
+        start_time = time.time()
+        
+        outputs = runner.run(trt_inputs)
+        raw_image_tensor = outputs['image']
+        
+        end_time = time.time()
+        print(f"✓ Iteration {i+1}/{args.num_images} took: {end_time - start_time:.4f} seconds")
 
-    end_time_1 = time.time()
-    print(f"✓ First TensorRT inference took: {end_time_1 - start_time_1:.4f} seconds")
-    print_np_stats("TRT Output 1 (raw_image_tensor)", raw_image_tensor)
-
-    print("\n=== Running TensorRT inference (2nd run) ===")
-    start_time_2 = time.time()
-
-    outputs_2 = runner.run(trt_inputs)
-    raw_image_tensor = outputs_2['image']
-    
-    end_time_2 = time.time()
-    print(f"✓ Second TensorRT inference took: {end_time_2 - start_time_2:.4f} seconds")
-    print_np_stats("TRT Output 2 (raw_image_tensor)", raw_image_tensor)
+    if raw_image_tensor is None:
+        print("No images were generated, exiting.")
+        sys.exit(0)
 
     # --- Post-process and save final image ---
-    print("\n--- Saving final image (from 2nd run) ---")
+    print("\n--- Saving final image ---")
     image = (raw_image_tensor / 2 + 0.5).clamp(0, 1)
     image_uint8 = image.cpu().permute(0, 2, 3, 1).mul(255).round().to(torch.uint8)
     

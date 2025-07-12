@@ -71,7 +71,6 @@ class ResnetBlock2D(nn.Module):
         if in_channels != out_channels:
             self.conv_shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
 
-    @torch.no_grad()
     def forward(self, input_tensor):
         hidden_states = input_tensor
         
@@ -356,7 +355,8 @@ class AutoEncoderKL(nn.Module):
         
         return b_fp32.to(a.dtype)
 
-    def _blend_h(self, a, b, blend_extent):
+    @torch.jit.script
+    def _blend_h(self, a, b, blend_extent: int):
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, 1, blend_extent)
         
         a_fp32 = a.to(torch.float32)
@@ -372,7 +372,7 @@ class AutoEncoderKL(nn.Module):
         return b_fp32.to(a.dtype)
 
     @torch.jit.script
-    def _blend_v(self, a, b, blend_extent):
+    def _blend_v(self, a, b, blend_extent: int):
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent, 1)
         
         a_fp32 = a.to(torch.float32)
@@ -387,20 +387,29 @@ class AutoEncoderKL(nn.Module):
         
         return b_fp32.to(a.dtype)
 
+    @torch.no_grad()
     @torch.jit.script
-    def encode(self, x):
+    def encode(self, x, sample_posterior: bool = False):
         h = self.encoder(x)
         moments = self.quant_conv(h)
-        return DiagonalGaussianDistribution(moments)
+        
+        mean, logvar = torch.chunk(moments, 2, dim=1)
+        logvar = torch.clamp(logvar, -30.0, 20.0)
+        
+        if sample_posterior:
+            std = torch.exp(0.5 * logvar)
+            return mean + std * torch.randn_like(std)
+        else:
+            return mean
 
-    @torch.jit.script
+    @torch.no_grad()
     def decode(self, z):
         if self.tile_decode:
             return self.tiled_decode(z)
 
         z = self.post_quant_conv(z)
         return self.decoder(z)
-
+    
     @torch.jit.script
     def tiled_decode(self, z):
         r"""
@@ -450,10 +459,6 @@ class AutoEncoderKL(nn.Module):
         return torch.cat(final_image_cat, dim=-2)
 
     def forward(self, sample, sample_posterior=False):
-        posterior = self.encode(sample)
-        if sample_posterior:
-            z = posterior.sample()
-        else:
-            z = posterior.mode()
+        z = self.encode(sample, sample_posterior)
         dec = self.decode(z)
         return dec

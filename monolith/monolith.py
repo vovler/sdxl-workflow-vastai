@@ -40,7 +40,6 @@ class MonolithicSDXL(nn.Module):
             prompt_embeds, 
             pooled_prompt_embeds, 
             add_time_ids, 
-            self.unet,
             all_noises
         )
 

@@ -1,15 +1,17 @@
 import torch
 import torch.nn as nn
 
+from monolith.unet_loop import UNetLoop
+
 class MonolithicSDXL(nn.Module):
-    def __init__(self, text_encoder_1, text_encoder_2, unet, vae, scheduler_module):
+    def __init__(self, text_encoder_1, text_encoder_2, unet, vae, unet_loop):
         super().__init__()
         self.text_encoder_1 = text_encoder_1
         self.text_encoder_2 = text_encoder_2
         self.unet = unet
         self.vae = vae
-        self.denoising_module = scheduler_module
-        self.vae_scale_factor = vae.config.scaling_factor
+        self.unet_loop = unet_loop
+        self.vae_scale_factor = vae.config["scaling_factor"]
         
     @torch.no_grad()
     def forward(
@@ -33,7 +35,7 @@ class MonolithicSDXL(nn.Module):
         # Concatenate the 3D prompt embeddings
         prompt_embeds = torch.cat((prompt_embeds_1, prompt_embeds_2), dim=-1)
         
-        final_latents = self.denoising_module(
+        final_latents = self.unet_loop(
             initial_latents, 
             prompt_embeds, 
             pooled_prompt_embeds, 
@@ -43,6 +45,6 @@ class MonolithicSDXL(nn.Module):
         )
 
         final_latents = final_latents / self.vae_scale_factor
-        image = self.vae.decode(final_latents, return_dict=False)[0]
+        image = self.vae.decode(final_latents)
 
         return image

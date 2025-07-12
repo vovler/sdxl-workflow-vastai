@@ -2,15 +2,18 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from diffusers import (
-    AutoencoderKL,
-)
+# from diffusers import (
+#     AutoencoderKL,
+# )
 # --- MODIFICATION START ---
 # 1. Import custom modules and safetensors loader
-from sdxl import UNet2DConditionModel as CustomUNet2DConditionModel
-from scheduler import ONNXEulerAncestralDiscreteScheduler
+from unet import UNet2DConditionModel as CustomUNet2DConditionModel
+from scheduler import EulerAncestralDiscreteScheduler
 from monolith import MonolithicSDXL
 from safetensors.torch import load_file
+from vae import AutoEncoderKL as CustomAutoEncoderKL
+from unet_loop import UNetLoop
+import json
 # --- MODIFICATION END ---
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from pathlib import Path
@@ -55,7 +58,14 @@ def main():
         # --- Load Model Components ---
         print("=== Loading models ===")
         
-        vae = AutoencoderKL.from_pretrained(base_dir / "vae", torch_dtype=dtype).to(device)
+        # vae = AutoencoderKL.from_pretrained(base_dir / "vae", torch_dtype=dtype).to(device)
+        print("Loading custom VAE...")
+        with open(base_dir / "vae" / "config.json") as f:
+            vae_config = json.load(f)
+        vae = CustomAutoEncoderKL(vae_config).to(dtype).to(device)
+        vae_weights_path = base_dir / "vae" / "diffusion_pytorch_model.safetensors"
+        vae.load_state_dict(load_file(vae_weights_path, device=device))
+        
         print("Enabling VAE tiling for memory-efficient decoding...")
         vae.enable_tiling()
         
@@ -99,7 +109,7 @@ def main():
         # --- Instantiate Monolithic Module ---
         print("Instantiating monolithic module...")
         
-        onnx_scheduler = ONNXEulerAncestralDiscreteScheduler(
+        onnx_scheduler = EulerAncestralDiscreteScheduler(
             num_inference_steps=num_inference_steps,
             dtype=dtype,
             timestep_spacing="linspace",
@@ -108,12 +118,14 @@ def main():
             beta_end=0.012
         )
         
+        unet_loop = UNetLoop(unet, onnx_scheduler)
+
         monolith = MonolithicSDXL(
             text_encoder_1=text_encoder_1,
             text_encoder_2=text_encoder_2,
             unet=unet,
             vae=vae,
-            scheduler_module=onnx_scheduler,
+            unet_loop=unet_loop,
         ).to(device).eval()
 
         # --- Clean up memory ---
@@ -151,10 +163,10 @@ def main():
         # Prepare latents and noise
         print("Preparing latents and noise...")
         generator = torch.Generator(device=device).manual_seed(seed)
-        latents_shape = (batch_size, CustomUNet2DConditionModel().config.in_channels, height // 8, width // 8)
+        latents_shape = (batch_size, CustomUNet2DConditionModel().config["in_channels"], height // 8, width // 8)
         initial_latents = torch.randn(latents_shape, generator=generator, device=device, dtype=dtype)
 
-        noise_shape = (num_inference_steps, batch_size, CustomUNet2DConditionModel().config.in_channels, height // 8, width // 8)
+        noise_shape = (num_inference_steps, batch_size, CustomUNet2DConditionModel().config["in_channels"], height // 8, width // 8)
         all_noises = torch.randn(noise_shape, generator=generator, device=device, dtype=dtype)
 
         add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], device=device, dtype=dtype).repeat(batch_size, 1)

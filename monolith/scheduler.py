@@ -1,11 +1,7 @@
 import torch
 import torch.nn as nn
 
-class ONNXEulerAncestralDiscreteScheduler(nn.Module):
-    """
-    A custom implementation of the EulerAncestralDiscreteScheduler that is designed
-    to be ONNX-exportable. It encapsulates the entire denoising loop.
-    """
+class EulerAncestralDiscreteScheduler(nn.Module):
     def __init__(self, num_inference_steps: int, dtype, num_train_timesteps: int = 1000, beta_start: float = 0.00085, beta_end: float = 0.012, beta_schedule: str = "scaled_linear", timestep_spacing: str = "linspace"):
         super().__init__()
         
@@ -67,52 +63,27 @@ class ONNXEulerAncestralDiscreteScheduler(nn.Module):
         
 
     @torch.no_grad()
-    def forward(
+    def step(
         self,
+        noise_pred: torch.Tensor,
         latents: torch.Tensor,
-        text_embeddings: torch.Tensor,
-        pooled_prompt_embeds: torch.Tensor,
-        add_time_ids: torch.Tensor,
-        unet: nn.Module,
+        i: int,
         all_noises: torch.Tensor
     ) -> torch.Tensor:
-        """
-        Denoising loop that is compatible with ONNX export.
-        """
-        latents = latents * self.init_noise_sigma
+        sigma = self.sigmas[i]
+
+        pred_original_sample = latents - sigma * noise_pred
+        derivative = (latents - pred_original_sample) / sigma
         
-        # The main denoising loop
-        for i in range(self.num_inference_steps):
-            sigma = self.sigmas[i]
-            t = self.timesteps[i].unsqueeze(0) # UNet expects a tensor for timestep
-            
-            # 1. Scale the latent input
-            latent_model_input = latents / torch.sqrt(sigma**2 + 1)
-            
-            # 2. Predict noise with the UNet
-            added_cond_kwargs = {"text_embeds": pooled_prompt_embeds, "time_ids": add_time_ids}
-            noise_pred = unet(
-                latent_model_input, t,
-                encoder_hidden_states=text_embeddings,
-                added_cond_kwargs=added_cond_kwargs,
-                return_dict=False
-            )[0]
-            
-            # 3. Scheduler step (Euler Ancestral method)
-            # 3a. Denoise with a standard Euler step
-            pred_original_sample = latents - sigma * noise_pred
-            derivative = (latents - pred_original_sample) / sigma
-            
-            sigma_from = self.sigmas[i]
-            sigma_to = self.sigmas[i + 1]
-            sigma_up = torch.sqrt((sigma_to**2 * (sigma_from**2 - sigma_to**2)) / sigma_from**2)
-            sigma_down = torch.sqrt(sigma_to**2 - sigma_up**2)
-            
-            dt = sigma_down - sigma
-            denoised_latents = latents + derivative * dt
-            
-            # 3b. Add ancestral noise
-            noise = all_noises[i]
-            latents = denoised_latents + noise * sigma_up
+        sigma_from = self.sigmas[i]
+        sigma_to = self.sigmas[i + 1]
+        sigma_up = torch.sqrt((sigma_to**2 * (sigma_from**2 - sigma_to**2)) / sigma_from**2)
+        sigma_down = torch.sqrt(sigma_to**2 - sigma_up**2)
+        
+        dt = sigma_down - sigma
+        denoised_latents = latents + derivative * dt
+        
+        noise = all_noises[i]
+        latents = denoised_latents + noise * sigma_up
             
         return latents

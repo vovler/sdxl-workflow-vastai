@@ -316,15 +316,45 @@ class AutoEncoderKL(nn.Module):
             self.post_quant_conv = nn.Identity()
 
         self.tile_decode = False
-        self.tile_size = config.get("tile_size", 512)
-        self.tile_stride = config.get("tile_stride", 256)
+        self.tile_sample_min_size = config.get("sample_size", 512)
+        self.tile_overlap_factor = config.get("tile_overlap_factor", 0.25)
         self.scale_factor = 2 ** (len(config["block_out_channels"]) - 1)
+        self.tile_latent_min_size = self.tile_sample_min_size // self.scale_factor
+
 
     def enable_tiling(self, use_tiling=True):
         self.tile_decode = use_tiling
 
     def disable_tiling(self):
         self.enable_tiling(False)
+
+    def blend_h(self, a, b, blend_extent):
+        blend_extent = min(a.shape[3], b.shape[3], blend_extent)
+        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent)
+        
+        a_fp32 = a.to(torch.float32)
+        b_fp32 = b.to(torch.float32)
+
+        slice_a = a_fp32[:, :, :, -blend_extent:]
+        slice_b = b_fp32[:, :, :, :blend_extent]
+        
+        b_fp32[:, :, :, :blend_extent] = slice_a * (1.0 - ramp) + slice_b * ramp
+        
+        return b_fp32.to(a.dtype)
+
+    def blend_v(self, a, b, blend_extent):
+        blend_extent = min(a.shape[2], b.shape[2], blend_extent)
+        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, blend_extent, 1)
+        
+        a_fp32 = a.to(torch.float32)
+        b_fp32 = b.to(torch.float32)
+
+        slice_a = a_fp32[:, :, -blend_extent:, :]
+        slice_b = b_fp32[:, :, :blend_extent, :]
+        
+        b_fp32[:, :, :blend_extent, :] = slice_a * (1.0 - ramp) + slice_b * ramp
+        
+        return b_fp32.to(a.dtype)
 
     @torch.no_grad()
     def encode(self, x):
@@ -344,80 +374,46 @@ class AutoEncoderKL(nn.Module):
         r"""
         Decode a batch of images using a tiled decoder.
         """
-        
-        # This is a simplified version of the logic in diffusers
-        # https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/autoencoder_kl.py#L422
-        
-        tile_size = self.tile_size // self.scale_factor
-        tile_stride = self.tile_stride // self.scale_factor
-        batch_size, channels, height, width = z.shape
-        
-        # calculate the number of tiles
-        num_tiles_h = 1 if height <= tile_size else (height - tile_size + tile_stride - 1) // tile_stride + 1
-        num_tiles_w = 1 if width <= tile_size else (width - tile_size + tile_stride - 1) // tile_stride + 1
-        
-        # output and blending mask
-        output = torch.zeros(batch_size, self.config["out_channels"], height * self.scale_factor, width * self.scale_factor, device=z.device, dtype=torch.float32)
-        blend_mask = torch.zeros(batch_size, 1, height * self.scale_factor, width * self.scale_factor, device=z.device, dtype=torch.float32)
+        overlap_size = int(self.tile_latent_min_size * (1 - self.tile_overlap_factor))
+        blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
+        row_limit = self.tile_sample_min_size - blend_extent
 
-        # Create blending ramps
-        decoded_tile_size = self.tile_size
-        decoded_stride = self.tile_stride
-        overlap = decoded_tile_size - decoded_stride
-        ramp = torch.linspace(0, 1, overlap, device=z.device, dtype=torch.float32)
+        # Decode all tiles first
+        rows = []
+        for i in range(0, z.shape[2], overlap_size):
+            row = []
+            for j in range(0, z.shape[3], overlap_size):
+                tile_z = z[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
+                decoded = self.decoder(self.post_quant_conv(tile_z))
+                row.append(decoded)
+            rows.append(row)
+
+        # Blend and stitch
+        result_rows = []
+        for i, row_of_tiles in enumerate(rows):
+            blended_row = []
+            for j, original_tile in enumerate(row_of_tiles):
+                current_tile = original_tile.clone()
+                if i > 0:
+                    current_tile = self.blend_v(rows[i-1][j], current_tile, blend_extent)
+                if j > 0:
+                    current_tile = self.blend_h(row_of_tiles[j-1], current_tile, blend_extent)
+                blended_row.append(current_tile)
+            
+            # Stitch the row together, cropping the overlap
+            row_to_cat = []
+            for j, tile in enumerate(blended_row):
+                crop_w = tile.shape[3] if j == len(blended_row) -1 else row_limit
+                row_to_cat.append(tile[:, :, :, :crop_w])
+            result_rows.append(torch.cat(row_to_cat, dim=3))
+
+        # Stitch the rows together
+        final_img_to_cat = []
+        for i, row_img in enumerate(result_rows):
+            crop_h = row_img.shape[2] if i == len(result_rows) - 1 else row_limit
+            final_img_to_cat.append(row_img[:, :, :crop_h, :])
         
-        for i in range(num_tiles_h):
-            is_top = (i == 0)
-            is_bottom = (i == num_tiles_h - 1)
-            for j in range(num_tiles_w):
-                is_left = (j == 0)
-                is_right = (j == num_tiles_w - 1)
-                
-                # get the current tile
-                h_start = i * tile_stride
-                h_end = h_start + tile_size
-                if h_end > height:
-                    h_end = height
-                    h_start = height - tile_size
-
-                w_start = j * tile_stride
-                w_end = w_start + tile_size
-                if w_end > width:
-                    w_end = width
-                    w_start = width - tile_size
-                
-                print(f"Processing tile ({i}, {j}) of size {h_end - h_start}x{w_end - w_start}")
-                tile_z = z[:, :, h_start:h_end, w_start:w_end]
-                
-                # decode the tile
-                decoded_tile = self.decoder(self.post_quant_conv(tile_z))
-
-                # Create blending window for this tile
-                window_h = torch.ones(decoded_tile_size, device=z.device, dtype=torch.float32)
-                if not is_left:
-                    window_h[:overlap] = ramp
-                if not is_right:
-                    window_h[-overlap:] = torch.flip(ramp, [0])
-
-                window_v = torch.ones(decoded_tile_size, device=z.device, dtype=torch.float32)
-                if not is_top:
-                    window_v[:overlap] = ramp
-                if not is_bottom:
-                    window_v[-overlap:] = torch.flip(ramp, [0])
-                    
-                window_2d = torch.outer(window_v, window_h)
-                window_2d = window_2d.unsqueeze(0).unsqueeze(0)
-                
-                # blend the tile into the output
-                output_h_start = h_start * self.scale_factor
-                output_h_end = h_end * self.scale_factor
-                output_w_start = w_start * self.scale_factor
-                output_w_end = w_end * self.scale_factor
-                
-                output[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += decoded_tile * window_2d
-                blend_mask[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += window_2d
-        
-        return output / blend_mask.clamp(min=1e-6)
+        return torch.cat(final_img_to_cat, dim=2)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)

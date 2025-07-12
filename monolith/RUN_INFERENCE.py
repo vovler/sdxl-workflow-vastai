@@ -123,7 +123,7 @@ def main():
 
         # --- Prepare Inputs for Inference ---
         print("\n=== Preparing inputs for inference ===")
-        prompt = "a photograph of an astronaut riding a horse on mars"
+        prompt = "masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background"
 
         print("Tokenizing prompt...")
         text_inputs_1 = tokenizer_1(

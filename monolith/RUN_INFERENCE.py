@@ -185,6 +185,10 @@ def main():
         print("Post-processing and saving image...")
         image_tensor = (image_tensor / 2 + 0.5).clamp(0, 1)
         image_np = image_tensor.cpu().permute(0, 2, 3, 1).float().numpy()
+        
+        # Print stats before casting to uint8
+        print(f"Image (min/max/mean): {image_np.min():.4f}, {image_np.max():.4f}, {image_np.mean():.4f}. Contains NaNs: {np.isnan(image_np).any()}")
+
         image_pil = Image.fromarray((image_np[0] * 255).round().astype("uint8"))
 
         output_image_path = "output_image.png"

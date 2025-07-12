@@ -318,6 +318,7 @@ class AutoEncoderKL(nn.Module):
         self.tile_decode = False
         self.tile_size = config.get("tile_size", 512)
         self.tile_stride = config.get("tile_stride", 256)
+        self.scale_factor = 2 ** (len(config["block_out_channels"]) - 1)
 
     def enable_tiling(self, use_tiling=True):
         self.tile_decode = use_tiling
@@ -344,27 +345,28 @@ class AutoEncoderKL(nn.Module):
         Decode a batch of images using a tiled decoder.
         """
         
-        # ... implementation of tiled decoding ...
         # This is a simplified version of the logic in diffusers
         # https://github.com/huggingface/diffusers/blob/main/src/diffusers/models/autoencoder_kl.py#L422
         
+        tile_size = self.tile_size // self.scale_factor
+        tile_stride = self.tile_stride // self.scale_factor
         batch_size, channels, height, width = z.shape
         
         # calculate the number of tiles
-        num_tiles_h = (height - self.tile_size) // self.tile_stride + 1
-        num_tiles_w = (width - self.tile_size) // self.tile_stride + 1
+        num_tiles_h = (height - tile_size) // tile_stride + 1
+        num_tiles_w = (width - tile_size) // tile_stride + 1
         
         # output and blending mask
-        output = torch.zeros(batch_size, self.config["out_channels"], height * 8, width * 8, device=z.device)
-        blend_mask = torch.zeros(batch_size, 1, height * 8, width * 8, device=z.device)
+        output = torch.zeros(batch_size, self.config["out_channels"], height * self.scale_factor, width * self.scale_factor, device=z.device)
+        blend_mask = torch.zeros(batch_size, 1, height * self.scale_factor, width * self.scale_factor, device=z.device)
         
         for i in range(num_tiles_h):
             for j in range(num_tiles_w):
                 # get the current tile
-                h_start = i * self.tile_stride
-                h_end = h_start + self.tile_size
-                w_start = j * self.tile_stride
-                w_end = w_start + self.tile_size
+                h_start = i * tile_stride
+                h_end = h_start + tile_size
+                w_start = j * tile_stride
+                w_end = w_start + tile_size
                 
                 tile_z = z[:, :, h_start:h_end, w_start:w_end]
                 
@@ -372,15 +374,15 @@ class AutoEncoderKL(nn.Module):
                 decoded_tile = self.decoder(self.post_quant_conv(tile_z))
                 
                 # blend the tile into the output
-                output_h_start = h_start * 8
-                output_h_end = h_end * 8
-                output_w_start = w_start * 8
-                output_w_end = w_end * 8
+                output_h_start = h_start * self.scale_factor
+                output_h_end = h_end * self.scale_factor
+                output_w_start = w_start * self.scale_factor
+                output_w_end = w_end * self.scale_factor
                 
                 output[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += decoded_tile
                 blend_mask[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += 1
         
-        return output / blend_mask
+        return output / blend_mask.clamp(min=1.0)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)

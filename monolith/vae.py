@@ -88,6 +88,41 @@ class ResnetBlock2D(nn.Module):
 
         return input_tensor + hidden_states
 
+class Downsample(nn.Module):
+    def __init__(self, channels, use_conv=True, padding=1):
+        super().__init__()
+        if use_conv:
+            self.conv = nn.Conv2d(channels, channels, kernel_size=3, stride=2, padding=padding)
+        else:
+            self.conv = nn.AvgPool2d(kernel_size=2, stride=2)
+
+    def forward(self, hidden_states):
+        assert hidden_states.shape[2] % 2 == 0 and hidden_states.shape[3] % 2 == 0
+        if isinstance(self.conv, nn.Conv2d):
+            hidden_states = self.conv(hidden_states)
+        else:
+            hidden_states = self.conv(hidden_states)
+        return hidden_states
+
+class Upsample(nn.Module):
+    def __init__(self, channels, use_conv=True):
+        super().__init__()
+        self.use_conv = use_conv
+        if use_conv:
+            self.conv = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+
+    def forward(self, hidden_states, output_size=None):
+        assert hidden_states.shape[2] % 2 == 0 and hidden_states.shape[3] % 2 == 0
+        if output_size is None:
+            hidden_states = F.interpolate(hidden_states, scale_factor=2.0, mode="nearest")
+        else:
+            hidden_states = F.interpolate(hidden_states, size=output_size, mode="nearest")
+        
+        if self.use_conv:
+            hidden_states = self.conv(hidden_states)
+
+        return hidden_states
+
 class DownEncoderBlock2D(nn.Module):
     def __init__(self, in_channels, out_channels, num_layers, add_downsample=True, norm_num_groups=32):
         super().__init__()
@@ -100,7 +135,7 @@ class DownEncoderBlock2D(nn.Module):
         self.downsamplers = None
         if add_downsample:
             self.downsamplers = nn.ModuleList([
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1)
+                Downsample(out_channels, use_conv=True)
             ])
 
     def forward(self, hidden_states):
@@ -125,7 +160,7 @@ class UpDecoderBlock2D(nn.Module):
         self.upsamplers = None
         if add_upsample:
             self.upsamplers = nn.ModuleList([
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+                Upsample(out_channels, use_conv=True)
             ])
 
     def forward(self, hidden_states):
@@ -133,7 +168,6 @@ class UpDecoderBlock2D(nn.Module):
             hidden_states = resnet(hidden_states)
 
         if self.upsamplers is not None:
-            hidden_states = F.interpolate(hidden_states, scale_factor=2.0, mode="nearest")
             for upsampler in self.upsamplers:
                 hidden_states = upsampler(hidden_states)
         
@@ -255,6 +289,15 @@ class AutoEncoderKL(nn.Module):
             norm_num_groups=config["norm_num_groups"],
             latent_channels=config["latent_channels"],
             mid_block_add_attention=config.get("mid_block_add_attention", True)
+        )
+        self.decoder = Decoder(
+            out_channels=config["out_channels"],
+            up_block_types=config["up_block_types"],
+            block_out_channels=config["block_out_channels"],
+            layers_per_block=config["layers_per_block"],
+            norm_num_groups=config["norm_num_groups"],
+            latent_channels=config["latent_channels"],
+            mid_block_add_attention=config.get("mid_block_add_attention", True),
         )
         
         if config.get("use_quant_conv", True):

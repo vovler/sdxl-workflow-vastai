@@ -79,7 +79,7 @@ def build_engine(
     onnx_path: str,
     input_profiles: dict,
     fp16: bool = True,
-    workspace_size: int = 10240, # in MB (VRAM)
+    #workspace_size: int = 8192, # in MB (VRAM)
     timing_cache_path: str = None
 ):
     """Builds a TensorRT engine from an ONNX model, following a standardized configuration."""
@@ -94,21 +94,18 @@ def build_engine(
     print(f"  FP16: {fp16}")
     print("="*50)
 
-    builder = trt.Builder(logger)
+    builder = trt.Builder(logger, max_threads=torch.get_num_threads())
     
-    if hasattr(builder, 'max_threads'):
-        builder.max_threads = torch.get_num_threads()
-
     config = builder.create_builder_config()
     
     # --- Apply Builder Config ---
-    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_size * 1024 * 1024)
+    #config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_size * 1024 * 1024)
     
     # Apply settings based on reference scripts
     config.set_flag(trt.BuilderFlag.FP16) # Ensure FP16 is enabled by default
     config.set_flag(trt.BuilderFlag.INT8)
     config.builder_optimization_level = 4
-    config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.NONE
+    config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
     config.tiling_optimization_level = trt.TilingOptimizationLevel.NONE
     
     print(f"Builder Optimization Level: {config.builder_optimization_level}")

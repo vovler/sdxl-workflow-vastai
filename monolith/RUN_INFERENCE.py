@@ -50,6 +50,7 @@ def main():
         height = 832
         width = 1216
         batch_size = 1
+        seed = 1020094661
         
         # --- Load Model Components ---
         print("=== Loading models ===")
@@ -149,11 +150,12 @@ def main():
 
         # Prepare latents and noise
         print("Preparing latents and noise...")
+        generator = torch.Generator(device=device).manual_seed(seed)
         latents_shape = (batch_size, CustomUNet2DConditionModel().config.in_channels, height // 8, width // 8)
-        initial_latents = torch.randn(latents_shape, device=device, dtype=dtype)
+        initial_latents = torch.randn(latents_shape, generator=generator, device=device, dtype=dtype)
 
         noise_shape = (num_inference_steps, batch_size, CustomUNet2DConditionModel().config.in_channels, height // 8, width // 8)
-        all_noises = torch.randn(noise_shape, device=device, dtype=dtype)
+        all_noises = torch.randn(noise_shape, generator=generator, device=device, dtype=dtype)
 
         add_time_ids = torch.tensor([[height, width, 0, 0, height, width]], device=device, dtype=dtype).repeat(batch_size, 1)
 

@@ -357,11 +357,22 @@ class AutoEncoderKL(nn.Module):
         num_tiles_w = 1 if width <= tile_size else (width - tile_size + tile_stride - 1) // tile_stride + 1
         
         # output and blending mask
-        output = torch.zeros(batch_size, self.config["out_channels"], height * self.scale_factor, width * self.scale_factor, device=z.device)
-        blend_mask = torch.zeros(batch_size, 1, height * self.scale_factor, width * self.scale_factor, device=z.device)
+        output = torch.zeros(batch_size, self.config["out_channels"], height * self.scale_factor, width * self.scale_factor, device=z.device, dtype=torch.float32)
+        blend_mask = torch.zeros(batch_size, 1, height * self.scale_factor, width * self.scale_factor, device=z.device, dtype=torch.float32)
+
+        # Create blending ramps
+        decoded_tile_size = self.tile_size
+        decoded_stride = self.tile_stride
+        overlap = decoded_tile_size - decoded_stride
+        ramp = torch.linspace(0, 1, overlap, device=z.device, dtype=torch.float32)
         
         for i in range(num_tiles_h):
+            is_top = (i == 0)
+            is_bottom = (i == num_tiles_h - 1)
             for j in range(num_tiles_w):
+                is_left = (j == 0)
+                is_right = (j == num_tiles_w - 1)
+                
                 # get the current tile
                 h_start = i * tile_stride
                 h_end = h_start + tile_size
@@ -379,6 +390,22 @@ class AutoEncoderKL(nn.Module):
                 
                 # decode the tile
                 decoded_tile = self.decoder(self.post_quant_conv(tile_z))
+
+                # Create blending window for this tile
+                window_h = torch.ones(decoded_tile_size, device=z.device, dtype=torch.float32)
+                if not is_left:
+                    window_h[:overlap] = ramp
+                if not is_right:
+                    window_h[-overlap:] = torch.flip(ramp, [0])
+
+                window_v = torch.ones(decoded_tile_size, device=z.device, dtype=torch.float32)
+                if not is_top:
+                    window_v[:overlap] = ramp
+                if not is_bottom:
+                    window_v[-overlap:] = torch.flip(ramp, [0])
+                    
+                window_2d = torch.outer(window_v, window_h)
+                window_2d = window_2d.unsqueeze(0).unsqueeze(0)
                 
                 # blend the tile into the output
                 output_h_start = h_start * self.scale_factor
@@ -386,10 +413,10 @@ class AutoEncoderKL(nn.Module):
                 output_w_start = w_start * self.scale_factor
                 output_w_end = w_end * self.scale_factor
                 
-                output[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += decoded_tile
-                blend_mask[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += 1
+                output[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += decoded_tile * window_2d
+                blend_mask[:, :, output_h_start:output_h_end, output_w_start:output_w_end] += window_2d
         
-        return output / blend_mask.clamp(min=1.0)
+        return output / blend_mask.clamp(min=1e-6)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)

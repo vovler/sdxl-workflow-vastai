@@ -150,6 +150,7 @@ def consumer(q: queue.Queue, runner: TensorRTRunner, args: argparse.Namespace):
     """
     script_name = Path(__file__).stem
     image_counter = 0
+    previous_end_time = None
 
     while True:
         item = q.get()
@@ -162,10 +163,21 @@ def consumer(q: queue.Queue, runner: TensorRTRunner, args: argparse.Namespace):
 
         print(f"\n--- [Consumer] Synchronizing run for seed {seed} ---")
         outputs = runner.synchronize(run_idx)
-        end_time = time.time()
+        current_end_time = time.time()
         
         raw_image_tensor = outputs['image']
-        print(f"✓ [Consumer] Run for seed {seed} finished. Total time from submission: {end_time - start_time:.4f} seconds")
+
+        if previous_end_time is None:
+            # For the first result, measure latency from submission to completion.
+            latency = current_end_time - start_time
+            print(f"✓ [Consumer] First run (seed {seed}) finished. Latency: {latency:.4f} seconds")
+        else:
+            # For subsequent results, measure the time since the previous result, which reflects throughput.
+            throughput_time = current_end_time - previous_end_time
+            print(f"✓ [Consumer] Subsequent run (seed {seed}) finished. Throughput time: {throughput_time:.4f} seconds")
+        
+        previous_end_time = current_end_time
+
         print_np_stats(f"TRT Output (seed {seed})", raw_image_tensor)
 
         print(f"\n--- [Consumer] Saving final image (seed {seed}) ---")

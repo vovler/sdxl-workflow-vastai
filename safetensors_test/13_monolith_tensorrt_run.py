@@ -107,7 +107,7 @@ class TensorRTRunner:
 def main():
     parser = argparse.ArgumentParser(description="Run inference with the exported TensorRT monolithic model.")
     parser.add_argument("--prompt", type=str, default="masterpiece,best quality,amazing quality, general, 1girl, aqua_(konosuba), on a swing, looking at viewer, volumetric_lighting, park, night, shiny clothes, shiny skin, detailed_background", help="The prompt for image generation.")
-    parser.add_argument("--engine_path", type=str, default="monolith.plan", help="Path to the TensorRT engine file.")
+    parser.add_argument("--engine_path", type=str, default="plan/monolith.plan", help="Path to the TensorRT engine file.")
     parser.add_argument("--height", type=int, default=832, help="Image height for generation.")
     parser.add_argument("--width", type=int, default=1216, help="Image width for generation.")
     parser.add_argument("--steps", type=int, default=8, help="Number of inference steps.")

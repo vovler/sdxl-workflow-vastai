@@ -79,7 +79,7 @@ def build_engine(
     onnx_path: str,
     input_profiles: dict,
     fp16: bool = True,
-    workspace_size: int = 10240, # in MB
+    workspace_size: int = 10240, # in MB (VRAM)
     timing_cache_path: str = None
 ):
     """Builds a TensorRT engine from an ONNX model, following a standardized configuration."""

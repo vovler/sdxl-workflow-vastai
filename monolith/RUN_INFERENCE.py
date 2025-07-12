@@ -6,22 +6,17 @@ from diffusers import (
     AutoencoderKL,
 )
 # --- MODIFICATION START ---
-# 1. Import your custom UNet and the original diffusers UNet with an alias
+# 1. Import custom modules and safetensors loader
 from sdxl import UNet2DConditionModel as CustomUNet2DConditionModel
-from diffusers import UNet2DConditionModel as DiffusersUNet2DConditionModel
 from scheduler import ONNXEulerAncestralDiscreteScheduler
 from monolith import MonolithicSDXL
-
-from utils.percentile_calibrator import PercentileCalibrator
+from safetensors.torch import load_file
 # --- MODIFICATION END ---
 from transformers import CLIPTokenizer, CLIPTextModel, CLIPTextModelWithProjection
 from pathlib import Path
 import sys
 import gc
 import os
-import modelopt.torch.opt as mto
-from modelopt.torch.quantization.calib.max import MaxCalibrator
-from modelopt.torch.quantization import utils as quant_utils
 from PIL import Image
 
 
@@ -74,30 +69,24 @@ def main():
         ).to(device)
         
         # --- MODIFICATION START ---
-        # 2. Load the original diffusers UNet to get the pretrained weights
-        print("Loading base FP16 UNet from diffusers to extract weights...")
-        diffusers_unet = DiffusersUNet2DConditionModel.from_pretrained(
-            str(base_dir / "unet"), torch_dtype=dtype, use_safetensors=True
-        ).to(device)
-
-        #int8_checkpoint_path = base_dir / "unet" / "model_int8.pth"
-        #if not os.path.exists(str(int8_checkpoint_path)):
-        #    print(f"Error: Quantized UNet checkpoint not found at {int8_checkpoint_path}")
-        #    print("Please run the quantization script first (e.g., 3_unet_quantization_int8.py).")
-        #    sys.exit(1)
-        
-        #print(f"Restoring INT8 weights from {int8_checkpoint_path} into diffusers UNet...")
-        #mto.restore(diffusers_unet, str(int8_checkpoint_path))
-        #print("INT8 weights restored into diffusers UNet successfully.")
-
-        # 3. Instantiate your custom UNet and load the weights
-        #print("Instantiating custom UNet and loading weights...")
+        # 2. Efficiently load UNet weights using safetensors
+        print("Instantiating custom UNet...")
         unet = CustomUNet2DConditionModel().to(device).to(dtype)
-        unet.load_state_dict(diffusers_unet.state_dict())
+
+        unet_weights_path = base_dir / "unet" / "diffusion_pytorch_model.safetensors"
+        if not unet_weights_path.exists():
+            # Diffusers from_pretrained also checks for model.safetensors
+            unet_weights_path = base_dir / "unet" / "model.safetensors"
+            if not unet_weights_path.exists():
+                 print(f"Error: UNet weights file (.safetensors) not found in {base_dir / 'unet'}")
+                 sys.exit(1)
+
+        print(f"Loading UNet weights directly from {unet_weights_path}...")
+        state_dict = load_file(str(unet_weights_path), device=device)
+        unet.load_state_dict(state_dict)
         print("Weights loaded into custom UNet successfully.")
         
-        # Clean up the diffusers model
-        del diffusers_unet
+        del state_dict
         gc.collect()
         torch.cuda.empty_cache()
         # --- MODIFICATION END ---

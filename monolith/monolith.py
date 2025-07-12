@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from monolith.unet_loop import UNetLoop
+from unet_loop import UNetLoop
 
 class MonolithicSDXL(nn.Module):
     def __init__(self, text_encoder_1, text_encoder_2, unet, vae, unet_loop):

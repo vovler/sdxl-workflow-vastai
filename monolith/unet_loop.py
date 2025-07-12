@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from monolith.scheduler import EulerAncestralDiscreteScheduler
+from scheduler import EulerAncestralDiscreteScheduler
 
 class UNetLoop(nn.Module):
     def __init__(self, unet: nn.Module, scheduler: EulerAncestralDiscreteScheduler):

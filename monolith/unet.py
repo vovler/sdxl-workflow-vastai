@@ -435,12 +435,11 @@ class UNet2DConditionModel(nn.Module):
         # This is needed to imitate huggingface config behavior
         # has nothing to do with the model itself
         # remove this if you don't use diffuser's pipeline
-        self.config = namedtuple(
-            "config", "in_channels addition_time_embed_dim sample_size"
-        )
-        self.config.in_channels = 4
-        self.config.addition_time_embed_dim = 256
-        self.config.sample_size = 128
+        self.config = {
+            "in_channels": 4,
+            "addition_time_embed_dim": 256,
+            "sample_size": 128,
+        }
 
         self.conv_in = nn.Conv2d(4, 320, kernel_size=3, stride=1, padding=1)
         self.time_proj = Timesteps()

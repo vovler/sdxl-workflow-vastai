@@ -353,8 +353,8 @@ class AutoEncoderKL(nn.Module):
         batch_size, channels, height, width = z.shape
         
         # calculate the number of tiles
-        num_tiles_h = (height - tile_size) // tile_stride + 1
-        num_tiles_w = (width - tile_size) // tile_stride + 1
+        num_tiles_h = 1 if height <= tile_size else (height - tile_size + tile_stride - 1) // tile_stride + 1
+        num_tiles_w = 1 if width <= tile_size else (width - tile_size + tile_stride - 1) // tile_stride + 1
         
         # output and blending mask
         output = torch.zeros(batch_size, self.config["out_channels"], height * self.scale_factor, width * self.scale_factor, device=z.device)
@@ -365,8 +365,15 @@ class AutoEncoderKL(nn.Module):
                 # get the current tile
                 h_start = i * tile_stride
                 h_end = h_start + tile_size
+                if h_end > height:
+                    h_end = height
+                    h_start = height - tile_size
+
                 w_start = j * tile_stride
                 w_end = w_start + tile_size
+                if w_end > width:
+                    w_end = width
+                    w_start = width - tile_size
                 
                 tile_z = z[:, :, h_start:h_end, w_start:w_end]
                 

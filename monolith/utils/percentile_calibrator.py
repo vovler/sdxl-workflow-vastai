@@ -11,6 +11,7 @@ class PercentileCalibrator(MaxCalibrator):
         self.data = {}
         self.i = 0
 
+    @torch.no_grad()
     def collect(self, x):
         """Tracks the absolute max of all tensors.
 
@@ -36,6 +37,7 @@ class PercentileCalibrator(MaxCalibrator):
             raise NotImplementedError
         self.i += 1
 
+    @torch.no_grad()
     def compute_amax(self):
         """Return the absolute max of all tensors collected."""
         up_lim = int(self.total_step * self.percentile)

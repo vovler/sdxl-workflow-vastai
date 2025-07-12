@@ -66,6 +66,7 @@ class ONNXEulerAncestralDiscreteScheduler(nn.Module):
         self.register_buffer('init_noise_sigma', init_noise_sigma_val.clone().detach().to(dtype=dtype))
         
 
+    @torch.no_grad()
     def forward(
         self,
         latents: torch.Tensor,

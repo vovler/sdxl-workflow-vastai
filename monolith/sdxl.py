@@ -19,6 +19,7 @@ class Timesteps(nn.Module):
         super().__init__()
         self.num_channels = num_channels
 
+    @torch.no_grad()
     def forward(self, timesteps):
         half_dim = self.num_channels // 2
         exponent = -math.log(10000) * torch.arange(
@@ -43,6 +44,7 @@ class TimestepEmbedding(nn.Module):
         self.act = nn.SiLU()
         self.linear_2 = nn.Linear(out_features, out_features, bias=True)
 
+    @torch.no_grad()
     def forward(self, sample):
         sample = self.linear_1(sample)
         sample = self.act(sample)
@@ -71,6 +73,7 @@ class ResnetBlock2D(nn.Module):
                 in_channels, out_channels, kernel_size=1, stride=1
             )
 
+    @torch.no_grad()
     def forward(self, input_tensor, temb):
         hidden_states = input_tensor
         hidden_states = self.norm1(hidden_states)
@@ -118,6 +121,7 @@ class Attention(nn.Module):
             [nn.Linear(inner_dim, inner_dim), nn.Dropout(dropout, inplace=False)]
         )
 
+    @torch.no_grad()
     def forward(self, hidden_states, encoder_hidden_states=None):
         q = self.to_q(hidden_states)
         k = (
@@ -152,6 +156,7 @@ class GEGLU(nn.Module):
         super(GEGLU, self).__init__()
         self.proj = nn.Linear(in_features, out_features * 2, bias=True)
 
+    @torch.no_grad()
     def forward(self, x):
         x_proj = self.proj(x)
         x1, x2 = x_proj.chunk(2, dim=-1)
@@ -170,6 +175,7 @@ class FeedForward(nn.Module):
             ]
         )
 
+    @torch.no_grad()
     def forward(self, x):
         for layer in self.net:
             x = layer(x)
@@ -186,6 +192,7 @@ class BasicTransformerBlock(nn.Module):
         self.norm3 = nn.LayerNorm(hidden_size, eps=1e-05, elementwise_affine=True)
         self.ff = FeedForward(hidden_size, hidden_size)
 
+    @torch.no_grad()
     def forward(self, x, encoder_hidden_states=None):
         residual = x
 
@@ -220,6 +227,7 @@ class Transformer2DModel(nn.Module):
         )
         self.proj_out = nn.Linear(out_channels, out_channels, bias=True)
 
+    @torch.no_grad()
     def forward(self, hidden_states, encoder_hidden_states=None):
         batch, _, height, width = hidden_states.shape
         res = hidden_states
@@ -250,6 +258,7 @@ class Downsample2D(nn.Module):
             in_channels, out_channels, kernel_size=3, stride=2, padding=1
         )
 
+    @torch.no_grad()
     def forward(self, x):
         return self.conv(x)
 
@@ -261,6 +270,7 @@ class Upsample2D(nn.Module):
             in_channels, out_channels, kernel_size=3, stride=1, padding=1
         )
 
+    @torch.no_grad()
     def forward(self, x):
         x = F.interpolate(x, scale_factor=2.0, mode="nearest")
         return self.conv(x)
@@ -277,6 +287,7 @@ class DownBlock2D(nn.Module):
         )
         self.downsamplers = nn.ModuleList([Downsample2D(out_channels, out_channels)])
 
+    @torch.no_grad()
     def forward(self, hidden_states, temb):
         output_states = []
         for module in self.resnets:
@@ -310,6 +321,7 @@ class CrossAttnDownBlock2D(nn.Module):
                 [Downsample2D(out_channels, out_channels)]
             )
 
+    @torch.no_grad()
     def forward(self, hidden_states, temb, encoder_hidden_states):
         output_states = []
         for resnet, attn in zip(self.resnets, self.attentions):
@@ -346,6 +358,7 @@ class CrossAttnUpBlock2D(nn.Module):
         )
         self.upsamplers = nn.ModuleList([Upsample2D(out_channels, out_channels)])
 
+    @torch.no_grad()
     def forward(
         self, hidden_states, res_hidden_states_tuple, temb, encoder_hidden_states
     ):
@@ -378,6 +391,7 @@ class UpBlock2D(nn.Module):
             ]
         )
 
+    @torch.no_grad()
     def forward(self, hidden_states, res_hidden_states_tuple, temb=None):
         for resnet in self.resnets:
             res_hidden_states = res_hidden_states_tuple[-1]
@@ -401,6 +415,7 @@ class UNetMidBlock2DCrossAttn(nn.Module):
             ]
         )
 
+    @torch.no_grad()
     def forward(self, hidden_states, temb=None, encoder_hidden_states=None):
         hidden_states = self.resnets[0](hidden_states, temb)
         for attn, resnet in zip(self.attentions, self.resnets[1:]):
@@ -466,6 +481,7 @@ class UNet2DConditionModel(nn.Module):
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(320, 4, kernel_size=3, stride=1, padding=1)
 
+    @torch.no_grad()
     def forward(
         self, sample, timesteps, encoder_hidden_states, added_cond_kwargs, **kwargs
     ):

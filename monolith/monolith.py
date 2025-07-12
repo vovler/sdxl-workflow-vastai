@@ -11,6 +11,7 @@ class MonolithicSDXL(nn.Module):
         self.denoising_module = scheduler_module
         self.vae_scale_factor = vae.config.scaling_factor
         
+    @torch.no_grad()
     def forward(
         self,
         prompt_ids_1: torch.Tensor,

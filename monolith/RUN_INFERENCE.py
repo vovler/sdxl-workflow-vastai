@@ -80,18 +80,18 @@ def main():
             str(base_dir / "unet"), torch_dtype=dtype, use_safetensors=True
         ).to(device)
 
-        int8_checkpoint_path = base_dir / "unet" / "model_int8.pth"
-        if not os.path.exists(str(int8_checkpoint_path)):
-            print(f"Error: Quantized UNet checkpoint not found at {int8_checkpoint_path}")
-            print("Please run the quantization script first (e.g., 3_unet_quantization_int8.py).")
-            sys.exit(1)
+        #int8_checkpoint_path = base_dir / "unet" / "model_int8.pth"
+        #if not os.path.exists(str(int8_checkpoint_path)):
+        #    print(f"Error: Quantized UNet checkpoint not found at {int8_checkpoint_path}")
+        #    print("Please run the quantization script first (e.g., 3_unet_quantization_int8.py).")
+        #    sys.exit(1)
         
-        print(f"Restoring INT8 weights from {int8_checkpoint_path} into diffusers UNet...")
-        mto.restore(diffusers_unet, str(int8_checkpoint_path))
-        print("INT8 weights restored into diffusers UNet successfully.")
+        #print(f"Restoring INT8 weights from {int8_checkpoint_path} into diffusers UNet...")
+        #mto.restore(diffusers_unet, str(int8_checkpoint_path))
+        #print("INT8 weights restored into diffusers UNet successfully.")
 
         # 3. Instantiate your custom UNet and load the weights
-        print("Instantiating custom UNet and loading weights...")
+        #print("Instantiating custom UNet and loading weights...")
         unet = CustomUNet2DConditionModel().to(device).to(dtype)
         unet.load_state_dict(diffusers_unet.state_dict())
         print("Weights loaded into custom UNet successfully.")

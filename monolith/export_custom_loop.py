@@ -3,15 +3,15 @@ import onnxscript
 from onnxscript import script
 from onnxscript.values import Opset, OnnxFunction
 from torch.export import Dim
+# Import the main 'onnx' library to use its helper functions
 import onnx
-# Import numpy to create a typed scalar for our dummy state
-import numpy as np
 
 # Ensure you have the necessary libraries installed:
 # pip install torch>=2.7.0 onnxscript onnx onnxruntime numpy
 
 # --- Step 1: Create a Custom PyTorch Operator ---
-# [2]
+# We define a custom operator to encapsulate our logic. This gives us a specific
+# target in the PyTorch graph to replace with our custom ONNX implementation. [2]
 @torch.library.custom_op("mylibrary::row_sum_loop", mutates_args=())
 def row_sum_loop(input_tensor: torch.Tensor) -> torch.Tensor:
     """Reference PyTorch implementation."""
@@ -34,12 +34,12 @@ class RowSumModel(torch.nn.Module):
 # --- Step 3: Define the ONNX Loop Body using onnxscript ---
 op = Opset('', 20)
 
-# FIX: Add a dummy state input (`dummy_state_in`) to the body signature.
+# The loop body's signature is updated to accept and return the dummy state.
 @script()
 def row_sum_loop_body(iteration_num, condition_in, dummy_state_in, input_tensor):
     """
     Defines the graph for a single iteration of the ONNX Loop. [0]
-    It now accepts and returns a dummy loop-carried state.
+    It now accepts and returns a dummy loop-carried state to resolve type inference.
     """
     row = op.Gather(input_tensor, iteration_num, axis=0)
     row_sum = op.ReduceSum(row, keepdims=False)
@@ -47,7 +47,7 @@ def row_sum_loop_body(iteration_num, condition_in, dummy_state_in, input_tensor)
     condition_out = op.Constant(value=onnx.helper.make_tensor(
         name='const_true', data_type=onnx.TensorProto.BOOL, dims=[], vals=[1]))
     
-    # FIX: Return the dummy state unchanged as the first loop-carried dependency output.
+    # Return the dummy state unchanged as the first loop-carried dependency output.
     # The return signature is (condition, loop_carried_dependencies..., scan_outputs...).
     return condition_out, dummy_state_in, row_sum
 
@@ -64,12 +64,12 @@ def onnx_row_sum_loop(input_tensor: OnnxFunction):
         name='const_zero', data_type=onnx.TensorProto.INT64, dims=[], vals=[0]))
     trip_count = op.Gather(shape, gather_index)
     
-    # FIX: Create an initial dummy state to pass as a loop-carried dependency.
+    # Create an initial dummy state to pass as a loop-carried dependency.
     # This gives `v_initial` a concrete type and resolves the ambiguity.
     dummy_initial_state = op.Constant(value=onnx.helper.make_tensor(
         name='dummy_state', data_type=onnx.TensorProto.INT64, dims=[], vals=[0]))
     
-    # FIX: Call the Loop with the dummy state. It will now have two outputs:
+    # Call the Loop with the dummy state. It will now have two outputs:
     # 1. The final value of the dummy state.
     # 2. The concatenated scan output.
     final_dummy_state, scan_output_sums = op.Loop(

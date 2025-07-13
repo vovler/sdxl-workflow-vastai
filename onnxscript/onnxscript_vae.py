@@ -419,7 +419,7 @@ def postprocess_image(image_tensor: np.ndarray) -> Image.Image:
 if __name__ == '__main__':
     SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
     CONFIG_FILE_PATH = "/lab/model/vae/config.json"
-    TEST_IMAGE_PATH = "/lab/test.jpg"
+    TEST_IMAGE_PATH = "/lab/test.jpeg"
 
     try:
         # --- Build and Save Models ---

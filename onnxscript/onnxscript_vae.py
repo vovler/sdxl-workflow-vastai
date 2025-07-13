@@ -7,7 +7,10 @@ import onnx  # Required for the onnx.ModelProto type hint
 import json
 import sys
 
-import onnxruntime as ort
+import onnxruntime
+
+from typing import Dict, Any, Tuple
+
 from PIL import Image
 # --- Parameter Loading Utilities ---
 

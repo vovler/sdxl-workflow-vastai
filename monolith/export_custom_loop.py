@@ -32,28 +32,30 @@ class RowSumModel(torch.nn.Module):
 # --- Step 3: Define the ONNX Loop Body using onnxscript ---
 op = Opset('', 20)
 
+# The body signature for ONNX Loop without loop-carried dependencies
+# takes iteration_num, condition
+
+def row_sum_loop_body(iteration_num, condition_in):
+    """
+    Defines the graph for a single iteration of the ONNX Loop.
+    No loop-carried dependencies - captures input_tensor from outer scope
+    Returns: (condition_out, *scan_outputs)
+    """
+    row = op.Gather(input_tensor, iteration_num, axis=0)
+    row_sum = op.ReduceSum(row, keepdims=False)
+    
+    condition_out = op.Constant(value=onnx.helper.make_tensor(
+        name='const_true', data_type=onnx.TensorProto.BOOL, dims=[], vals=[1]))
+    
+    # Return condition and scan outputs only
+    return condition_out, row_sum
+
+
 # --- Step 4: Implement the Custom ONNX Translation Function ---
 def onnx_row_sum_loop(input_tensor):
     """
     This function provides the custom ONNX implementation for our PyTorch op.
     """
-    
-    # Define the loop body inside the function to avoid scope issues
-    @script()
-    def row_sum_loop_body(iteration_num, condition_in):
-        """
-        Defines the graph for a single iteration of the ONNX Loop.
-        Returns: (condition_out, *scan_outputs)
-        """
-        row = op.Gather(input_tensor, iteration_num, axis=0)
-        row_sum = op.ReduceSum(row, keepdims=False)
-        
-        condition_out = op.Constant(value=onnx.helper.make_tensor(
-            name='const_true', data_type=onnx.TensorProto.BOOL, dims=[], vals=[1]))
-        
-        # Return condition and scan outputs only
-        return condition_out, row_sum
-    
     shape = op.Shape(input_tensor)
     
     gather_index = op.Constant(value=onnx.helper.make_tensor(
@@ -64,9 +66,12 @@ def onnx_row_sum_loop(input_tensor):
     condition = op.Constant(value=onnx.helper.make_tensor(
         name='loop_condition', data_type=onnx.TensorProto.BOOL, dims=[], vals=[1]))
     
-    # Call Loop without loop-carried dependencies (empty string as third parameter)
-    scan_output_sums = op.Loop(
-        trip_count, condition, "",
+    # Pass input_tensor as loop-carried dependency (it remains constant through iterations)
+    # The Loop returns: final_loop_carried_deps..., scan_outputs...
+    # Since we have 1 loop-carried dependency (input_tensor) and 1 scan output (row_sum),
+    # we expect 2 outputs: final_input_tensor, scan_output_sums
+    final_input_tensor, scan_output_sums = op.Loop(
+        trip_count, condition, input_tensor,
         body=row_sum_loop_body)
 
     final_output = op.Unsqueeze(scan_output_sums, axes=[1])

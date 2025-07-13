@@ -6,7 +6,7 @@ from typing import Dict, Any
 import onnx  # Required for the onnx.ModelProto type hint
 import json
 from typing import Dict, Any, Tuple
-
+from spox._graph import Graph # <-- Import the Graph class
 # --- Parameter Loading Utilities ---
 
 # It's good practice to wrap complex graph-building logic to provide context on errors.
@@ -630,10 +630,12 @@ def build_tiled_decoder_onnx_model_with_loop(
         axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64))
     )
 
-    # --- 7. Build the Model ---
-    decoder_model = spox.build(
+    graph = Graph(
         inputs={"latent_sample": latent_z_arg},
         outputs={"reconstructed_sample": final_image_cropped}
     )
+    decoder_model = graph.to_onnx_model(concrete=False)
+    # --- FIX END ---
+    
     print("Successfully built Tiled Decoder ONNX ModelProto using op.loop.")
     return decoder_model

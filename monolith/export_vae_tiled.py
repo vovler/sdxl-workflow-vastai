@@ -15,8 +15,8 @@ class VAETiledDecoder(nn.Module):
         super().__init__()
         self.vae = vae
 
-    def forward(self, z):
-        return self.vae.tiled_decode(z)
+    def forward(self, latent):
+        return self.vae.tiled_decode(latent)
 
 def main():
     """

@@ -311,101 +311,86 @@ def spox_diagonal_gaussian_distribution_mode(parameters: spox.Var) -> spox.Var:
     mean, _ = op.split(parameters, num_outputs=2, axis=1)
     return mean
 
-def spox_autoencoder_kl_forward(
-    sample: spox.Var,
-    sample_posterior: spox.Var,
-    params: Dict[str, Any],
-    config: Dict,
-    target_dtype: np.dtype
-) -> spox.Var:
-    try:
-        h = spox_encoder(sample, params["encoder"], config, target_dtype)
-        
-        if config.get("use_quant_conv", True):
-            moments = spox_conv_2d(h, params["quant_conv"]["weight"], params["quant_conv"]["bias"], padding=0)
-        else:
-            moments = h
-        
-        (z,) = op.if_(
-            sample_posterior,
-            then_branch=lambda: [spox_diagonal_gaussian_distribution_sample(moments, target_dtype)],
-            else_branch=lambda: [spox_diagonal_gaussian_distribution_mode(moments)]
-        )
-        
-        if config.get("use_post_quant_conv", True):
-            z = spox_conv_2d(z, params["post_quant_conv"]["weight"], params["post_quant_conv"]["bias"], padding=0)
-        
-        dec = spox_decoder(z, params["decoder"], config, target_dtype)
-        return dec
-    except KeyError as e:
-        raise KeyError(f"Missing parameter at top level. Required key: {e}") from e
-
 # --- Main Build Function ---
 
 def build_encoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
-    """Builds and returns the ONNX model for the VAE Encoder."""
-    force_upcast = config.get("force_upcast", False)
-    target_dtype = np.float32 if force_upcast else np.float16
+    """
+    Builds the VAE Encoder ONNX model, self-containing the reparameterization trick.
+    """
+    target_dtype = np.float16
     print(f"Building ENCODER with target data type: {target_dtype.__name__}")
 
     spox_params = load_and_create_spox_params(state_dict, target_dtype)
 
+    # Define the symbolic input shape
     sample_type = spox.Tensor(target_dtype, ('batch_size', config["in_channels"], 'height', 'width'))
     sample_arg = spox.argument(sample_type)
 
-    # Encoder forward pass
+    # --- Encoder and Sampling Graph Logic ---
+    # 1. Get the 8-channel latent distribution (moments) from the encoder backbone
     h = spox_encoder(sample_arg, spox_params["encoder"], config, target_dtype)
     moments = spox_conv_2d(h, spox_params["quant_conv"]["weight"], spox_params["quant_conv"]["bias"], padding=0)
 
-    # Build the encoder model
+    # 2. Split the moments into mean and log-variance
+    mean, logvar = op.split(moments, num_outputs=2, axis=1)
+
+    # 3. Calculate standard deviation: std = exp(0.5 * logvar)
+    half_const = op.const(np.array(0.5, dtype=target_dtype))
+    std = op.exp(op.mul(logvar, half_const))
+
+    # 4. Generate noise of the same shape as mean/std
+    epsilon = op.random_normal_like(mean, dtype=target_dtype, mean=0.0, scale=1.0)
+
+    # 5. Compute the final latent sample: z = mean + std * epsilon
+    latent_sample = op.add(mean, op.mul(std, epsilon))
+
+    # --- Build the model ---
+    # The output is the self-contained latent sample (z)
     encoder_model = spox.build(
         inputs={"sample": sample_arg},
-        outputs={"latent_dist": moments}
+        outputs={"latent_sample": latent_sample}
     )
-    print("Successfully built Encoder ONNX ModelProto.")
+    print("Successfully built Encoder ONNX ModelProto (with self-contained sampling).")
     return encoder_model
 
+
 def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
-    """Builds and returns the ONNX model for the VAE Decoder."""
-    force_upcast = config.get("force_upcast", False)
-    target_dtype = np.float32 if force_upcast else np.float16
+    """
+    Builds the VAE Decoder ONNX model, which takes a 4-channel latent sample as input.
+    """
+    target_dtype = np.float16
     print(f"Building DECODER with target data type: {target_dtype.__name__}")
 
     spox_params = load_and_create_spox_params(state_dict, target_dtype)
 
-    # Define the input for the decoder, which is the latent sample 'z'
+    # The input is now the 4-channel latent sample
     latent_channels = config["latent_channels"]
     latent_type = spox.Tensor(target_dtype, ('batch_size', latent_channels, 'latent_height', 'latent_width'))
     latent_sample_arg = spox.argument(latent_type)
 
-    # Decoder forward pass
+    # The first step in the decoder is the post-quantization conv
     z = spox_conv_2d(latent_sample_arg, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
-    dec = spox_decoder(z, spox_params["decoder"], config, target_dtype)
+    
+    # Run the main decoder backbone
+    reconstructed_sample = spox_decoder(z, spox_params["decoder"], config, target_dtype)
 
-    # Build the decoder model
     decoder_model = spox.build(
         inputs={"latent_sample": latent_sample_arg},
-        outputs={"sample": dec}
+        outputs={"reconstructed_sample": reconstructed_sample}
     )
     print("Successfully built Decoder ONNX ModelProto.")
     return decoder_model
 
-# --- New Inference Helper Functions ---
 
+# --- Inference Helper Functions ---
 def preprocess_image(image_path: str, target_dtype: np.dtype) -> np.ndarray:
-    """
-    Loads an image, pads it to be divisible by 8, normalizes, and transposes it.
-    """
+    """Loads an image, pads it to be divisible by 8, normalizes, and transposes it."""
     img = Image.open(image_path).convert("RGB")
     original_width, original_height = img.size
-
-    # Pad the image to be divisible by 8
-    target_width = math.floor(original_width / 8) * 8
-    target_height = math.floor(original_height / 8) * 8
-
+    target_width = math.ceil(original_width / 8) * 8
+    target_height = math.ceil(original_height / 8) * 8
     canvas = Image.new("RGB", (target_width, target_height), (0, 0, 0))
     canvas.paste(img, (0, 0))
-
     img_array = np.array(canvas).astype(target_dtype)
     img_array = (img_array / 127.5) - 1.0
     img_array = img_array.transpose(2, 0, 1)
@@ -419,9 +404,7 @@ def postprocess_image(image_tensor: np.ndarray) -> Image.Image:
     img = img.transpose(1, 2, 0)
     return Image.fromarray(img.astype(np.uint8))
 
-
 # --- Main Execution ---
-
 if __name__ == '__main__':
     SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
     CONFIG_FILE_PATH = "/lab/model/vae/config.json"
@@ -444,8 +427,9 @@ if __name__ == '__main__':
 
         # --- Run Inference ---
         print("\n--- Running Inference on GPU ---")
-        target_dtype = np.float32 if config.get("force_upcast", False) else np.float16
         
+        target_dtype = np.float16
+
         print("Loading ONNX models into inference sessions with CUDA provider...")
         providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
         encoder_sess = onnxruntime.InferenceSession("encoder.onnx", providers=providers)
@@ -454,23 +438,23 @@ if __name__ == '__main__':
         print(f"Loading and preprocessing image: {TEST_IMAGE_PATH}")
         image_np = preprocess_image(TEST_IMAGE_PATH, target_dtype)
 
-        print("Encoding image into latent space...")
+        # 1. Encode image to get the latent sample directly
+        print("Encoding image to get latent sample...")
         encoder_inputs = {encoder_sess.get_inputs()[0].name: image_np}
-        latent_dist_result = encoder_sess.run(None, encoder_inputs)[0]
+        # The encoder now directly outputs the 4-channel latent sample 'z'
+        latents_sampled = encoder_sess.run(None, encoder_inputs)[0]
 
-        print("Sampling from the latent distribution...")
-        #mean, logvar = np.split(latent_dist_result, 2, axis=1)
-        #std = np.exp(0.5 * logvar)
-        #epsilon = np.random.randn(*mean.shape).astype(mean.dtype)
-        #latents_sampled = mean + std * epsilon
+        # 2. Scale the latents for the decoder
+        inv_scaling_factor = 1.0 / config["scaling_factor"]
+        print(f"Scaling latents with inverse factor: {inv_scaling_factor}")
+        latents_for_decoder = latents_sampled * inv_scaling_factor
         
-        # CORRECT: Scale latents DOWN by the scaling factor before decoding
-        latents_for_decoder = latent_dist_result / config["scaling_factor"]
-        
+        # 3. Decode the scaled latents back into an image
         print("Decoding latents back into an image...")
         decoder_inputs = {decoder_sess.get_inputs()[0].name: latents_for_decoder}
         reconstructed_image_np = decoder_sess.run(None, decoder_inputs)[0]
 
+        # 4. Postprocess and save
         print("Postprocessing and saving the output image...")
         final_image = postprocess_image(reconstructed_image_np)
         final_image.save("test_out.png")
@@ -478,19 +462,12 @@ if __name__ == '__main__':
 
     except FileNotFoundError as e:
         print(f"\nERROR: Could not find a required file: {e.filename}", file=sys.stderr)
-        print("Please check the file paths at the top of the main execution block.", file=sys.stderr)
     except KeyError as e:
         print(f"\n--- MODEL BUILDING FAILED ---", file=sys.stderr)
-        print(f"A required weight/bias was not found in the safetensors file. This usually", file=sys.stderr)
-        print(f"means there is a mismatch between the model architecture defined in the script", file=sys.stderr)
-        print(f"and the weights in the .safetensors file.", file=sys.stderr)
-        print(f"\nDETAILS: Missing Key -> {e}\n", file=sys.stderr)
+        print(f"A required weight/bias was not found. Missing Key -> {e}\n", file=sys.stderr)
     except Exception as e:
         if "CUDAExecutionProvider" in str(e):
              print("\n--- ONNX RUNTIME GPU ERROR ---", file=sys.stderr)
-             print("Could not initialize the CUDAExecutionProvider. This usually means:", file=sys.stderr)
-             print("1. You have not installed the 'onnxruntime-gpu' package.", file=sys.stderr)
-             print("2. Your NVIDIA drivers or CUDA Toolkit are missing or incompatible.", file=sys.stderr)
-             print("Please run 'pip install onnxruntime-gpu' and ensure your GPU environment is set up correctly.", file=sys.stderr)
+             print("Could not initialize CUDAExecutionProvider. Check onnxruntime-gpu installation and GPU drivers/CUDA.", file=sys.stderr)
         else:
              print(f"An unexpected error occurred: {e}", file=sys.stderr)

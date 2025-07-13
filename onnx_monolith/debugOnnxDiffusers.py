@@ -23,14 +23,6 @@ def preprocess_for_onnx(image_path: str, target_dtype: np.dtype) -> np.ndarray:
     arr = (arr / 127.5) - 1.0
     return np.expand_dims(arr.transpose(2, 0, 1), 0)
 
-def postprocess_torch_image(tensor: torch.Tensor) -> Image.Image:
-    # Diffusers output is already in range [0, 1] if not clamped
-    img = tensor.squeeze(0) # Remove batch dim
-    img = (img / 2 + 0.5).clamp(0, 1) # Denormalize from [-1, 1] to [0, 1]
-    img = img.permute(1, 2, 0).cpu().numpy() # CHW to HWC
-    return Image.fromarray((img * 255).astype(np.uint8))
-
-
 if __name__ == '__main__':
     print("--- Testing ONNX Encoder -> Diffusers Decoder Pipeline ---")
     
@@ -47,7 +39,7 @@ if __name__ == '__main__':
 
     # Preprocess image for ONNX
     print(f"Loading and preprocessing {TEST_IMAGE_PATH}...")
-    image_np = preprocess_for_onnx(TEST_IMAGE_PATH, np.float16)
+    image_np = preprocess_for_onnx(TEST_IMAGE_PATH, np.dtype(np.float16))
 
     # Encode with ONNX
     print("Running ONNX encoder...")
@@ -63,11 +55,20 @@ if __name__ == '__main__':
     # Decode with Diffusers
     print("Running Diffusers decoder...")
     with torch.no_grad():
-        reconstructed_image = vae.decode(latents_for_decoder).sample
+        image_tensor = vae.decode(latents_for_decoder).sample
 
-    # Postprocess and save
-    print(f"Saving result to {OUTPUT_IMAGE_PATH}...")
-    final_image = postprocess_torch_image(reconstructed_image)
-    final_image.save(OUTPUT_IMAGE_PATH)
+    # Post-process and save using the RUN_INFERENCE.py approach
+    print("Post-processing and saving image...")
+    image_tensor = (image_tensor / 2 + 0.5).clamp(0, 1)
+    image_np = image_tensor.cpu().permute(0, 2, 3, 1).float().numpy()
+    
+    # Print stats before casting to uint8
+    print(f"Image (min/max/mean): {image_np.min():.4f}, {image_np.max():.4f}, {image_np.mean():.4f}. Contains NaNs: {np.isnan(image_np).any()}")
+
+    image_pil = Image.fromarray((image_np[0] * 255).round().astype("uint8"))
+
+    output_image_path = "output_image.png"
+    image_pil.save(output_image_path)
+    print(f"✓ Image saved to {output_image_path}")
 
     print("--- Test complete! ---")

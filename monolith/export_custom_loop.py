@@ -1,8 +1,9 @@
 import torch
 import onnxscript
 from onnxscript import script
-# Correctly import OnnxFunction
 from onnxscript.values import Opset, OnnxFunction
+# Import Dim for specifying dynamic shapes
+from torch.export import Dim
 
 # Ensure you have the necessary libraries installed:
 # pip install torch>=2.7.0 onnxscript onnx onnxruntime
@@ -71,9 +72,6 @@ def row_sum_loop_body(iteration_num, condition_in, input_tensor):
 # --- Step 4: Implement the Custom ONNX Translation Function ---
 # This function maps our custom PyTorch operator to an ONNX `Loop` operator.
 
-# The function signature is updated to use the correct type hint.
-# It no longer takes a graph 'g' argument. The arguments must match the
-# PyTorch operator's inputs.
 def onnx_row_sum_loop(input_tensor: OnnxFunction):
     """
     This function provides the custom ONNX implementation for our PyTorch op. [1]
@@ -98,12 +96,11 @@ if __name__ == "__main__":
     batch_size = 3
     dummy_input = torch.randint(0, 10, (batch_size, 5), dtype=torch.float32)
 
-    # Define dynamic axes for the input and output.
-    # The names 'x' and 'row_sum_loop' are taken from the exported program graph.
-    dynamic_axes = {
-        "x": {0: "batch_size"},
-        "row_sum_loop": {0: "batch_size"},
-    }
+    # FIX: Define dynamic shapes using the recommended 'dynamic_shapes' argument.
+    # The structure must match the model's input tuple `(dummy_input,)`.
+    # We create a symbolic dimension for the batch size.
+    batch_dim = Dim("batch_size", min=2)
+    dynamic_shapes = ({0: batch_dim},) # A tuple containing one dict for our one input
 
     print("--- Starting ONNX Export with Dynamo, Dynamic Shapes, and Reporting ---")
     
@@ -115,8 +112,8 @@ if __name__ == "__main__":
         custom_translation_table={
             torch.ops.mylibrary.row_sum_loop.default: onnx_row_sum_loop,
         },
-        dynamic_axes=dynamic_axes,
-        report=True, # Enable generation of the export report
+        dynamic_shapes=dynamic_shapes, # Use the new argument
+        report=True,
     )
 
     print("\n--- ONNX Export Successful ---")

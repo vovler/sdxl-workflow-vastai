@@ -6,6 +6,7 @@ from typing import Dict, Any
 import onnx  # Required for the onnx.ModelProto type hint
 import json
 import sys
+import onnxruntime as ort
 
 # --- Parameter Loading Utilities ---
 
@@ -337,57 +338,72 @@ def spox_autoencoder_kl_forward(
 
 # --- Main Build Function ---
 
-def build_autoencoder_kl_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
-    # Determine the target data type based on the config
-    force_upcast = config.get("force_upcast", False)
-    target_dtype = np.float32 if force_upcast else np.float16
-    print(f"Building model with target data type: {target_dtype.__name__}")
-
-    print("Loading parameters into Spox constants...")
-    spox_params = load_and_create_spox_params(state_dict, target_dtype)
-    
-    print("Defining model inputs and building graph...")
-    sample_type = spox.Tensor(target_dtype, ('batch_size', config["in_channels"], 'height', 'width'))
-    sample_arg = spox.argument(sample_type)
-    
-    sample_posterior_type = spox.Tensor(np.bool_, ())
-    sample_posterior_arg = spox.argument(sample_posterior_type)
-    
-    final_output = spox_autoencoder_kl_forward(
-        sample=sample_arg,
-        sample_posterior=sample_posterior_arg,
-        params=spox_params,
-        config=config,
-        target_dtype=target_dtype,
-    )
-    
-    onnx_model = spox.build(
-        inputs={"sample": sample_arg, "sample_posterior": sample_posterior_arg},
-        outputs={"output": final_output}
-    )
-    
-    print("Successfully built ONNX ModelProto.")
-    return onnx_model
-
-# --- Main Execution ---
-
 if __name__ == '__main__':
     SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
     CONFIG_FILE_PATH = "/lab/model/vae/config.json"
+    TEST_IMAGE_PATH = "/lab/test.png"
 
     try:
+        # --- Build and Save Models ---
         config = load_config_from_json(CONFIG_FILE_PATH)
         state_dict = load_state_dict_from_safetensors(SAFETENSORS_FILE_PATH)
-        model_proto = build_autoencoder_kl_onnx_model(state_dict, config)
+
+        # Build and save the encoder
+        encoder_proto = build_encoder_onnx_model(state_dict, config)
+        with open("encoder.onnx", "wb") as f:
+            f.write(encoder_proto.SerializeToString())
+        print("Saved encoder model to encoder.onnx")
+
+        # Build and save the decoder
+        decoder_proto = build_decoder_onnx_model(state_dict, config)
+        with open("decoder.onnx", "wb") as f:
+            f.write(decoder_proto.SerializeToString())
+        print("Saved decoder model to decoder.onnx")
+
+        # --- Run Inference ---
+        print("\n--- Running Inference ---")
+        target_dtype = np.float32 if config.get("force_upcast", False) else np.float16
         
-        output_filename = "autoencoder_kl_spox_from_safetensors.onnx"
-        with open(output_filename, "wb") as f:
-            f.write(model_proto.SerializeToString())
-        print(f"\nSaved complete model to {output_filename}")
+        # 1. Load the ONNX models into Inference Sessions
+        print("Loading ONNX models into inference sessions...")
+        encoder_sess = onnxruntime.InferenceSession("encoder.onnx")
+        decoder_sess = onnxruntime.InferenceSession("decoder.onnx")
+
+        # 2. Preprocess the input image
+        print(f"Loading and preprocessing image: {TEST_IMAGE_PATH}")
+        image_np = preprocess_image(TEST_IMAGE_PATH, target_dtype)
+
+        # 3. Encode the image
+        print("Encoding image into latent space...")
+        encoder_inputs = {encoder_sess.get_inputs()[0].name: image_np}
+        latent_dist_result = encoder_sess.run(None, encoder_inputs)[0]
+
+        # 4. Sample from the latent distribution
+        print("Sampling from the latent distribution...")
+        mean, logvar = np.split(latent_dist_result, 2, axis=1)
+        std = np.exp(0.5 * logvar)
+        # Generate random noise with the same shape and type as the mean
+        epsilon = np.random.randn(*mean.shape).astype(mean.dtype)
+        # Create the latent sample
+        latents = mean + std * epsilon
+        # Apply the VAE scaling factor
+        latents = latents * config["scaling_factor"]
+        
+        # 5. Decode the latent sample
+        print("Decoding latents back into an image...")
+        decoder_inputs = {decoder_sess.get_inputs()[0].name: latents}
+        reconstructed_image_np = decoder_sess.run(None, decoder_inputs)[0]
+
+        # 6. Postprocess and save the final image
+        print("Postprocessing and saving the output image...")
+        final_image = postprocess_image(reconstructed_image_np)
+        final_image.save("test_out.png")
+        print("\nSuccessfully saved reconstructed image to test_out.png")
+
 
     except FileNotFoundError as e:
-        print(f"\nERROR: Could not find a required file: {e.filename}")
-        print("Please check the SAFETENSORS_FILE_PATH and CONFIG_FILE_PATH variables.")
+        print(f"\nERROR: Could not find a required file: {e.filename}", file=sys.stderr)
+        print("Please check the file paths at the top of the main execution block.", file=sys.stderr)
     except KeyError as e:
         print(f"\n--- MODEL BUILDING FAILED ---", file=sys.stderr)
         print(f"A required weight/bias was not found in the safetensors file. This usually", file=sys.stderr)
@@ -395,4 +411,4 @@ if __name__ == '__main__':
         print(f"and the weights in the .safetensors file.", file=sys.stderr)
         print(f"\nDETAILS: Missing Key -> {e}\n", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred during model building: {e}", file=sys.stderr)
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)

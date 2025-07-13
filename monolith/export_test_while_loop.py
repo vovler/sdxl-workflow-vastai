@@ -9,28 +9,34 @@ import os
 import onnxscript
 from onnxscript import script
 from onnxscript.onnx_types import FLOAT, INT64, BOOL
-from torch.library import custom_op, impl
+from torch.library import Library
 
 # Use the same opset version as in the export call
 op = onnxscript.opset20
 
 
 # --- 1. Define custom PyTorch operator for the dynamic loop ---
-# This defines the operator's signature in PyTorch.
-@custom_op("mylibrary::loop_op", mutates_args=())
-def loop_op(x: torch.Tensor, loop_iterations: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
-    # For ONNX export, only the 'meta' implementation is required.
-    # This PyTorch-side implementation is for eager mode execution, which we skip.
-    raise NotImplementedError("This operator is only implemented for ONNX export.")
+
+# Create a new library 'mylibrary' and specify that we will define operators on it.
+mylib = Library("mylibrary", "DEF")
+
+# Define the operator's signature. This is a string that describes the inputs and outputs.
+mylib.define("loop_op(Tensor x, Tensor loop_iterations, Tensor weight) -> Tensor")
 
 
-# The 'meta' implementation (also called a 'fake' implementation) tells PyTorch
-# what the properties (e.g., shape, dtype) of the output tensor will be.
+# The 'meta' implementation tells PyTorch the properties (e.g., shape, dtype) of the output tensor.
 # This allows `torch.export` to trace the model without actually running the operator.
-@impl("mylibrary::loop_op", "meta")
+@mylib.impl("loop_op", "meta")
 def loop_op_meta(x, loop_iterations, weight):
     # The shape of 'x' does not change inside the loop, so the output shape is the same as the input.
     return torch.empty_like(x)
+
+
+# Provide a default implementation for the CPU backend that raises an error.
+# This is good practice and clarifies that the operator is not intended for eager execution.
+@mylib.impl("loop_op", "cpu")
+def loop_op_cpu(x, loop_iterations, weight):
+    raise NotImplementedError("This operator is only implemented for ONNX export.")
 
 
 # --- 2. Define the ONNX implementation for the custom operator ---

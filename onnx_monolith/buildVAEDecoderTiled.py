@@ -1,5 +1,6 @@
 import json
 import sys
+import traceback
 from safetensors.numpy import load_file
 import spoxVAE
 
@@ -30,8 +31,14 @@ if __name__ == '__main__':
 
     except FileNotFoundError as e:
         print(f"\nERROR: Could not find a required file: {e.filename}", file=sys.stderr)
+        print("\nFull traceback:", file=sys.stderr)
+        traceback.print_exc()
     except KeyError as e:
         print(f"\n--- MODEL BUILDING FAILED ---", file=sys.stderr)
         print(f"A required weight/bias was not found. Missing Key -> {e}\n", file=sys.stderr)
+        print("Full traceback:", file=sys.stderr)
+        traceback.print_exc()
     except Exception as e:
         print(f"An unexpected error occurred during build: {e}", file=sys.stderr)
+        print("\nFull traceback:", file=sys.stderr)
+        traceback.print_exc()

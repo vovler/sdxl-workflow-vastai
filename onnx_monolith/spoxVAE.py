@@ -495,7 +495,6 @@ def spox_blend_h(
 
 
 
-
 @with_error_context("Tiled Decoder Model")
 def build_tiled_decoder_onnx_model_with_loop(
     state_dict: Dict[str, np.ndarray],
@@ -534,31 +533,33 @@ def build_tiled_decoder_onnx_model_with_loop(
     overlap_size_const = to_const(np.array(overlap_size, dtype=np.int64))
     num_rows = op.div(op.add(latent_height, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
     num_cols = op.div(op.add(latent_width, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
-
-    trip_count = op.mul(num_rows, num_cols)
     
-    # We will build up the final image inside a single loop, row by row.
     # The initial state is an empty canvas to which we will add rows.
     initial_canvas_shape = op.concat([
         batch_size,
         to_const(np.array([config['out_channels'], 0], dtype=np.int64)),
         op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
     ], axis=0)
-    initial_canvas = op.constant_of_shape(initial_canvas_shape, value=to_const(np.array(0, dtype=target_dtype)))
-    
+
+    # --- FIX START ---
+    # The `value` parameter is an ATTRIBUTE and expects a raw NumPy array, not a spox.Var.
+    # The ONNX spec requires this to be a one-element tensor.
+    fill_value = np.array([0], dtype=target_dtype)
+    initial_canvas = op.constant_of_shape(initial_canvas_shape, value=fill_value)
+    # --- FIX END ---
+
     # We also need to carry the previously decoded row for vertical blending.
     prev_row_shape = op.concat([
         batch_size, 
         to_const(np.array([config['out_channels'], tile_sample_min_size], dtype=np.int64)), 
-        op.mul(num_cols, to_const(np.array(overlap_size, dtype=np.int64)))
+        op.mul(num_cols, to_const(np.array(overlap_size, dtype=np.int64))) # This will be the full width of a row of tiles
     ], axis=0)
-    initial_prev_row = op.constant_of_shape(prev_row_shape, value=to_const(np.array(0, dtype=target_dtype)))
+    initial_prev_row = op.constant_of_shape(prev_row_shape, value=fill_value)
 
     @with_error_context("Main Loop Body")
     def main_loop_body(row_idx, _, current_canvas, previous_row):
         # This loop iterates over rows.
         
-        # Inner loop to build one full row of tiles.
         @with_error_context("Inner Loop Body (Columns)")
         def col_loop_body(col_idx, _, prev_tile_in_row):
             start_h = op.mul(row_idx, overlap_size_const)
@@ -575,7 +576,6 @@ def build_tiled_decoder_onnx_model_with_loop(
             post_quant_tile = spox_conv_2d(latent_tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
             decoded_tile = spox_decoder(post_quant_tile, spox_params["decoder"], config, target_dtype)
 
-            # Blend Horizontally
             def blend_left():
                 return [spox_blend_h(prev_tile_in_row, decoded_tile, blend_extent, tile_sample_min_size, target_dtype)]
             def no_blend_left():
@@ -583,35 +583,32 @@ def build_tiled_decoder_onnx_model_with_loop(
             is_not_first_col = op.greater(col_idx, to_const(np.array(0, dtype=np.int64)))
             (blended_tile,) = op.if_(is_not_first_col, then_branch=blend_left, else_branch=no_blend_left)
 
-            # Return the condition, and the blended tile which becomes the `prev_tile_in_row` for the next column.
             return op.const(True), blended_tile
         
-        # Run the inner loop to get the last blended tile of the row, which contains the full row.
         initial_inner_tile_shape = op.concat([
             batch_size, to_const(np.array([config['out_channels'], tile_sample_min_size, 0], dtype=np.int64))
         ], axis=0)
-        initial_inner_tile = op.constant_of_shape(initial_inner_tile_shape, value=to_const(np.array(0, dtype=target_dtype)))
+
+        # --- FIX START ---
+        initial_inner_tile = op.constant_of_shape(initial_inner_tile_shape, value=fill_value)
+        # --- FIX END ---
         
         (final_row_tile,) = op.loop(num_cols, v_initial=[initial_inner_tile], body=col_loop_body)
 
-        # Blend Vertically with the previous row
         def blend_up():
             return [spox_blend_v(previous_row, final_row_tile, blend_extent, tile_sample_min_size, target_dtype)]
         def no_blend_up():
-             # For the first row, we don't blend, but we still need to crop the top blend_extent off
             return [op.slice(final_row_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_sample_min_size])), axes=to_const(np.array([2])))]
             
         is_not_first_row = op.greater(row_idx, to_const(np.array(0, dtype=np.int64)))
         (final_row_for_canvas,) = op.if_(is_not_first_row, then_branch=blend_up, else_branch=no_blend_up)
 
-        # Concatenate the new row to the canvas
         updated_canvas = op.concat([current_canvas, final_row_for_canvas], axis=2)
         
-        # Return loop condition, updated canvas, and the full row to be used in the next iteration.
         return op.const(True), updated_canvas, final_row_tile
 
     # --- 5. Execute the Main Loop ---
-    (final_canvas, _,) = op.loop(
+    (_, final_canvas, __) = op.loop(
         num_rows,
         v_initial=[initial_canvas, initial_prev_row],
         body=main_loop_body

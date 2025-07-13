@@ -4,6 +4,7 @@ import onnx
 import onnxruntime
 import numpy as np
 import os
+from torch.export import Dim
 
 # --- 1. Define the PyTorch Model using torch.while_loop ---
 
@@ -15,6 +16,7 @@ class IterativeDenoisingModel(nn.Module):
     def __init__(self, max_iterations=5):
         super().__init__()
         self.denoising_filter = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False)
+        # Ensure the max_iterations is a tensor for graph compatibility
         self.max_iterations = torch.tensor(max_iterations, dtype=torch.int64)
 
         # Initialize weights for demonstration
@@ -22,6 +24,7 @@ class IterativeDenoisingModel(nn.Module):
 
     def forward(self, x):
         # Initial loop variables: (iteration_count, image_tensor)
+        # Explicitly set the dtype for the iteration counter
         initial_loop_vars = (torch.tensor(0, dtype=torch.int64), x)
 
         def cond(iter_count, image):
@@ -37,7 +40,7 @@ class IterativeDenoisingModel(nn.Module):
         # Execute the while loop
         _, final_image = torch.while_loop(cond, body, initial_loop_vars)
         
-        # CRITICAL FIX: Return the output as a tuple to make it an iterable
+        # CRITICAL FIX for dynamo: Return the output as a tuple
         return (final_image,)
 
 # --- 2. Instantiate the Model ---
@@ -52,17 +55,22 @@ onnx_file_path = "iterative_denoising_model_dynamic.onnx"
 input_names = ["input"]
 output_names = ["output"]
 
-# Define a dummy input for tracing
+# --- THE MODERN DYNAMIC SHAPES APPROACH ---
+# 1. Create symbolic dimension objects for each dynamic dimension.
+batch = Dim("batch_size")
+height = Dim("height")
+width = Dim("width")
+
+# 2. Define the dynamic shapes for inputs.
+#    This replaces the 'dynamic_axes' dictionary.
+dynamic_shapes = {
+    "input": {0: batch, 2: height, 3: width},
+}
+
+# 3. Use these dynamic dimensions when creating the dummy input.
+#    The actual values (e.g., 1, 32, 32) are placeholders for tracing.
 dummy_input = torch.randn(1, 3, 32, 32)
 
-# Define the dynamic axes. 
-# NOTE: While the warning suggests 'dynamic_shapes', 'dynamic_axes' is still the
-# functioning argument for this top-level API call in many versions.
-# The key fix is the tuple return in the forward method.
-dynamic_axes = {
-    input_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'},
-    output_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'}
-}
 
 torch.onnx.export(
     model,
@@ -72,11 +80,12 @@ torch.onnx.export(
     output_names=output_names,
     opset_version=20,
     dynamo=True,
-    dynamic_axes=dynamic_axes
+    # Use the new 'dynamic_shapes' argument
+    dynamic_shapes=dynamic_shapes
 )
 
 print(f"Model successfully exported to {onnx_file_path}")
-print("You can inspect the model with Netron to see the Loop operator.")
+print("You can inspect the model with Netron to see the Loop operator and dynamic dimensions.")
 print("-" * 45 + "\n")
 
 
@@ -95,9 +104,7 @@ try:
     print(f"Input shape: {input_data_1.shape}")
 
     ort_inputs_1 = {ort_session.get_inputs()[0].name: input_data_1}
-    # The output from ONNX Runtime is a list of outputs
     ort_outs_1 = ort_session.run(None, ort_inputs_1)
-    # Access the first element of the list to get our tensor
     output_tensor_1 = ort_outs_1[0]
     print(f"Output shape: {output_tensor_1.shape}")
     assert input_data_1.shape == output_tensor_1.shape

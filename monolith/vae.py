@@ -408,134 +408,44 @@ class AutoEncoderKL(nn.Module):
         blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
         row_limit = self.tile_sample_min_size - blend_extent
 
-        num_h_steps = (latent.shape[2] + overlap_size - 1) // overlap_size
-        num_w_steps = (latent.shape[3] + overlap_size - 1) // overlap_size
-        
-        # This is a bit of a hack to get the output shape without running the decoder
-        # A more robust way might be needed if the decoder structure changes.
-        # For now, assuming `out_channels` is a known constant from the config.
-        out_channels = self.config["out_channels"]
-        batch_size = latent.shape[0]
-        
-        tile_sample_min_size = self.tile_sample_min_size
-        
-        prev_row_tiles_shape = (num_w_steps, batch_size, out_channels, tile_sample_min_size, tile_sample_min_size)
-        prev_row_tiles = torch.zeros(prev_row_tiles_shape, device=latent.device, dtype=latent.dtype)
-        
-        final_image_shape = (batch_size, out_channels, latent.shape[2] * self.scale_factor, latent.shape[3] * self.scale_factor)
-        final_image = torch.zeros(final_image_shape, device=latent.device, dtype=latent.dtype)
-        
-        def row_cond_fn(row_idx, _, __):
-            return row_idx < num_h_steps
+        h_steps = list(range(0, latent.shape[2], overlap_size))
+        w_steps = list(range(0, latent.shape[3], overlap_size))
 
-        def col_cond_fn(col_idx, _, __):
-            return col_idx < num_w_steps
+        output_rows = []
+        prev_row_tiles = None
 
-        def row_body_fn(row_idx, current_prev_row_tiles, current_final_image):
-            i = row_idx * overlap_size
-            
-            # Inner loop for processing columns in a row
-            def col_body_fn(col_idx, current_row_tiles, stitched_row):
-                j = col_idx * overlap_size
-                
-                # Decode tile using roll and slice to avoid dynamic slicing
-                rolled_latent = torch.roll(latent, shifts=(-i, -j), dims=(2, 3))
-                tile_latent = rolled_latent[:, :, :self.tile_latent_min_size, :self.tile_latent_min_size]
-
+        for i in h_steps:
+            decoded_row_tiles = []
+            for j in w_steps:
+                tile_latent = latent[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
                 decoded_tile = self.decoder(self.post_quant_conv(tile_latent))
-                
-                # Blend with previous row
-                decoded_tile = self.blend_v(current_prev_row_tiles[col_idx], decoded_tile, blend_extent)
-                
-                # Blend with previous column in the same row
-                stitched_tile = torch.where(
-                    col_idx > 0, 
-                    self.blend_h(current_row_tiles[col_idx - 1], decoded_tile, blend_extent),
-                    decoded_tile
-                )
-                
-                # Crop and stitch
-                is_last_col = (col_idx == num_w_steps - 1)
-
-                full_slice = stitched_tile
-                partial_slice = stitched_tile[..., :row_limit]
-                
-                # Pad partial_slice to match full_slice shape for torch.where
-                pad_width = full_slice.shape[-1] - partial_slice.shape[-1]
-                padded_partial_slice = F.pad(partial_slice, (0, pad_width))
-
-                selected_tile = torch.where(is_last_col, full_slice, padded_partial_slice)
-                slice_width = torch.where(is_last_col, torch.tensor(full_slice.shape[-1]), torch.tensor(row_limit))
-                
-                start_w = col_idx * row_limit
-                
-                updated_stitched_row = stitched_row.clone()
-
-                # Create a canvas for the new tile and roll it into position
-                tile_canvas = torch.zeros_like(updated_stitched_row)
-                tile_canvas[..., :slice_width] = selected_tile[..., :slice_width]
-                rolled_tile = torch.roll(tile_canvas, shifts=start_w, dims=3)
-
-                # Create a mask for the update area and apply using torch.where
-                mask_coords = torch.arange(stitched_row.shape[-1], device=stitched_row.device).view(1, 1, 1, -1)
-                update_mask = (mask_coords >= start_w) & (mask_coords < start_w + slice_width)
-                
-                updated_stitched_row = torch.where(update_mask, rolled_tile, updated_stitched_row)
-
-                updated_row_tiles = current_row_tiles.clone()
-                updated_row_tiles[col_idx] = decoded_tile
-
-                return col_idx + 1, updated_row_tiles, updated_stitched_row
-
-            col_idx_init = torch.tensor(0)
-            row_tiles_init = torch.zeros_like(current_prev_row_tiles)
-            stitched_row_init_shape = (batch_size, out_channels, tile_sample_min_size, latent.shape[3] * self.scale_factor)
-            stitched_row_init = torch.zeros(stitched_row_init_shape, device=latent.device, dtype=latent.dtype)
+                decoded_row_tiles.append(decoded_tile)
             
-            _, final_row_tiles, final_stitched_row = while_loop(
-                col_cond_fn,
-                col_body_fn,
-                (col_idx_init, row_tiles_init, stitched_row_init)
-            )
+            if prev_row_tiles is not None:
+                for j in range(len(w_steps)):
+                    decoded_row_tiles[j] = self.blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
 
-            # Stitch the row to the final image
-            is_last_row = (row_idx == num_h_steps - 1)
+            stitched_row_tiles = []
+            for j in range(len(w_steps)):
+                tile = decoded_row_tiles[j]
+                if j > 0:
+                    tile = self.blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
+                
+                is_last_col = (j == len(w_steps) - 1)
+                slice_width = tile.shape[-1] if is_last_col else row_limit
+                stitched_row_tiles.append(tile[..., :slice_width])
             
-            full_row_slice = final_stitched_row
-            partial_row_slice = final_stitched_row[..., :row_limit, :]
+            output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
+            prev_row_tiles = decoded_row_tiles
 
-            pad_height = full_row_slice.shape[-2] - partial_row_slice.shape[-2]
-            padded_partial_row_slice = F.pad(partial_row_slice, (0, 0, 0, pad_height))
-            
-            selected_row = torch.where(is_last_row, full_row_slice, padded_partial_row_slice)
-            slice_height = torch.where(is_last_row, torch.tensor(full_row_slice.shape[-2]), torch.tensor(row_limit))
+        final_image_cat = []
+        for i in range(len(h_steps)):
+            row = output_rows[i]
+            is_last_row = (i == len(h_steps) - 1)
+            slice_height = row.shape[-2] if is_last_row else row_limit
+            final_image_cat.append(row[..., :slice_height, :])
 
-            start_h = row_idx * row_limit
-            
-            updated_final_image = current_final_image.clone()
-
-            # Create a canvas for the new row and roll it into position
-            row_canvas = torch.zeros_like(updated_final_image)
-            row_canvas[..., :slice_height, :] = selected_row[..., :slice_height, :]
-            rolled_row = torch.roll(row_canvas, shifts=start_h, dims=2)
-
-            # Create a mask for the update area and apply using torch.where
-            mask_coords_h = torch.arange(current_final_image.shape[-2], device=current_final_image.device).view(1, 1, -1, 1)
-            update_mask_h = (mask_coords_h >= start_h) & (mask_coords_h < start_h + slice_height)
-            
-            updated_final_image = torch.where(update_mask_h, rolled_row, updated_final_image)
-
-            return row_idx + 1, final_row_tiles, updated_final_image
-
-        row_idx_init = torch.tensor(0)
-        
-        _, _, final_image_result = while_loop(
-            row_cond_fn,
-            row_body_fn,
-            (row_idx_init, prev_row_tiles, final_image)
-        )
-        
-        return final_image_result
+        return torch.cat(final_image_cat, dim=-2)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)
@@ -545,3 +455,17 @@ class AutoEncoderKL(nn.Module):
             z = posterior.mode()
         dec = self.decode(z)
         return dec
+
+    def test_export(self, x):
+        def cond_fn(i, _):
+            return i < x.shape[0]
+
+        def body_fn(i, total_sum):
+            total_sum = total_sum + x[i].sum()
+            return i + 1, total_sum
+
+        i_init = torch.tensor(0)
+        total_sum_init = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+
+        _, total_sum = while_loop(cond_fn, body_fn, (i_init, total_sum_init))
+        return total_sum

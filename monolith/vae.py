@@ -328,30 +328,48 @@ class AutoEncoderKL(nn.Module):
         self.enable_tiling(False)
 
     def blend_h(self, a, b, blend_extent):
-        blend_amount = min(a.shape[3], b.shape[3], blend_extent)
+        b_shape = torch.tensor(b.shape, device=b.device)
+        a_shape = torch.tensor(a.shape, device=a.device)
+
+        blend_amount = torch.minimum(b_shape[3], a_shape[3])
+        blend_amount = torch.minimum(blend_amount, torch.tensor(blend_extent, device=b.device))
+
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent)
         
         a_fp32 = a.to(torch.float32)
         b_fp32 = b.to(torch.float32)
 
-        slice_a = a_fp32[:, :, :, -blend_amount:]
-        slice_b = b_fp32[:, :, :, :blend_amount]
+        slice_a = a_fp32.narrow(3, a_shape[3] - blend_amount, blend_amount)
+        slice_b = b_fp32.narrow(3, 0, blend_amount)
         
-        b_fp32[:, :, :, :blend_amount] = slice_a * (1.0 - ramp[:,:,:,-blend_amount:]) + slice_b * ramp[:,:,:,-blend_amount:]
+        sliced_ramp = ramp.narrow(3, blend_extent - blend_amount, blend_amount)
+        
+        blended_slice = slice_a * (1.0 - sliced_ramp) + slice_b * sliced_ramp
+        
+        b_fp32.narrow(3, 0, blend_amount).copy_(blended_slice)
         
         return b_fp32.to(a.dtype)
 
     def blend_v(self, a, b, blend_extent):
-        blend_amount = min(a.shape[2], b.shape[2], blend_extent)
+        b_shape = torch.tensor(b.shape, device=b.device)
+        a_shape = torch.tensor(a.shape, device=a.device)
+
+        blend_amount = torch.minimum(b_shape[2], a_shape[2])
+        blend_amount = torch.minimum(blend_amount, torch.tensor(blend_extent, device=b.device))
+        
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, blend_extent, 1)
         
         a_fp32 = a.to(torch.float32)
         b_fp32 = b.to(torch.float32)
 
-        slice_a = a_fp32[:, :, -blend_amount:, :]
-        slice_b = b_fp32[:, :, :blend_amount, :]
+        slice_a = a_fp32.narrow(2, a_shape[2] - blend_amount, blend_amount)
+        slice_b = b_fp32.narrow(2, 0, blend_amount)
         
-        b_fp32[:, :, :blend_amount, :] = slice_a * (1.0 - ramp[:,:,-blend_amount:,:]) + slice_b * ramp[:,:,-blend_amount:,:]
+        sliced_ramp = ramp.narrow(2, blend_extent - blend_amount, blend_amount)
+        
+        blended_slice = slice_a * (1.0 - sliced_ramp) + slice_b * sliced_ramp
+        
+        b_fp32.narrow(2, 0, blend_amount).copy_(blended_slice)
         
         return b_fp32.to(a.dtype)
 

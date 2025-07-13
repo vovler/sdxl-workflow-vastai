@@ -72,8 +72,8 @@ def row_sum_loop_body(iteration_num, condition_in, input_tensor):
     row_sum = op.ReduceSum(row, keepdims=False)
 
     # The body must always return a boolean condition value. [0]
-    # Since our loop is controlled by a trip count, this condition is ignored.
-    condition_out = op.Constant(value_bool=True)
+    # **FIX:** Create the constant using a tensor value.
+    condition_out = op.Constant(value=torch.tensor(True, dtype=torch.bool))
 
     # The body's return signature is (condition, loop_carried_dependencies..., scan_outputs...). [0]
     # We have no loop-carried dependencies, but we have one scan output (row_sum).
@@ -91,7 +91,9 @@ def onnx_row_sum_loop(g, input_tensor):
     """
     # The trip count 'M' is the number of rows in the input tensor (dimension 0). [0]
     shape = op.Shape(input_tensor)
-    trip_count = op.Gather(shape, op.Constant(value_int=0))
+    # **FIX:** Create the constant index using a tensor value. ONNX indices should be int64.
+    gather_index = op.Constant(value=torch.tensor(0, dtype=torch.int64))
+    trip_count = op.Gather(shape, gather_index)
 
     # The Loop operator signature is Loop(M, cond, v_initial, body=...). [0]
     # We provide the trip count 'M'.

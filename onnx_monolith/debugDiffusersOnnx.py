@@ -37,7 +37,18 @@ if __name__ == '__main__':
     dtype = torch.float16
     
     print(f"Loading Diffusers VAE from {VAE_PATH}...")
-    vae = AutoencoderKL.from_single_file(VAE_PATH, torch_dtype=dtype).to(device)
+    # Load model without moving to device first to avoid meta tensor issue
+    vae = AutoencoderKL.from_single_file(VAE_PATH, torch_dtype=dtype)
+    
+    # Move to device using to_empty() if it has meta tensors, otherwise use regular to()
+    try:
+        vae = vae.to(device)
+    except NotImplementedError as e:
+        if "meta tensor" in str(e):
+            print("Handling meta tensor - using to_empty() instead of to()")
+            vae = vae.to_empty(device=device)
+        else:
+            raise e
     
     print(f"Loading ONNX decoder from {DECODER_PATH}...")
     decoder_sess = onnxruntime.InferenceSession(DECODER_PATH, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])

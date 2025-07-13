@@ -22,7 +22,6 @@ class IterativeDenoisingModel(nn.Module):
 
     def forward(self, x):
         # Initial loop variables: (iteration_count, image_tensor)
-        # Ensure the iteration count is a tensor
         initial_loop_vars = (torch.tensor(0, dtype=torch.int64), x)
 
         def cond(iter_count, image):
@@ -37,7 +36,9 @@ class IterativeDenoisingModel(nn.Module):
 
         # Execute the while loop
         _, final_image = torch.while_loop(cond, body, initial_loop_vars)
-        return final_image
+        
+        # CRITICAL FIX: Return the output as a tuple to make it an iterable
+        return (final_image,)
 
 # --- 2. Instantiate the Model ---
 
@@ -54,7 +55,10 @@ output_names = ["output"]
 # Define a dummy input for tracing
 dummy_input = torch.randn(1, 3, 32, 32)
 
-# Define the dynamic axes. Here, we mark the batch size, height, and width as dynamic.
+# Define the dynamic axes. 
+# NOTE: While the warning suggests 'dynamic_shapes', 'dynamic_axes' is still the
+# functioning argument for this top-level API call in many versions.
+# The key fix is the tuple return in the forward method.
 dynamic_axes = {
     input_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'},
     output_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'}
@@ -91,7 +95,9 @@ try:
     print(f"Input shape: {input_data_1.shape}")
 
     ort_inputs_1 = {ort_session.get_inputs()[0].name: input_data_1}
+    # The output from ONNX Runtime is a list of outputs
     ort_outs_1 = ort_session.run(None, ort_inputs_1)
+    # Access the first element of the list to get our tensor
     output_tensor_1 = ort_outs_1[0]
     print(f"Output shape: {output_tensor_1.shape}")
     assert input_data_1.shape == output_tensor_1.shape
@@ -109,7 +115,7 @@ try:
     assert input_data_2.shape == output_tensor_2.shape
     print("Shape check passed.")
 
-    print("\nVerification successful! The model with torch.while_loop correctly handles dynamic shapes.")
+    print("\nVerification successful! The model with torch.while_loop correctly exports with Dynamo.")
 
 except Exception as e:
     print(f"An error occurred during verification: {e}")

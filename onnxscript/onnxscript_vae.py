@@ -6,8 +6,9 @@ from typing import Dict, Any
 import onnx  # Required for the onnx.ModelProto type hint
 import json
 import sys
-import onnxruntime as ort
 
+import onnxruntime as ort
+from PIL import Image
 # --- Parameter Loading Utilities ---
 
 def load_config_from_json(filepath: str) -> Dict[str, Any]:
@@ -337,6 +338,61 @@ def spox_autoencoder_kl_forward(
         raise KeyError(f"Missing parameter at top level. Required key: {e}") from e
 
 # --- Main Build Function ---
+
+
+def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
+    """Builds and returns the ONNX model for the VAE Decoder."""
+    force_upcast = config.get("force_upcast", False)
+    target_dtype = np.float32 if force_upcast else np.float16
+    print(f"Building DECODER with target data type: {target_dtype.__name__}")
+
+    spox_params = load_and_create_spox_params(state_dict, target_dtype)
+
+    # Define the input for the decoder, which is the latent sample 'z'
+    latent_channels = config["latent_channels"]
+    latent_type = spox.Tensor(target_dtype, ('batch_size', latent_channels, 'latent_height', 'latent_width'))
+    latent_sample_arg = spox.argument(latent_type)
+
+    # Decoder forward pass
+    z = spox_conv_2d(latent_sample_arg, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
+    dec = spox_decoder(z, spox_params["decoder"], config, target_dtype)
+
+    # Build the decoder model
+    decoder_model = spox.build(
+        inputs={"latent_sample": latent_sample_arg},
+        outputs={"sample": dec}
+    )
+    print("Successfully built Decoder ONNX ModelProto.")
+    return decoder_model
+
+# --- New Inference Helper Functions ---
+
+def preprocess_image(image_path: str, target_dtype: np.dtype, image_size: Tuple[int, int] = (512, 512)) -> np.ndarray:
+    """Load, resize, normalize, and transpose an image for VAE input."""
+    img = Image.open(image_path).convert("RGB")
+    img = img.resize(image_size, Image.LANCZOS)
+    img_array = np.array(img).astype(target_dtype)
+    # Normalize from [0, 255] to [-1, 1]
+    img_array = (img_array / 127.5) - 1.0
+    # Transpose from HWC to CHW
+    img_array = img_array.transpose(2, 0, 1)
+    # Add batch dimension
+    return np.expand_dims(img_array, 0)
+
+def postprocess_image(image_tensor: np.ndarray) -> Image.Image:
+    """Denormalize, transpose, and convert a tensor back to a PIL Image."""
+    # Remove batch dimension
+    img = image_tensor[0]
+    # Denormalize from [-1, 1] to [0, 255]
+    img = (img + 1.0) * 127.5
+    # Clip values to be in the valid range
+    img = np.clip(img, 0, 255)
+    # Transpose from CHW to HWC
+    img = img.transpose(1, 2, 0)
+    return Image.fromarray(img.astype(np.uint8))
+
+
+# --- Main Execution ---
 
 if __name__ == '__main__':
     SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"

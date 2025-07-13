@@ -38,7 +38,7 @@ if __name__ == '__main__':
     
     print(f"Loading Diffusers VAE from {VAE_PATH}...")
     # Load model on CPU first to avoid meta tensor issue, then handle device transfer manually
-    vae = AutoencoderKL.from_single_file(VAE_PATH, torch_dtype=dtype, device_map=None)
+    vae = AutoencoderKL.from_pretrained(VAE_PATH, torch_dtype=torch.float16)
     
     # Move to device using to_empty() if it has meta tensors, otherwise use regular to()
     try:

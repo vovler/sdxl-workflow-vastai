@@ -59,10 +59,10 @@ if __name__ == '__main__':
         latents = latent_dist.mode() 
     
     # Scale latents (this is done inside vae.decode in diffusers, so we replicate it)
-    latents_for_decoder = latents * vae.config.scaling_factor
+    #latents_for_decoder = latents * vae.config.scaling_factor
     
     # Convert to NumPy for ONNX Runtime
-    latents_np = latents_for_decoder.cpu().numpy()
+    latents_np = latents.cpu().numpy()
     
     # Decode with ONNX
     print("Running ONNX decoder...")

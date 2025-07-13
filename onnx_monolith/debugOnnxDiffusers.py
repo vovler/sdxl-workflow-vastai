@@ -50,7 +50,7 @@ if __name__ == '__main__':
     latents_for_decoder = torch.from_numpy(latent_sample_np).to(device, dtype=dtype)
     
     # The scaling factor is applied *before* the decoder in Diffusers
-    latents_for_decoder = latents_for_decoder / vae.config.scaling_factor
+    #latents_for_decoder = latents_for_decoder / vae.config.scaling_factor
     
     # Decode with Diffusers
     print("Running Diffusers decoder...")

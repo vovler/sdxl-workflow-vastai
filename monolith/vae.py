@@ -326,6 +326,53 @@ class AutoEncoderKL(nn.Module):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
+   
+    def tiled_decode(self, latent):
+        r"""
+        Decode a batch of images using a tiled decoder.
+        """
+        overlap_size = int(self.tile_latent_min_size * (1.0 - self.tile_overlap_factor))
+        blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
+        row_limit = self.tile_sample_min_size - blend_extent
+
+        h_steps = list(range(0, latent.shape[2], overlap_size))
+        w_steps = list(range(0, latent.shape[3], overlap_size))
+
+        output_rows = []
+        prev_row_tiles = None
+
+        for i in h_steps:
+            decoded_row_tiles = []
+            for j in w_steps:
+                tile_latent = latent[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
+                decoded_tile = self.decoder(self.post_quant_conv(tile_latent))
+                decoded_row_tiles.append(decoded_tile)
+            
+            if prev_row_tiles is not None:
+                for j in range(len(w_steps)):
+                    decoded_row_tiles[j] = self.blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
+
+            stitched_row_tiles = []
+            for j in range(len(w_steps)):
+                tile = decoded_row_tiles[j]
+                if j > 0:
+                    tile = self.blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
+                
+                is_last_col = (j == len(w_steps) - 1)
+                slice_width = tile.shape[-1] if is_last_col else row_limit
+                stitched_row_tiles.append(tile[..., :slice_width])
+            
+            output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
+            prev_row_tiles = decoded_row_tiles
+
+        final_image_cat = []
+        for i in range(len(h_steps)):
+            row = output_rows[i]
+            is_last_row = (i == len(h_steps) - 1)
+            slice_height = row.shape[-2] if is_last_row else row_limit
+            final_image_cat.append(row[..., :slice_height, :])
+
+        return torch.cat(final_image_cat, dim=-2)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)
@@ -335,3 +382,24 @@ class AutoEncoderKL(nn.Module):
             z = posterior.mode()
         dec = self.decode(z)
         return dec
+
+    def test_export(self, x):
+        def case_1(x_):
+            return x_[0].sum()
+
+        def case_2(x_):
+            return x_[0].sum() + x_[1].sum()
+
+        def case_3(x_):
+            return x_[0].sum() + x_[1].sum() + x_[2].sum()
+
+        def other_cases(x_):
+            return x_.sum()
+
+        def else_2(x__):
+            return torch.cond(torch.tensor(x__.shape[0]) == 3, case_3, other_cases, (x__,))
+
+        def else_1(x_):
+            return torch.cond(torch.tensor(x_.shape[0]) == 2, case_2, else_2, (x_,))
+
+        return torch.cond(torch.tensor(x.shape[0]) == 1, case_1, else_1, (x,))

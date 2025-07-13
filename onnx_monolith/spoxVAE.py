@@ -381,3 +381,251 @@ def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) ->
     print("Successfully built Decoder ONNX ModelProto.")
     return decoder_model
 
+
+def build_tiled_decoder_onnx_model(
+    state_dict: Dict[str, np.ndarray], 
+    config: Dict
+) -> onnx.ModelProto:
+    """
+    Builds the VAE Tiled Decoder ONNX model.
+
+    This function unrolls the tiling and blending loops to create a static ONNX graph
+    that performs tiled decoding with overlap to prevent seams.
+    """
+    target_dtype = np.float16
+    print(f"Building TILED DECODER with target data type: {target_dtype.__name__}")
+
+    # --- 1. Calculate Tiling Parameters ---
+    # These are calculated once based on the model config
+    tile_sample_min_size = config["sample_size"]
+    tile_latent_min_size = int(tile_sample_min_size / (2 ** (len(config["block_out_channels"]) - 1)))
+    tile_overlap_factor = 0.25
+    
+    overlap_size = int(tile_latent_min_size * (1 - tile_overlap_factor))
+    blend_extent = int(tile_sample_min_size * tile_overlap_factor)
+    row_limit = tile_sample_min_size - blend_extent
+
+    print(f"Tiling config: latent_tile={tile_latent_min_size}, sample_tile={tile_sample_min_size}, overlap={overlap_size}, blend={blend_extent}")
+
+    # --- 2. Load Parameters & Define Inputs ---
+    spox_params = load_and_create_spox_params(state_dict, target_dtype)
+    
+    # The input is the full latent tensor `z`
+    latent_channels = config["latent_channels"]
+    # Using dynamic axes for height and width to allow for variable-sized inputs
+    latent_type = spox.Tensor(target_dtype, ('batch_size', latent_channels, 'latent_height', 'latent_width'))
+    latent_z_arg = spox.argument(latent_type)
+
+    # Get the dynamic shape of the input latent
+    latent_shape = op.shape(latent_z_arg)
+    latent_height = op.gather(latent_shape, to_const(np.array([2], dtype=np.int64)))
+    latent_width = op.gather(latent_shape, to_const(np.array([3], dtype=np.int64)))
+    
+    # --- 3. Unrolled Tiling and Decoding Loop ---
+    # We use Python loops to unroll the tiling process, which is more ONNX-friendly
+    # than trying to use the complex `Loop` operator for this task.
+    decoded_tiles = []
+    
+    # We must handle dynamic input sizes. A simple unroll won't work.
+    # We will assume a maximum possible size and use `If` to handle smaller inputs.
+    # For this example, we'll unroll for a reasonable maximum size (e.g., 1024x1024 latent)
+    # and users of larger images would need to adjust this.
+    max_latent_dim = 128  # Assuming max latent size of 128x128
+    
+    print("Unrolling tile decoding loop...")
+    for i in range(0, max_latent_dim, overlap_size):
+        row = []
+        # Check if this row is within the actual latent height
+        is_row_valid = op.less(to_const(np.array(i, dtype=np.int64)), latent_height)
+        
+        for j in range(0, max_latent_dim, overlap_size):
+            # Check if this column is within the actual latent width
+            is_col_valid = op.less(to_const(np.array(j, dtype=np.int64)), latent_width)
+            is_tile_valid = op.and_(is_row_valid, is_col_valid)
+
+            # Define a function to perform decoding
+            def decode_tile():
+                # Slice a tile from the latent tensor
+                tile = op.slice(
+                    latent_z_arg,
+                    starts=to_const(np.array([i, j], dtype=np.int64)),
+                    ends=to_const(np.array([i + tile_latent_min_size, j + tile_latent_min_size], dtype=np.int64)),
+                    axes=to_const(np.array([2, 3], dtype=np.int64))
+                )
+                
+                # The regular decoding process
+                z_tile = spox_conv_2d(tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
+                decoded_tile = spox_decoder(z_tile, spox_params["decoder"], config, target_dtype)
+                return [decoded_tile]
+
+            # Define a function for the else case (returns a zero tensor)
+            def return_empty():
+                empty_shape = to_const(np.array([1, config['out_channels'], tile_sample_min_size, tile_sample_min_size], dtype=np.int64))
+                return [op.constant_of_shape(empty_shape, value=to_const(np.array(0, dtype=target_dtype)))]
+
+            # Use op.if_ to conditionally decode the tile
+            (decoded_tile,) = op.if_(is_tile_valid, then_branch=decode_tile, else_branch=return_empty)
+            row.append(decoded_tile)
+        
+        decoded_tiles.append(row)
+        
+    print("Finished decoding tiles.")
+
+    # --- 4. Unrolled Blending Loop ---
+    print("Unrolling tile blending loop...")
+    for i in range(0, len(decoded_tiles)):
+        for j in range(0, len(decoded_tiles[0])):
+            tile = decoded_tiles[i][j]
+            if i > 0:
+                # Blend with the tile from the row above
+                tile = spox_blend_v(decoded_tiles[i - 1][j], tile, blend_extent, tile_sample_min_size, target_dtype)
+            if j > 0:
+                # Blend with the tile from the column to the left
+                tile = spox_blend_h(decoded_tiles[i][j - 1], tile, blend_extent, tile_sample_min_size, target_dtype)
+            decoded_tiles[i][j] = tile
+    
+    print("Finished blending tiles.")
+    
+    # --- 5. Crop and Concatenate Tiles ---
+    result_rows = []
+    num_rows = math.ceil(max_latent_dim / overlap_size)
+    num_cols = math.ceil(max_latent_dim / overlap_size)
+
+    for i in range(num_rows):
+        result_row = []
+        for j in range(num_cols):
+            # Crop the blended tile to remove the overlap region
+            cropped_tile = op.slice(
+                decoded_tiles[i][j],
+                starts=to_const(np.array([0, 0])),
+                ends=to_const(np.array([row_limit, row_limit], dtype=np.int64)),
+                axes=to_const(np.array([2, 3], dtype=np.int64))
+            )
+            result_row.append(cropped_tile)
+        
+        # Concatenate tiles in the row horizontally
+        concatenated_row = op.concat(result_row, axis=3)
+        result_rows.append(concatenated_row)
+
+    # Concatenate all rows vertically
+    final_image = op.concat(result_rows, axis=2)
+    
+    # Crop the final image to the correct dynamic output size
+    final_out_height = op.mul(latent_height, to_const(np.array(8, dtype=np.int64))) # 8 is the VAE downsample factor
+    final_out_width = op.mul(latent_width, to_const(np.array(8, dtype=np.int64)))
+    
+    final_image_cropped = op.slice(
+        final_image,
+        starts=to_const(np.array([0, 0])),
+        ends=op.concat([final_out_height, final_out_width], axis=0),
+        axes=to_const(np.array([2, 3], dtype=np.int64))
+    )
+
+    # --- 6. Build the Model ---
+    decoder_model = spox.build(
+        inputs={"latent_sample": latent_z_arg},
+        outputs={"reconstructed_sample": final_image_cropped}
+    )
+    print("Successfully built Tiled Decoder ONNX ModelProto.")
+    return decoder_model
+
+
+def spox_blend_v(
+    top_tile: spox.Var, 
+    bottom_tile: spox.Var, 
+    blend_extent: int, 
+    tile_size: int, 
+    target_dtype: np.dtype
+) -> spox.Var:
+    """
+    Blends the bottom rows of top_tile with the top rows of bottom_tile.
+    """
+    # Create a vertical blending ramp (1.0 -> 0.0)
+    ramp_np = np.linspace(1.0, 0.0, blend_extent, dtype=target_dtype).astype(target_dtype)
+    ramp = to_const(ramp_np.reshape(1, 1, blend_extent, 1))
+
+    # Slice the regions to be blended
+    # Slice the bottom `blend_extent` rows from the top tile
+    top_blend_region = op.slice(
+        top_tile, 
+        starts=to_const(np.array([tile_size - blend_extent])), 
+        ends=to_const(np.array([tile_size])), 
+        axes=to_const(np.array([2]))
+    )
+    
+    # Slice the top `blend_extent` rows from the bottom tile
+    bottom_blend_region = op.slice(
+        bottom_tile, 
+        starts=to_const(np.array([0])), 
+        ends=to_const(np.array([blend_extent])), 
+        axes=to_const(np.array([2]))
+    )
+
+    # Perform the blend: (bottom * ramp) + (top * (1 - ramp))
+    one_const = to_const(np.array(1.0, dtype=target_dtype))
+    blended_region = op.add(
+        op.mul(bottom_blend_region, ramp),
+        op.mul(top_blend_region, op.sub(one_const, ramp))
+    )
+
+    # Get the remaining part of the bottom tile that is not blended
+    bottom_remaining = op.slice(
+        bottom_tile, 
+        starts=to_const(np.array([blend_extent])), 
+        ends=to_const(np.array([tile_size])), 
+        axes=to_const(np.array([2]))
+    )
+    
+    # Concatenate the blended region with the rest of the tile
+    return op.concat([blended_region, bottom_remaining], axis=2)
+
+def spox_blend_h(
+    left_tile: spox.Var, 
+    right_tile: spox.Var, 
+    blend_extent: int, 
+    tile_size: int, 
+    target_dtype: np.dtype
+) -> spox.Var:
+    """
+    Blends the right columns of left_tile with the left columns of right_tile.
+    """
+    # Create a horizontal blending ramp (1.0 -> 0.0)
+    ramp_np = np.linspace(1.0, 0.0, blend_extent, dtype=target_dtype).astype(target_dtype)
+    ramp = to_const(ramp_np.reshape(1, 1, 1, blend_extent))
+    
+    # Slice the regions to be blended
+    # Slice the right `blend_extent` columns from the left tile
+    left_blend_region = op.slice(
+        left_tile, 
+        starts=to_const(np.array([tile_size - blend_extent])), 
+        ends=to_const(np.array([tile_size])), 
+        axes=to_const(np.array([3]))
+    )
+    
+    # Slice the left `blend_extent` columns from the right tile
+    right_blend_region = op.slice(
+        right_tile, 
+        starts=to_const(np.array([0])), 
+        ends=to_const(np.array([blend_extent])), 
+        axes=to_const(np.array([3]))
+    )
+
+    # Perform the blend: (right * ramp) + (left * (1 - ramp))
+    one_const = to_const(np.array(1.0, dtype=target_dtype))
+    blended_region = op.add(
+        op.mul(right_blend_region, ramp),
+        op.mul(left_blend_region, op.sub(one_const, ramp))
+    )
+
+    # Get the remaining part of the right tile that is not blended
+    right_remaining = op.slice(
+        right_tile, 
+        starts=to_const(np.array([blend_extent])), 
+        ends=to_const(np.array([tile_size])), 
+        axes=to_const(np.array([3]))
+    )
+    
+    # Concatenate the blended region with the rest of the tile
+    return op.concat([blended_region, right_remaining], axis=3)
+
+

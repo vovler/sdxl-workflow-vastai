@@ -6,8 +6,7 @@ import spoxVAE
 # --- Configuration ---
 SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
 CONFIG_FILE_PATH = "/lab/model/vae/config.json"
-ENCODER_OUTPUT_PATH = "encoder.onnx"
-DECODER_OUTPUT_PATH = "decoder.onnx"
+DECODER_OUTPUT_PATH = "tiled_decoder.onnx"
 
 if __name__ == '__main__':
     try:
@@ -21,19 +20,12 @@ if __name__ == '__main__':
         state_dict = load_file(SAFETENSORS_FILE_PATH)
 
         # Build and save the encoder
-        print(f"\nBuilding encoder...")
+        print(f"\nBuilding tiled decoder...")
         encoder_proto = spoxVAE.build_tiled_decoder_onnx_model(state_dict, config)
-        with open(ENCODER_OUTPUT_PATH, "wb") as f:
-            f.write(encoder_proto.SerializeToString())
-        print(f"Saved encoder model to {ENCODER_OUTPUT_PATH}")
-
-        # Build and save the decoder
-        print(f"\nBuilding decoder...")
-        decoder_proto = spoxVAE.build_decoder_onnx_model(state_dict, config)
         with open(DECODER_OUTPUT_PATH, "wb") as f:
-            f.write(decoder_proto.SerializeToString())
-        print(f"Saved decoder model to {DECODER_OUTPUT_PATH}")
-        
+            f.write(encoder_proto.SerializeToString())
+        print(f"Saved encoder model to {DECODER_OUTPUT_PATH}")
+
         print("\n--- Build process completed successfully! ---")
 
     except FileNotFoundError as e:

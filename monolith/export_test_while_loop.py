@@ -5,11 +5,11 @@ import onnxruntime
 import numpy as np
 import os
 
-# --- 1. Define the PyTorch Model with a Python for loop ---
+# --- 1. Define the PyTorch Model with a Python while loop ---
 
 class DynamicLoopModel(nn.Module):
     """
-    A model that uses a standard Python 'for' loop to apply an operation
+    A model that uses a standard Python 'while' loop to apply an operation
     a dynamic number of times.
     - The number of iterations is determined by a second input to the model.
     """
@@ -20,11 +20,13 @@ class DynamicLoopModel(nn.Module):
         torch.nn.init.xavier_uniform_(self.loop_body.weight)
 
     def forward(self, x, loop_iterations):
-        # TorchDynamo will trace this 'for' loop and convert it
+        # TorchDynamo will trace this 'while' loop and convert it
         # into an ONNX 'Loop' operator.
         # Note: The loop count must be a tensor for the dynamic loop to be captured.
-        for i in range(loop_iterations):
+        i = torch.tensor(0, dtype=torch.int64)
+        while i < loop_iterations:
             x = self.loop_body(x)
+            i += 1
         return x
 
 # --- 2. Instantiate the Model ---

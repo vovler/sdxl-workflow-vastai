@@ -7,6 +7,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import List, Optional
 
 class DiagonalGaussianDistribution:
     def __init__(self, parameters):
@@ -399,50 +400,62 @@ class AutoEncoderKL(nn.Module):
         return self.decoder(z)
 
    
-    def tiled_decode(self, z):
+    def tiled_decode(self, z: torch.Tensor) -> torch.Tensor:
         r"""
         Decode a batch of images using a tiled decoder.
         """
-        overlap_size = int(self.tile_latent_min_size * (1.0 - self.tile_overlap_factor))
-        blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
+        overlap_size = self.tile_latent_min_size * (100 - int(self.tile_overlap_factor * 100)) // 100
+        blend_extent = self.tile_sample_min_size * int(self.tile_overlap_factor * 100) // 100
         row_limit = self.tile_sample_min_size - blend_extent
 
-        h_steps = list(range(0, z.shape[2], overlap_size))
-        w_steps = list(range(0, z.shape[3], overlap_size))
+        output_rows: List[torch.Tensor] = []
+        prev_row_tiles: Optional[List[torch.Tensor]] = None
 
-        output_rows = []
-        prev_row_tiles = None
-
-        for i in h_steps:
-            decoded_row_tiles = []
-            for j in w_steps:
+        i = 0
+        while i < z.shape[2]:
+            decoded_row_tiles: List[torch.Tensor] = []
+            j = 0
+            while j < z.shape[3]:
                 tile_z = z[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
                 decoded_tile = self.decoder(self.post_quant_conv(tile_z))
                 decoded_row_tiles.append(decoded_tile)
-            
-            if prev_row_tiles is not None:
-                for j in range(len(w_steps)):
-                    decoded_row_tiles[j] = self.blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
+                j += overlap_size
 
-            stitched_row_tiles = []
-            for j in range(len(w_steps)):
-                tile = decoded_row_tiles[j]
-                if j > 0:
-                    tile = self.blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
+            if prev_row_tiles is not None:
+                for k in range(len(decoded_row_tiles)):
+                    decoded_row_tiles[k] = self.blend_v(prev_row_tiles[k], decoded_row_tiles[k], blend_extent)
+
+            stitched_row_tiles: List[torch.Tensor] = []
+            for k in range(len(decoded_row_tiles)):
+                tile = decoded_row_tiles[k]
+                if k > 0:
+                    tile = self.blend_h(decoded_row_tiles[k - 1], tile, blend_extent)
                 
-                is_last_col = (j == len(w_steps) - 1)
-                slice_width = tile.shape[-1] if is_last_col else row_limit
-                stitched_row_tiles.append(tile[..., :slice_width])
+                is_last_col = k == len(decoded_row_tiles) - 1
+                
+                slice_width = tile.shape[3]
+                if not is_last_col:
+                    slice_width = row_limit
+
+                stitched_row_tiles.append(tile[:, :, :, :slice_width])
             
             output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
             prev_row_tiles = decoded_row_tiles
+            i += overlap_size
 
-        final_image_cat = []
-        for i in range(len(h_steps)):
+        final_image_cat: List[torch.Tensor] = []
+        for i in range(len(output_rows)):
             row = output_rows[i]
-            is_last_row = (i == len(h_steps) - 1)
-            slice_height = row.shape[-2] if is_last_row else row_limit
-            final_image_cat.append(row[..., :slice_height, :])
+            is_last_row = i == len(output_rows) - 1
+            
+            slice_height = row.shape[2]
+            if not is_last_row:
+                slice_height = row_limit
+
+            final_image_cat.append(row[:, :, :slice_height, :])
+
+        if len(final_image_cat) == 0:
+            return torch.zeros(z.shape[0], self.config["out_channels"], 0, 0, device=z.device, dtype=z.dtype)
 
         return torch.cat(final_image_cat, dim=-2)
 

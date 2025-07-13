@@ -408,13 +408,8 @@ class AutoEncoderKL(nn.Module):
         blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
         row_limit = self.tile_sample_min_size - blend_extent
 
-        h_steps = torch.arange(0, latent.shape[2], overlap_size)
-        w_steps = torch.arange(0, latent.shape[3], overlap_size)
-        num_h_steps = h_steps.shape[0]
-        num_w_steps = w_steps.shape[0]
-
-        # batch, latent_channels, latent_h, latent_w = latent.shape
-        # _, out_channels, _, _ = self.decoder(self.post_quant_conv(latent[:, :, :1, :1])).shape
+        num_h_steps = (latent.shape[2] + overlap_size - 1) // overlap_size
+        num_w_steps = (latent.shape[3] + overlap_size - 1) // overlap_size
         
         # This is a bit of a hack to get the output shape without running the decoder
         # A more robust way might be needed if the decoder structure changes.
@@ -437,11 +432,11 @@ class AutoEncoderKL(nn.Module):
             return col_idx < num_w_steps
 
         def row_body_fn(row_idx, current_prev_row_tiles, current_final_image):
-            i = h_steps[row_idx]
+            i = row_idx * overlap_size
             
             # Inner loop for processing columns in a row
             def col_body_fn(col_idx, current_row_tiles, stitched_row):
-                j = w_steps[col_idx]
+                j = col_idx * overlap_size
                 
                 # Decode tile
                 tile_latent = latent[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
@@ -459,12 +454,21 @@ class AutoEncoderKL(nn.Module):
                 
                 # Crop and stitch
                 is_last_col = (col_idx == num_w_steps - 1)
-                slice_width = stitched_tile.shape[-1] if is_last_col else row_limit
+
+                full_slice = stitched_tile
+                partial_slice = stitched_tile[..., :row_limit]
+                
+                # Pad partial_slice to match full_slice shape for torch.where
+                pad_width = full_slice.shape[-1] - partial_slice.shape[-1]
+                padded_partial_slice = F.pad(partial_slice, (0, pad_width))
+
+                selected_tile = torch.where(is_last_col, full_slice, padded_partial_slice)
+                slice_width = torch.where(is_last_col, torch.tensor(full_slice.shape[-1]), torch.tensor(row_limit))
                 
                 start_w = col_idx * row_limit
                 
                 updated_stitched_row = stitched_row.clone()
-                updated_stitched_row[..., start_w : start_w + slice_width] = stitched_tile[..., :slice_width]
+                updated_stitched_row[..., start_w : start_w + slice_width] = selected_tile[..., :slice_width]
 
                 updated_row_tiles = current_row_tiles.clone()
                 updated_row_tiles[col_idx] = decoded_tile
@@ -484,12 +488,20 @@ class AutoEncoderKL(nn.Module):
 
             # Stitch the row to the final image
             is_last_row = (row_idx == num_h_steps - 1)
-            slice_height = final_stitched_row.shape[-2] if is_last_row else row_limit
             
+            full_row_slice = final_stitched_row
+            partial_row_slice = final_stitched_row[..., :row_limit, :]
+
+            pad_height = full_row_slice.shape[-2] - partial_row_slice.shape[-2]
+            padded_partial_row_slice = F.pad(partial_row_slice, (0, 0, 0, pad_height))
+            
+            selected_row = torch.where(is_last_row, full_row_slice, padded_partial_row_slice)
+            slice_height = torch.where(is_last_row, torch.tensor(full_row_slice.shape[-2]), torch.tensor(row_limit))
+
             start_h = row_idx * row_limit
             
             updated_final_image = current_final_image.clone()
-            updated_final_image[..., start_h:start_h + slice_height, :] = final_stitched_row[..., :slice_height, :]
+            updated_final_image[..., start_h:start_h + slice_height, :] = selected_row[..., :slice_height, :]
 
             return row_idx + 1, final_row_tiles, updated_final_image
 

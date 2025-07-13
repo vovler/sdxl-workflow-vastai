@@ -3,29 +3,24 @@ import onnxscript
 from onnxscript import script
 from onnxscript.values import Opset, OnnxFunction
 from torch.export import Dim
-# Import the main 'onnx' library to use its helper functions
 import onnx
+# Import numpy to create a typed scalar for our dummy state
+import numpy as np
 
 # Ensure you have the necessary libraries installed:
-# pip install torch>=2.7.0 onnxscript onnx onnxruntime
+# pip install torch>=2.7.0 onnxscript onnx onnxruntime numpy
 
 # --- Step 1: Create a Custom PyTorch Operator ---
-# We define a custom operator to encapsulate our logic. This gives us a specific
-# target in the PyTorch graph to replace with our custom ONNX implementation. [2]
+# [2]
 @torch.library.custom_op("mylibrary::row_sum_loop", mutates_args=())
 def row_sum_loop(input_tensor: torch.Tensor) -> torch.Tensor:
-    """
-    This is the reference implementation of our custom operator in PyTorch.
-    It will be replaced during ONNX export.
-    """
+    """Reference PyTorch implementation."""
     return torch.sum(input_tensor, dim=1, keepdim=True)
 
 
 @row_sum_loop.register_fake
 def _row_sum_loop_fake(input_tensor):
-    """
-    A fake implementation is required for torch.export and dynamo. [2]
-    """
+    """Fake implementation for torch.export. [2]"""
     output_shape = (input_tensor.shape[0], 1)
     return torch.empty(output_shape, dtype=input_tensor.dtype, device=input_tensor.device)
 
@@ -37,51 +32,51 @@ class RowSumModel(torch.nn.Module):
 
 
 # --- Step 3: Define the ONNX Loop Body using onnxscript ---
-# The ONNX `Loop` operator requires a 'body' graph that is executed for each
-# iteration. [0]
-
 op = Opset('', 20)
 
+# FIX: Add a dummy state input (`dummy_state_in`) to the body signature.
 @script()
-def row_sum_loop_body(iteration_num, condition_in, input_tensor):
+def row_sum_loop_body(iteration_num, condition_in, dummy_state_in, input_tensor):
     """
     Defines the graph for a single iteration of the ONNX Loop. [0]
+    It now accepts and returns a dummy loop-carried state.
     """
     row = op.Gather(input_tensor, iteration_num, axis=0)
     row_sum = op.ReduceSum(row, keepdims=False)
     
-    # Use onnx.helper.make_tensor to create the boolean constant.
     condition_out = op.Constant(value=onnx.helper.make_tensor(
-        name='const_true',
-        data_type=onnx.TensorProto.BOOL,
-        dims=[],
-        vals=[1],
-    ))
-    return condition_out, row_sum
+        name='const_true', data_type=onnx.TensorProto.BOOL, dims=[], vals=[1]))
+    
+    # FIX: Return the dummy state unchanged as the first loop-carried dependency output.
+    # The return signature is (condition, loop_carried_dependencies..., scan_outputs...).
+    return condition_out, dummy_state_in, row_sum
 
 
 # --- Step 4: Implement the Custom ONNX Translation Function ---
 def onnx_row_sum_loop(input_tensor: OnnxFunction):
     """
     This function provides the custom ONNX implementation for our PyTorch op. [1]
-    It translates the operation into an ONNX Loop.
+    It now uses a dummy state to resolve type inference issues.
     """
     shape = op.Shape(input_tensor)
     
-    # Use onnx.helper.make_tensor to create the int64 constant for the Gather index.
     gather_index = op.Constant(value=onnx.helper.make_tensor(
-        name='const_zero',
-        data_type=onnx.TensorProto.INT64,
-        dims=[],
-        vals=[0],
-    ))
+        name='const_zero', data_type=onnx.TensorProto.INT64, dims=[], vals=[0]))
     trip_count = op.Gather(shape, gather_index)
     
-    # FIX: Provide an empty list `[]` for the required 'v_initial' argument.
-    # This signifies that there are no loop-carried dependencies.
-    loop_node = op.Loop(trip_count, None, [], body=row_sum_loop_body, new_inputs=[input_tensor])
+    # FIX: Create an initial dummy state to pass as a loop-carried dependency.
+    # This gives `v_initial` a concrete type and resolves the ambiguity.
+    dummy_initial_state = op.Constant(value=onnx.helper.make_tensor(
+        name='dummy_state', data_type=onnx.TensorProto.INT64, dims=[], vals=[0]))
     
-    scan_output_sums = loop_node
+    # FIX: Call the Loop with the dummy state. It will now have two outputs:
+    # 1. The final value of the dummy state.
+    # 2. The concatenated scan output.
+    final_dummy_state, scan_output_sums = op.Loop(
+        trip_count, None, dummy_initial_state,
+        body=row_sum_loop_body, new_inputs=[input_tensor])
+
+    # We ignore `final_dummy_state` and use `scan_output_sums` as before.
     final_output = op.Unsqueeze(scan_output_sums, axes=[1])
 
     return final_output
@@ -93,7 +88,6 @@ if __name__ == "__main__":
     batch_size = 3
     dummy_input = torch.randint(0, 10, (batch_size, 5), dtype=torch.float32)
 
-    # Define dynamic shapes using the recommended 'dynamic_shapes' argument.
     batch_dim = Dim("batch_size", min=2)
     dynamic_shapes = ({0: batch_dim},)
 

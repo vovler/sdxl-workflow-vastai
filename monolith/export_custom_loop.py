@@ -1,14 +1,13 @@
 import torch
 import onnxscript
-# Import 'const' for creating constant tensors idiomatically
-from onnxscript import script, const
+from onnxscript import script
 from onnxscript.values import Opset, OnnxFunction
 from torch.export import Dim
-# Import numpy to create a typed scalar for our constant
-import numpy as np
+# Import the main 'onnx' library to use its helper functions
+import onnx
 
 # Ensure you have the necessary libraries installed:
-# pip install torch>=2.7.0 onnxscript onnx onnxruntime numpy
+# pip install torch>=2.7.0 onnxscript onnx onnxruntime
 
 # --- Step 1: Create a Custom PyTorch Operator ---
 # We define a custom operator to encapsulate our logic. This gives us a specific
@@ -50,8 +49,15 @@ def row_sum_loop_body(iteration_num, condition_in, input_tensor):
     """
     row = op.Gather(input_tensor, iteration_num, axis=0)
     row_sum = op.ReduceSum(row, keepdims=False)
-    # FIX: Use `const()` to create the boolean constant.
-    condition_out = const(True)
+    
+    # FIX: Use onnx.helper.make_tensor to create the boolean constant.
+    # This creates a proper ONNX TensorProto, which is correctly handled.
+    condition_out = op.Constant(value=onnx.helper.make_tensor(
+        name='const_true',
+        data_type=onnx.TensorProto.BOOL,
+        dims=[],
+        vals=[1],
+    ))
     return condition_out, row_sum
 
 
@@ -63,9 +69,13 @@ def onnx_row_sum_loop(input_tensor: OnnxFunction):
     """
     shape = op.Shape(input_tensor)
     
-    # FIX: Use `const()` to create the integer constant for the Gather index.
-    # We use a numpy array to ensure the dtype is int64, as required by ONNX.
-    gather_index = const(np.array(0, dtype=np.int64))
+    # FIX: Use onnx.helper.make_tensor to create the int64 constant for the Gather index.
+    gather_index = op.Constant(value=onnx.helper.make_tensor(
+        name='const_zero',
+        data_type=onnx.TensorProto.INT64,
+        dims=[],
+        vals=[0],
+    ))
     trip_count = op.Gather(shape, gather_index)
     
     loop_node = op.Loop(trip_count, None, body=row_sum_loop_body, new_inputs=[input_tensor])
@@ -82,7 +92,7 @@ if __name__ == "__main__":
     batch_size = 3
     dummy_input = torch.randint(0, 10, (batch_size, 5), dtype=torch.float32)
 
-    # Define dynamic shapes using the recommended `dynamic_shapes` argument.
+    # Define dynamic shapes using the recommended 'dynamic_shapes' argument.
     batch_dim = Dim("batch_size", min=2)
     dynamic_shapes = ({0: batch_dim},)
 

@@ -4,6 +4,8 @@ import onnx
 import onnxruntime
 import numpy as np
 import os
+import torch._dynamo as dynamo
+import sys
 
 # --- 1. Define the PyTorch Model using torch.while_loop ---
 
@@ -45,7 +47,7 @@ model.eval() # Set model to evaluation mode
 
 # --- 3. Export the Model to ONNX with Dynamic Shapes ---
 
-print("--- Exporting to ONNX with Dynamic Shapes ---")
+print("--- Exporting to ONNX with Dynamic Shapes using Dynamo ---")
 onnx_file_path = "iterative_denoising_model_dynamic.onnx"
 input_names = ["input"]
 output_names = ["output"]
@@ -53,24 +55,32 @@ output_names = ["output"]
 # Define a dummy input for tracing
 dummy_input = torch.randn(1, 3, 32, 32)
 
-# Define the dynamic axes. Here, we mark the batch size, height, and width as dynamic.
-dynamic_axes = {
-    input_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'},
-    output_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'}
-}
+# With Dynamo, dynamic axes are usually detected automatically.
+# We no longer need to specify `dynamic_axes` manually.
 
-torch.onnx.export(
-    model,
-    (dummy_input,),
-    onnx_file_path,
-    input_names=input_names,
-    output_names=output_names,
-    opset_version=20, # The Loop operator is well-supported in recent opsets
-    dynamic_axes=dynamic_axes
-)
+try:
+    dynamo.config.capture_scalar_outputs = True
+    torch.onnx.export(
+        model,
+        (dummy_input,),
+        onnx_file_path,
+        input_names=input_names,
+        output_names=output_names,
+        opset_version=20, # The Loop operator is well-supported in recent opsets
+        dynamo=True
+    )
+    print(f"Model successfully exported to {onnx_file_path}")
+    print("You can inspect the model with Netron to see the Loop operator.")
 
-print(f"Model successfully exported to {onnx_file_path}")
-print("You can inspect the model with Netron to see the Loop operator.")
+except Exception as e:
+    print(f"✗ ONNX export with Dynamo failed: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+finally:
+    dynamo.config.capture_scalar_outputs = False
+
+
 print("-" * 45 + "\n")
 
 

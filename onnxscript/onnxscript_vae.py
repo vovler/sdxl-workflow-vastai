@@ -459,13 +459,13 @@ if __name__ == '__main__':
         latent_dist_result = encoder_sess.run(None, encoder_inputs)[0]
 
         print("Sampling from the latent distribution...")
-        mean, logvar = np.split(latent_dist_result, 2, axis=1)
-        std = np.exp(0.5 * logvar)
-        epsilon = np.random.randn(*mean.shape).astype(mean.dtype)
-        latents_sampled = mean + std * epsilon
+        #mean, logvar = np.split(latent_dist_result, 2, axis=1)
+        #std = np.exp(0.5 * logvar)
+        #epsilon = np.random.randn(*mean.shape).astype(mean.dtype)
+        #latents_sampled = mean + std * epsilon
         
         # CORRECT: Scale latents DOWN by the scaling factor before decoding
-        latents_for_decoder = latents_sampled / config["scaling_factor"]
+        latents_for_decoder = latent_dist_result / config["scaling_factor"]
         
         print("Decoding latents back into an image...")
         decoder_inputs = {decoder_sess.get_inputs()[0].name: latents_for_decoder}

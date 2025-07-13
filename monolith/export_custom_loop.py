@@ -62,10 +62,12 @@ def onnx_row_sum_loop(input_tensor: OnnxFunction):
         name='const_zero', data_type=onnx.TensorProto.INT64, dims=[], vals=[0]))
     trip_count = op.Gather(shape, gather_index)
     
-    # FIX: For loops with no loop-carried dependencies, we don't need v_initial
-    # The Loop operator will only output scan outputs in this case
+    # FIX: Even with no loop-carried dependencies, v_initial is required
+    # Use an empty sequence with the correct dtype for scan outputs
+    empty_sequence = op.SequenceEmpty(dtype=onnx.TensorProto.FLOAT)
+    
     scan_output_sums = op.Loop(
-        trip_count, None,
+        trip_count, None, empty_sequence,
         body=row_sum_loop_body, new_inputs=[input_tensor])
 
     final_output = op.Unsqueeze(scan_output_sums, axes=[1])

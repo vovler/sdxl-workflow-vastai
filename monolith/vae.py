@@ -438,8 +438,10 @@ class AutoEncoderKL(nn.Module):
             def col_body_fn(col_idx, current_row_tiles, stitched_row):
                 j = col_idx * overlap_size
                 
-                # Decode tile
-                tile_latent = latent[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
+                # Decode tile using roll and slice to avoid dynamic slicing
+                rolled_latent = torch.roll(latent, shifts=(-int(i), -int(j)), dims=(2, 3))
+                tile_latent = rolled_latent[:, :, :self.tile_latent_min_size, :self.tile_latent_min_size]
+
                 decoded_tile = self.decoder(self.post_quant_conv(tile_latent))
                 
                 # Blend with previous row
@@ -468,7 +470,17 @@ class AutoEncoderKL(nn.Module):
                 start_w = col_idx * row_limit
                 
                 updated_stitched_row = stitched_row.clone()
-                updated_stitched_row[..., start_w : start_w + slice_width] = selected_tile[..., :slice_width]
+
+                # Create a canvas for the new tile and roll it into position
+                tile_canvas = torch.zeros_like(updated_stitched_row)
+                tile_canvas[..., :slice_width] = selected_tile[..., :slice_width]
+                rolled_tile = torch.roll(tile_canvas, shifts=int(start_w), dims=3)
+
+                # Create a mask for the update area and apply using torch.where
+                mask_coords = torch.arange(stitched_row.shape[-1], device=stitched_row.device).view(1, 1, 1, -1)
+                update_mask = (mask_coords >= start_w) & (mask_coords < start_w + slice_width)
+                
+                updated_stitched_row = torch.where(update_mask, rolled_tile, updated_stitched_row)
 
                 updated_row_tiles = current_row_tiles.clone()
                 updated_row_tiles[col_idx] = decoded_tile
@@ -501,7 +513,17 @@ class AutoEncoderKL(nn.Module):
             start_h = row_idx * row_limit
             
             updated_final_image = current_final_image.clone()
-            updated_final_image[..., start_h:start_h + slice_height, :] = selected_row[..., :slice_height, :]
+
+            # Create a canvas for the new row and roll it into position
+            row_canvas = torch.zeros_like(updated_final_image)
+            row_canvas[..., :slice_height, :] = selected_row[..., :slice_height, :]
+            rolled_row = torch.roll(row_canvas, shifts=int(start_h), dims=2)
+
+            # Create a mask for the update area and apply using torch.where
+            mask_coords_h = torch.arange(current_final_image.shape[-2], device=current_final_image.device).view(1, 1, -1, 1)
+            update_mask_h = (mask_coords_h >= start_h) & (mask_coords_h < start_h + slice_height)
+            
+            updated_final_image = torch.where(update_mask_h, rolled_row, updated_final_image)
 
             return row_idx + 1, final_row_tiles, updated_final_image
 

@@ -10,6 +10,7 @@ import onnxscript
 from onnxscript import script
 from onnxscript.onnx_types import FLOAT, INT64
 from torch.library import Library
+from torch import DispatchKey
 
 # Use the same opset version as in the export call
 op = onnxscript.opset20
@@ -32,7 +33,7 @@ def loop_op_meta(x, loop_iterations, weight):
     return torch.empty_like(x)
 
 # Register the meta implementation with the library.
-mylib.impl("loop_op", loop_op_meta, dispatch_key="meta")
+mylib.impl("loop_op", loop_op_meta, dispatch_key=DispatchKey.Meta)
 
 
 # Provide a default implementation for the CPU backend that raises an error.
@@ -42,7 +43,7 @@ def loop_op_cpu(x, loop_iterations, weight):
     raise NotImplementedError("This operator is only implemented for ONNX export.")
 
 # Register the CPU implementation.
-mylib.impl("loop_op", loop_op_cpu, dispatch_key="cpu")
+mylib.impl("loop_op", loop_op_cpu, dispatch_key=DispatchKey.CPU)
 
 
 # --- 2. Define the ONNX implementation for the custom operator ---
@@ -61,7 +62,7 @@ def onnx_custom_loop_op_translation(x: FLOAT, loop_iterations: INT64, weight: FL
         # `pads` is specified for each dimension [y_begin, x_begin, y_end, x_end].
         x_out = op.Conv(x_scan, weight, pads=[1, 1, 1, 1])
         # The condition is always True to loop for the specified number of iterations.
-        cond_out = op.Constant(value_int=1)
+        cond_out = op.Constant(value=torch.tensor(True))
         return cond_out, x_out
 
     # The ONNX Loop operator requires:
@@ -108,7 +109,7 @@ dynamic_axes = {
 
 # The `custom_translation_table` maps our PyTorch custom op to our ONNX Script implementation.
 custom_translation_table = {
-    "mylibrary::loop_op": onnx_custom_loop_op_translation,
+    torch.ops.mylibrary.loop_op.default: onnx_custom_loop_op_translation,
 }
 
 # Export using torch.onnx with dynamo=True

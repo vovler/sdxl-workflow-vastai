@@ -32,13 +32,14 @@ class RowSumModel(torch.nn.Module):
 # --- Step 3: Define the ONNX Loop Body using onnxscript ---
 op = Opset('', 20)
 
-# FIX: The body signature is simplified. With no loop-carried dependencies,
-# it only takes iteration_num, condition, and the new_inputs.
+# FIX: The body signature for ONNX Loop with no loop-carried dependencies
+# takes iteration_num, condition, and then the new_inputs
 @script()
 def row_sum_loop_body(iteration_num, condition_in, input_tensor):
     """
-    Defines the graph for a single iteration of the ONNX Loop. [0]
-    The signature is now `(iteration_num, condition, *new_inputs)`.
+    Defines the graph for a single iteration of the ONNX Loop.
+    With no loop-carried dependencies, signature is: (iteration_num, condition, *new_inputs)
+    Returns: (condition_out, *scan_outputs)
     """
     row = op.Gather(input_tensor, iteration_num, axis=0)
     row_sum = op.ReduceSum(row, keepdims=False)
@@ -46,15 +47,14 @@ def row_sum_loop_body(iteration_num, condition_in, input_tensor):
     condition_out = op.Constant(value=onnx.helper.make_tensor(
         name='const_true', data_type=onnx.TensorProto.BOOL, dims=[], vals=[1]))
     
-    # FIX: The return signature is simplified. It is now `(condition, *scan_outputs)`.
+    # Return condition and scan outputs
     return condition_out, row_sum
 
 
 # --- Step 4: Implement the Custom ONNX Translation Function ---
 def onnx_row_sum_loop(input_tensor: OnnxFunction):
     """
-    This function provides the custom ONNX implementation for our PyTorch op. [1]
-    It uses SequenceEmpty to correctly type the 'v_initial' input.
+    This function provides the custom ONNX implementation for our PyTorch op.
     """
     shape = op.Shape(input_tensor)
     
@@ -62,12 +62,16 @@ def onnx_row_sum_loop(input_tensor: OnnxFunction):
         name='const_zero', data_type=onnx.TensorProto.INT64, dims=[], vals=[0]))
     trip_count = op.Gather(shape, gather_index)
     
-    # FIX: Even with no loop-carried dependencies, v_initial is required
-    # Use an empty sequence with the correct dtype for scan outputs
+    # Create initial condition (True to start the loop)
+    condition = op.Constant(value=onnx.helper.make_tensor(
+        name='loop_condition', data_type=onnx.TensorProto.BOOL, dims=[], vals=[1]))
+    
+    # Create empty sequence for loop-carried dependencies with explicit float type
     empty_sequence = op.SequenceEmpty(dtype=onnx.TensorProto.FLOAT)
     
+    # Use the original loop body with new_inputs parameter
     scan_output_sums = op.Loop(
-        trip_count, None, empty_sequence,
+        trip_count, condition, empty_sequence,
         body=row_sum_loop_body, new_inputs=[input_tensor])
 
     final_output = op.Unsqueeze(scan_output_sums, axes=[1])

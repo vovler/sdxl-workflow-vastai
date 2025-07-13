@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import torch
 import torch.nn as nn
+from torch.export import Dim
 from pathlib import Path
 import sys
 import argparse
@@ -57,16 +58,6 @@ def main():
 
         # --- Instantiate Wrapper for Export ---
         vae_decoder_exportable = VAETiledDecoder(vae).to(device).eval()
-        print("\n=== Scripting the VAE Tiled Decoder model for export ===")
-        try:
-            vae_decoder_exportable = torch.jit.script(vae_decoder_exportable)
-            print("Model scripted successfully.")
-        except Exception as e:
-            print(f"✗ Scripting failed: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-
 
         # --- Create Dummy Inputs for ONNX Export ---
         print("\n=== Creating dummy inputs for ONNX export ===")
@@ -79,10 +70,18 @@ def main():
 
         # --- Export to ONNX ---
         onnx_output_path = args.output_path
-        print(f"\n=== Exporting model to: {onnx_output_path} ===")
+        print(f"\n=== Exporting model to: {onnx_output_path} using Dynamo ===")
         
         input_names = ["latent"]
         output_names = ["image"]
+        
+        dynamic_shapes = {
+            "latent": {
+                0: Dim("batch_size"),
+                2: Dim("height_div_8"),
+                3: Dim("width_div_8")
+            }
+        }
         
         dynamic_axes = {
             "latent": {0: "batch_size", 2: "height_div_8", 3: "width_div_8"},
@@ -97,9 +96,10 @@ def main():
                 opset_version=20,
                 input_names=input_names,
                 output_names=output_names,
+                dynamic_shapes=dynamic_shapes,
                 dynamic_axes=dynamic_axes,
                 verbose=False,
-                do_constant_folding=False,
+                dynamo=True
             )
             print(f"✓ ONNX export complete. Model saved to {onnx_output_path}")
 

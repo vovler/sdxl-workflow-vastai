@@ -70,7 +70,7 @@ torch.onnx.export(
     opset_version=20,
     dynamo=True,
     dynamic_shapes=dynamic_shapes,
-    report=True)
+    report=True
 )
 
 print(f"Model successfully exported to {onnx_file_path}")

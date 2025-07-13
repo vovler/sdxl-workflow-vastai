@@ -7,7 +7,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Optional
 
 class DiagonalGaussianDistribution:
     def __init__(self, parameters):
@@ -328,110 +327,64 @@ class AutoEncoderKL(nn.Module):
         self.enable_tiling(False)
 
     def blend_h(self, a, b, blend_extent):
-        b_shape = torch.tensor(b.shape, device=b.device)
-        a_shape = torch.tensor(a.shape, device=a.device)
-
-        blend_amount = torch.minimum(b_shape[3], a_shape[3])
-        blend_amount = torch.minimum(blend_amount, torch.tensor(blend_extent, device=b.device))
-
+        blend_extent = min(a.shape[3], b.shape[3], blend_extent)
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent)
         
         a_fp32 = a.to(torch.float32)
         b_fp32 = b.to(torch.float32)
 
-        slice_a = a_fp32.narrow(3, a_shape[3] - blend_amount, blend_amount)
-        slice_b = b_fp32.narrow(3, 0, blend_amount)
+        slice_a = a_fp32[:, :, :, -blend_extent:]
+        slice_b = b_fp32[:, :, :, :blend_extent]
         
-        sliced_ramp = ramp.narrow(3, blend_extent - blend_amount, blend_amount)
-        
-        blended_slice = slice_a * (1.0 - sliced_ramp) + slice_b * sliced_ramp
-        
-        b_fp32.narrow(3, 0, blend_amount).copy_(blended_slice)
+        b_fp32[:, :, :, :blend_extent] = slice_a * (1.0 - ramp) + slice_b * ramp
         
         return b_fp32.to(a.dtype)
 
     def blend_v(self, a, b, blend_extent):
-        b_shape = torch.tensor(b.shape, device=b.device)
-        a_shape = torch.tensor(a.shape, device=a.device)
-
-        blend_amount = torch.minimum(b_shape[2], a_shape[2])
-        blend_amount = torch.minimum(blend_amount, torch.tensor(blend_extent, device=b.device))
-        
+        blend_extent = min(a.shape[2], b.shape[2], blend_extent)
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, blend_extent, 1)
         
         a_fp32 = a.to(torch.float32)
         b_fp32 = b.to(torch.float32)
 
-        slice_a = a_fp32.narrow(2, a_shape[2] - blend_amount, blend_amount)
-        slice_b = b_fp32.narrow(2, 0, blend_amount)
+        slice_a = a_fp32[:, :, -blend_extent:, :]
+        slice_b = b_fp32[:, :, :blend_extent, :]
         
-        sliced_ramp = ramp.narrow(2, blend_extent - blend_amount, blend_amount)
-        
-        blended_slice = slice_a * (1.0 - sliced_ramp) + slice_b * sliced_ramp
-        
-        b_fp32.narrow(2, 0, blend_amount).copy_(blended_slice)
+        b_fp32[:, :, :blend_extent, :] = slice_a * (1.0 - ramp) + slice_b * ramp
         
         return b_fp32.to(a.dtype)
 
-    def tiled_decode(self, z: torch.Tensor) -> torch.Tensor:
-        r"""
-        Decode a batch of images using a tiled decoder.
-        """
-        overlap_size = self.tile_latent_min_size * (100 - int(self.tile_overlap_factor * 100)) // 100
-        blend_extent = self.tile_sample_min_size * int(self.tile_overlap_factor * 100) // 100
-        row_limit = self.tile_sample_min_size - blend_extent
+    def _blend_h(self, a, b, blend_extent):
+        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, 1, blend_extent)
+        
+        a_fp32 = a.to(torch.float32)
+        b_fp32 = b.to(torch.float32)
 
-        output_rows: List[torch.Tensor] = []
-        prev_row_tiles: Optional[List[torch.Tensor]] = None
+        slice_a = a_fp32[..., -blend_extent:]
+        slice_b = b_fp32[..., :blend_extent]
+        
+        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
 
-        i = 0
-        while i < z.shape[2]:
-            decoded_row_tiles: List[torch.Tensor] = []
-            j = 0
-            while j < z.shape[3]:
-                tile_z = z[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
-                decoded_tile = self.decoder(self.post_quant_conv(tile_z))
-                decoded_row_tiles.append(decoded_tile)
-                j += overlap_size
+        b_fp32[..., :blend_extent] = blended_slice
+        
+        return b_fp32.to(a.dtype)
+    
+    def _blend_v(self, a, b, blend_extent):
+        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent, 1)
+        
+        a_fp32 = a.to(torch.float32)
+        b_fp32 = b.to(torch.float32)
 
-            if prev_row_tiles is not None:
-                for k in range(len(decoded_row_tiles)):
-                    decoded_row_tiles[k] = self.blend_v(prev_row_tiles[k], decoded_row_tiles[k], blend_extent)
+        slice_a = a_fp32[..., -blend_extent:, :]
+        slice_b = b_fp32[..., :blend_extent, :]
 
-            stitched_row_tiles: List[torch.Tensor] = []
-            for k in range(len(decoded_row_tiles)):
-                tile = decoded_row_tiles[k]
-                if k > 0:
-                    tile = self.blend_h(decoded_row_tiles[k - 1], tile, blend_extent)
-                
-                is_last_col = k == len(decoded_row_tiles) - 1
-                
-                slice_width = tile.shape[3]
-                if not is_last_col:
-                    slice_width = row_limit
+        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
+        
+        b_fp32[..., :blend_extent, :] = blended_slice
+        
+        return b_fp32.to(a.dtype)
 
-                stitched_row_tiles.append(tile[:, :, :, :slice_width])
-            
-            output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
-            prev_row_tiles = decoded_row_tiles
-            i += overlap_size
-
-        final_image_cat: List[torch.Tensor] = []
-        for i in range(len(output_rows)):
-            row = output_rows[i]
-            is_last_row = i == len(output_rows) - 1
-            
-            slice_height = row.shape[2]
-            if not is_last_row:
-                slice_height = row_limit
-
-            final_image_cat.append(row[:, :, :slice_height, :])
-
-        if len(final_image_cat) == 0:
-            return torch.zeros(z.shape[0], self.config["out_channels"], 0, 0, device=z.device, dtype=z.dtype)
-
-        return torch.cat(final_image_cat, dim=-2)
-
+    
     def encode(self, x):
         h = self.encoder(x)
         moments = self.quant_conv(h)
@@ -444,6 +397,54 @@ class AutoEncoderKL(nn.Module):
 
         z = self.post_quant_conv(z)
         return self.decoder(z)
+
+   
+    def tiled_decode(self, z):
+        r"""
+        Decode a batch of images using a tiled decoder.
+        """
+        overlap_size = int(self.tile_latent_min_size * (1.0 - self.tile_overlap_factor))
+        blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
+        row_limit = self.tile_sample_min_size - blend_extent
+
+        h_steps = list(range(0, z.shape[2], overlap_size))
+        w_steps = list(range(0, z.shape[3], overlap_size))
+
+        output_rows = []
+        prev_row_tiles = None
+
+        for i in h_steps:
+            decoded_row_tiles = []
+            for j in w_steps:
+                tile_z = z[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
+                decoded_tile = self.decoder(self.post_quant_conv(tile_z))
+                decoded_row_tiles.append(decoded_tile)
+            
+            if prev_row_tiles is not None:
+                for j in range(len(w_steps)):
+                    decoded_row_tiles[j] = self.blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
+
+            stitched_row_tiles = []
+            for j in range(len(w_steps)):
+                tile = decoded_row_tiles[j]
+                if j > 0:
+                    tile = self.blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
+                
+                is_last_col = (j == len(w_steps) - 1)
+                slice_width = tile.shape[-1] if is_last_col else row_limit
+                stitched_row_tiles.append(tile[..., :slice_width])
+            
+            output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
+            prev_row_tiles = decoded_row_tiles
+
+        final_image_cat = []
+        for i in range(len(h_steps)):
+            row = output_rows[i]
+            is_last_row = (i == len(h_steps) - 1)
+            slice_height = row.shape[-2] if is_last_row else row_limit
+            final_image_cat.append(row[..., :slice_height, :])
+
+        return torch.cat(final_image_cat, dim=-2)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)

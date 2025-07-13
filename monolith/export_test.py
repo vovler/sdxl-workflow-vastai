@@ -15,8 +15,8 @@ class VAEExportTest(nn.Module):
         super().__init__()
         self.vae = vae
 
-    def forward(self, x):
-        return self.vae.test_export(x)
+    def forward(self, input_tensor):
+        return self.vae.test_export(input_tensor)
 
 def main():
     """
@@ -55,7 +55,7 @@ def main():
         # --- Create Dummy Inputs for ONNX Export ---
         print("\n=== Creating dummy inputs for ONNX export ===")
         
-        dummy_input = torch.randn((10, 5), device=device, dtype=dtype)
+        dummy_input = torch.randn((3, 5), device=device, dtype=dtype)
         dummy_inputs = (dummy_input,)
 
         # --- Export to ONNX ---

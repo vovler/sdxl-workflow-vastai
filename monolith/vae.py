@@ -457,15 +457,22 @@ class AutoEncoderKL(nn.Module):
         return dec
 
     def test_export(self, x):
-        def cond_fn(i, _):
-            return i < x.shape[0]
+        def case_1(x_):
+            return x_[0].sum()
 
-        def body_fn(i, total_sum):
-            total_sum = total_sum + x[i].sum()
-            return i + 1, total_sum
+        def case_2(x_):
+            return x_[0].sum() + x_[1].sum()
 
-        i_init = torch.tensor(0)
-        total_sum_init = torch.tensor(0.0, device=x.device, dtype=x.dtype)
+        def case_3(x_):
+            return x_[0].sum() + x_[1].sum() + x_[2].sum()
 
-        _, total_sum = while_loop(cond_fn, body_fn, (i_init, total_sum_init))
-        return total_sum
+        def other_cases(x_):
+            return x_.sum()
+
+        def else_2(x__):
+            return torch.cond(x__.shape[0] == 3, case_3, other_cases, (x__,))
+
+        def else_1(x_):
+            return torch.cond(x_.shape[0] == 2, case_2, else_2, (x_,))
+
+        return torch.cond(x.shape[0] == 1, case_1, else_1, (x,))

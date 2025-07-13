@@ -65,7 +65,7 @@ torch.onnx.export(
     onnx_file_path,
     input_names=input_names,
     output_names=output_names,
-    opset_version=16, # The Loop operator is well-supported in recent opsets
+    opset_version=20, # The Loop operator is well-supported in recent opsets
     dynamic_axes=dynamic_axes
 )
 

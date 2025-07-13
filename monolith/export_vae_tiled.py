@@ -7,6 +7,7 @@ import sys
 import argparse
 import json
 import onnx
+import torch._dynamo as dynamo
 from vae import AutoEncoderKL as CustomAutoEncoderKL
 from safetensors.torch import load_file
 
@@ -89,6 +90,7 @@ def main():
         }
 
         try:
+            dynamo.config.capture_scalar_outputs = True
             torch.onnx.export(
                 vae_decoder_exportable,
                 dummy_inputs,
@@ -108,6 +110,9 @@ def main():
             import traceback
             traceback.print_exc()
             sys.exit(1)
+        finally:
+            dynamo.config.capture_scalar_outputs = False
+
 
 if __name__ == "__main__":
     main() 

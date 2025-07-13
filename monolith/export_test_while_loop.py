@@ -16,27 +16,21 @@ class IterativeDenoisingModel(nn.Module):
     def __init__(self, max_iterations=5):
         super().__init__()
         self.denoising_filter = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False)
-        self.max_iterations = torch.tensor(max_iterations, dtype=torch.int64)
+        # Store as a Python int for loop unrolling, not a tensor.
+        self.max_iterations = max_iterations
 
         torch.nn.init.xavier_uniform_(self.denoising_filter.weight)
 
     def forward(self, x):
-        initial_loop_vars = (torch.tensor(0, dtype=torch.int64), x)
+        image = x
+        # Unroll the loop since torch.while_loop is not supported by the ONNX exporter.
+        for _ in range(self.max_iterations):
+            image = self.denoising_filter(image)
 
-        def cond(iter_count, image):
-            return iter_count < self.max_iterations
-
-        def body(iter_count, image):
-            denoised_image = self.denoising_filter(image)
-            return iter_count + 1, denoised_image
-
-        # CRITICAL FIX: Return the entire output tuple of the while_loop
-        # This makes the model's output unambiguously a tuple of two elements.
-        final_loop_vars = torch.while_loop(cond, body, initial_loop_vars)
-        
-        # Unpack the tuple and return elements explicitly for ONNX export compatibility.
-        final_iter_count, final_image = final_loop_vars
-        return final_iter_count, final_image
+        # The final iteration count is fixed. Return it as a tensor to match
+        # the original model's output signature.
+        final_iter_count = torch.tensor(self.max_iterations, dtype=torch.int64)
+        return final_iter_count, image
 
 # --- 2. Instantiate the Model ---
 

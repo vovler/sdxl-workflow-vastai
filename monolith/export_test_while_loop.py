@@ -5,93 +5,51 @@ import onnxruntime
 import numpy as np
 import os
 
-# --- Add imports for custom operator ---
-import onnxscript
-from onnxscript import script
-from onnxscript.onnx_types import FLOAT, INT64, BOOL
-from torch.library import Library
+# --- 1. Define the PyTorch Model with torch.while_loop ---
 
-# Use the same opset version as in the export call
-op = onnxscript.opset20
-
-
-# --- 1. Define custom PyTorch operator for the dynamic loop ---
-
-# Create a new library 'mylibrary' and specify that we will define operators on it.
-mylib = Library("mylibrary", "DEF")
-
-# Define the operator's signature. This is a string that describes the inputs and outputs.
-mylib.define("loop_op(Tensor x, Tensor loop_iterations, Tensor weight) -> Tensor")
-
-
-# The 'meta' implementation tells PyTorch the properties (e.g., shape, dtype) of the output tensor.
-# This allows `torch.export` to trace the model without actually running the operator.
-def loop_op_meta(x, loop_iterations, weight):
-    # The shape of 'x' does not change inside the loop, so the output shape is the same as the input.
-    return torch.empty_like(x)
-
-mylib.impl("loop_op", loop_op_meta, dispatch_key="meta")
-
-
-# Provide a default implementation for the CPU backend that raises an error.
-# This is good practice and clarifies that the operator is not intended for eager execution.
-def loop_op_cpu(x, loop_iterations, weight):
-    raise NotImplementedError("This operator is only implemented for ONNX export.")
-
-mylib.impl("loop_op", loop_op_cpu, dispatch_key="cpu")
-
-
-# --- 2. Define the ONNX implementation for the custom operator ---
-# This function defines how to translate `mylibrary::loop_op` into ONNX operators.
-def onnx_custom_loop_op_translation(x: FLOAT, loop_iterations: INT64, weight: FLOAT):
-    """
-    Translates the custom loop operator into an ONNX `Loop` operator using ONNX Script.
-    """
-    # The body of the ONNX Loop is defined as a separate graph.
-    # onnxscript will capture the `weight` tensor as a free variable and add it
-    # as an input to the body graph.
-    @script()
-    def body_graph(iter_num: INT64, cond: BOOL, x_scan: FLOAT):
-        # In one iteration, we apply a convolution.
-        # Parameters from the original model: kernel_size=3, padding=1, bias=False.
-        # `pads` is specified for each dimension [y_begin, x_begin, y_end, x_end].
-        x_out = op.Conv(x_scan, weight, pads=[1, 1, 1, 1])
-
-        # The condition is always True to loop for the specified number of iterations.
-        cond_out = op.Constant(value=torch.tensor(True))
-        return cond_out, x_out
-
-    # The ONNX Loop operator requires:
-    # 1. M: A scalar INT64 tensor for the maximum trip count.
-    # 2. cond: A scalar boolean tensor for the initial loop condition.
-    # 3. v_initials: A list of tensors that are carried through the loop. Here, just `x`.
-    cond_in = op.Constant(value=torch.tensor(True))
-
-    # The loop returns the final values of the loop-carried variables.
-    # Since we only have one (`x`), we unpack the single-element tuple result.
-    final_x, = op.Loop(loop_iterations, cond_in, x, body=body_graph)
-    return final_x
-
-
-# --- 3. Define the PyTorch Model using the custom operator ---
 class DynamicLoopModel(nn.Module):
+    """
+    A model that uses torch.while_loop to apply an operation
+    a dynamic number of times.
+    - The number of iterations is determined by a second input to the model.
+    """
     def __init__(self):
         super().__init__()
         self.loop_body = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False)
+        # Initialize weights for demonstration
         torch.nn.init.xavier_uniform_(self.loop_body.weight)
 
     def forward(self, x, loop_iterations):
-        # Use the custom operator instead of a Python loop.
-        # We pass the convolution weights as an argument.
-        return torch.ops.mylibrary.loop_op.default(x, loop_iterations, self.loop_body.weight)
+        # We need a counter for the loop, carried along with the data tensor.
+        # It must be a tensor to be part of the computation graph.
+        i = torch.tensor(0, dtype=torch.int64)
 
+        # cond_fn checks if the loop should continue.
+        # It must be a top-level or nested function that `torch.export` can trace.
+        def cond_fn(i, x):
+            return i < loop_iterations
 
-# --- 4. Instantiate the Model ---
+        # body_fn defines one iteration of the loop.
+        def body_fn(i, x):
+            # Apply the convolution and increment the counter.
+            x_out = self.loop_body(x)
+            i_out = i + 1
+            return i_out, x_out
+
+        # torch.while_loop will be converted to an ONNX 'Loop' operator.
+        # It takes a condition function, a body function, and initial values for the loop-carried variables.
+        # It returns the final state of the carried variables.
+        _, final_x = torch.while_loop(cond_fn, body_fn, (i, x))
+        return final_x
+
+# --- 2. Instantiate the Model ---
+
 model = DynamicLoopModel()
 model.eval()
 
-# --- 5. Export the Model to ONNX with the custom operator ---
-print("--- Exporting to ONNX with custom Loop operator ---")
+# --- 3. Export the Model to ONNX with Dynamic Shapes ---
+
+print("--- Exporting to ONNX from torch.while_loop Model ---")
 onnx_file_path = "dynamic_loop_model.onnx"
 input_names = ["input", "loop_iterations"]
 output_names = ["output"]
@@ -107,13 +65,8 @@ dynamic_axes = {
     output_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'}
 }
 
-# The `custom_translation_table` maps our PyTorch custom op to our ONNX Script implementation.
-custom_translation_table = {
-    torch.ops.mylibrary.loop_op.default: onnx_custom_loop_op_translation,
-}
-
-
-# Export using torch.onnx with dynamo=True
+# Export using torch.onnx with dynamo=True.
+# No custom_translation_table is needed as torch.while_loop is supported.
 torch.onnx.export(
     model,
     (dummy_input, dummy_loop_iterations),
@@ -122,8 +75,7 @@ torch.onnx.export(
     output_names=output_names,
     opset_version=20,
     dynamo=True,
-    dynamic_axes=dynamic_axes,
-    custom_translation_table=custom_translation_table,
+    dynamic_axes=dynamic_axes
 )
 
 print(f"Model successfully exported to {onnx_file_path}")
@@ -131,7 +83,8 @@ print("Inspect the model with Netron. You will see a 'Loop' operator.")
 print("-" * 45 + "\n")
 
 
-# --- 6. Verify the Exported ONNX Model ---
+# --- 4. Verify the Exported ONNX Model ---
+
 print("--- Verifying the Dynamic Loop ONNX Model ---")
 
 try:

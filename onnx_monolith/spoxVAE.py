@@ -608,7 +608,7 @@ def build_tiled_decoder_onnx_model_with_loop(
         return op.const(True), updated_canvas, final_row_tile
 
     # --- 5. Execute the Main Loop ---
-    (_, final_canvas, __) = op.loop(
+    (final_canvas, _) = op.loop(
         num_rows,
         v_initial=[initial_canvas, initial_prev_row],
         body=main_loop_body

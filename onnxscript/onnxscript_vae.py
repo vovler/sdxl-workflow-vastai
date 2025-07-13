@@ -8,7 +8,7 @@ import json
 import sys
 
 import onnxruntime
-
+import math
 from typing import Dict, Any, Tuple
 
 from PIL import Image
@@ -400,8 +400,8 @@ def preprocess_image(image_path: str, target_dtype: np.dtype) -> np.ndarray:
     original_width, original_height = img.size
 
     # Pad the image to be divisible by 8
-    target_width = math.ceil(original_width / 8) * 8
-    target_height = math.ceil(original_height / 8) * 8
+    target_width = math.floor(original_width / 8) * 8
+    target_height = math.floor(original_height / 8) * 8
 
     canvas = Image.new("RGB", (target_width, target_height), (0, 0, 0))
     canvas.paste(img, (0, 0))

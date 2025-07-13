@@ -94,8 +94,8 @@ def build_engine(
     print(f"  FP16: {fp16}")
     print("="*50)
 
-    builder = trt.Builder(logger, max_threads=torch.get_num_threads())
-    
+    builder = trt.Builder(logger)
+    builder.max_threads = torch.get_num_threads()
     config = builder.create_builder_config()
     
     # --- Apply Builder Config ---

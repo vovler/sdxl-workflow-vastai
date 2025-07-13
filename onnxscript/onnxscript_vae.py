@@ -362,7 +362,7 @@ def build_autoencoder_kl_onnx_model(state_dict: Dict[str, np.ndarray], config: D
 # --- Main Execution ---
 
 if __name__ == '__main__':
-    SAFETENSORS_FILE_PATH = "path/to/your/vae_weights.safetensors"
+    SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
 
     try:
         state_dict = load_state_dict_from_safetensors(SAFETENSORS_FILE_PATH)

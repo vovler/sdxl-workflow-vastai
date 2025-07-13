@@ -3,6 +3,7 @@ import spox.opset.ai.onnx.v21 as op
 import numpy as np
 from safetensors.numpy import load_file
 from typing import Dict, Any
+import onnx
 
 # Model configuration, consistent with the provided weights
 config = {
@@ -305,7 +306,7 @@ def spox_autoencoder_kl_forward(
 
 # --- Main Build Function ---
 
-def build_autoencoder_kl_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> spox.ModelProto:
+def build_autoencoder_kl_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
     print("Loading parameters into Spox constants...")
     spox_params = load_and_create_spox_params(state_dict)
     

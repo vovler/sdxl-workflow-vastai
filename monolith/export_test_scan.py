@@ -4,6 +4,7 @@ import onnx
 import onnxruntime
 import numpy as np
 import os
+
 # --- 1. Define the PyTorch Model using torch.scan ---
 
 class ScanDenoisingModel(nn.Module):
@@ -40,7 +41,7 @@ class ScanDenoisingModel(nn.Module):
 
         # Perform the scan. This returns the final carry and a tensor where
         # all the y_slices have been stacked along a new dimension (dim 0).
-        final_carry, stacked_ys = torch.scan(combine_fn, init, dummy_xs)
+        final_carry, stacked_ys = torch.ops.higher_order.scan(combine_fn, init, dummy_xs)
 
         # The result of the final iteration is the final_carry.
         return final_carry

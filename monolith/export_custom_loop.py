@@ -1,7 +1,8 @@
 import torch
 import onnxscript
 from onnxscript import script
-from onnxscript.values import Opset, OnnxFunctionArgument
+# Correctly import OnnxFunction
+from onnxscript.values import Opset, OnnxFunction
 
 # Ensure you have the necessary libraries installed:
 # pip install torch>=2.7.0 onnxscript onnx onnxruntime
@@ -70,10 +71,10 @@ def row_sum_loop_body(iteration_num, condition_in, input_tensor):
 # --- Step 4: Implement the Custom ONNX Translation Function ---
 # This function maps our custom PyTorch operator to an ONNX `Loop` operator.
 
-# FIX: The function signature is updated.
+# The function signature is updated to use the correct type hint.
 # It no longer takes a graph 'g' argument. The arguments must match the
-# PyTorch operator's inputs. Type hints are added to resolve warnings.
-def onnx_row_sum_loop(input_tensor: OnnxFunctionArgument):
+# PyTorch operator's inputs.
+def onnx_row_sum_loop(input_tensor: OnnxFunction):
     """
     This function provides the custom ONNX implementation for our PyTorch op. [1]
     It translates the operation into an ONNX Loop.

@@ -105,8 +105,8 @@ def build_engine(
     config.set_flag(trt.BuilderFlag.FP16) # Ensure FP16 is enabled by default
     config.set_flag(trt.BuilderFlag.INT8)
     config.builder_optimization_level = 4
-    config.hardware_compatibility_level = 2
-    config.tiling_optimization_level = 0
+    config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
+    config.tiling_optimization_level = trt.TilingOptimizationLevel.NONE
     
     print(f"Builder Optimization Level: {config.builder_optimization_level}")
     print(f"Hardware Compatibility Level: {config.hardware_compatibility_level}")

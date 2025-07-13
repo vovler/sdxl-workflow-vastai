@@ -470,9 +470,9 @@ class AutoEncoderKL(nn.Module):
             return x_.sum()
 
         def else_2(x__):
-            return torch.cond(x__.shape[0] == 3, case_3, other_cases, (x__,))
+            return torch.cond(torch.tensor(x__.shape[0]) == 3, case_3, other_cases, (x__,))
 
         def else_1(x_):
-            return torch.cond(x_.shape[0] == 2, case_2, else_2, (x_,))
+            return torch.cond(torch.tensor(x_.shape[0]) == 2, case_2, else_2, (x_,))
 
-        return torch.cond(x.shape[0] == 1, case_1, else_1, (x,))
+        return torch.cond(torch.tensor(x.shape[0]) == 1, case_1, else_1, (x,))

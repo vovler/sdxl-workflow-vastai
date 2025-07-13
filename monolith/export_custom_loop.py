@@ -133,6 +133,7 @@ if __name__ == "__main__":
         custom_translation_table={
             torch.ops.mylibrary.row_sum_loop.default: onnx_row_sum_loop,
         },
+        report=True,
     )
 
     print("\n--- ONNX Model Graph ---")

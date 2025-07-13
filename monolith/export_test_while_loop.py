@@ -26,17 +26,19 @@ mylib.define("loop_op(Tensor x, Tensor loop_iterations, Tensor weight) -> Tensor
 
 # The 'meta' implementation tells PyTorch the properties (e.g., shape, dtype) of the output tensor.
 # This allows `torch.export` to trace the model without actually running the operator.
-@mylib.impl("loop_op", dispatch_key="meta")
 def loop_op_meta(x, loop_iterations, weight):
     # The shape of 'x' does not change inside the loop, so the output shape is the same as the input.
     return torch.empty_like(x)
 
+mylib.impl("loop_op", loop_op_meta, dispatch_key="meta")
+
 
 # Provide a default implementation for the CPU backend that raises an error.
 # This is good practice and clarifies that the operator is not intended for eager execution.
-@mylib.impl("loop_op", dispatch_key="cpu")
 def loop_op_cpu(x, loop_iterations, weight):
     raise NotImplementedError("This operator is only implemented for ONNX export.")
+
+mylib.impl("loop_op", loop_op_cpu, dispatch_key="cpu")
 
 
 # --- 2. Define the ONNX implementation for the custom operator ---

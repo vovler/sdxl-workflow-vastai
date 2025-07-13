@@ -630,10 +630,12 @@ def build_tiled_decoder_onnx_model_with_loop(
         axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64))
     )
 
-    graph = Graph(
-        inputs={"latent_sample": latent_z_arg},
-        outputs={"reconstructed_sample": final_image_cropped}
-    )
+    outputs_dict = {"reconstructed_sample": final_image_cropped}
+    inputs_dict = {"latent_sample": latent_z_arg}
+    
+    graph = Graph(outputs_dict, inputs_dict)
+    
+    # The `concrete=False` parameter is still essential to allow dynamic output shapes.
     decoder_model = graph.to_onnx_model(concrete=False)
     # --- FIX END ---
     

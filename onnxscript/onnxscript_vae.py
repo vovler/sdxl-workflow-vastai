@@ -392,29 +392,43 @@ def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) ->
 
 # --- New Inference Helper Functions ---
 
-def preprocess_image(image_path: str, target_dtype: np.dtype, image_size: Tuple[int, int] = (512, 512)) -> np.ndarray:
-    """Load, resize, normalize, and transpose an image for VAE input."""
+def preprocess_image(image_path: str, target_dtype: np.dtype) -> Tuple[np.ndarray, Tuple[int, int]]:
+    """
+    Loads an image, pads it to be divisible by 8, normalizes, and transposes it.
+    Returns the processed numpy array and the original image dimensions.
+    """
     img = Image.open(image_path).convert("RGB")
-    img = img.resize(image_size, Image.LANCZOS)
-    img_array = np.array(img).astype(target_dtype)
-    # Normalize from [0, 255] to [-1, 1]
-    img_array = (img_array / 127.5) - 1.0
-    # Transpose from HWC to CHW
-    img_array = img_array.transpose(2, 0, 1)
-    # Add batch dimension
-    return np.expand_dims(img_array, 0)
+    original_width, original_height = img.size
 
-def postprocess_image(image_tensor: np.ndarray) -> Image.Image:
-    """Denormalize, transpose, and convert a tensor back to a PIL Image."""
-    # Remove batch dimension
+    # Calculate the new size, padding up to the nearest multiple of 8
+    target_width = math.ceil(original_width / 8) * 8
+    target_height = math.ceil(original_height / 8) * 8
+
+    # Create a new black image canvas and paste the original image onto it
+    canvas = Image.new("RGB", (target_width, target_height), (0, 0, 0))
+    canvas.paste(img, (0, 0))
+
+    # Continue with standard preprocessing on the padded image (canvas)
+    img_array = np.array(canvas).astype(target_dtype)
+    img_array = (img_array / 127.5) - 1.0  # Normalize from [0, 255] to [-1, 1]
+    img_array = img_array.transpose(2, 0, 1) # HWC to CHW
+    img_array = np.expand_dims(img_array, 0) # Add batch dimension
+
+    return img_array, (original_width, original_height)
+
+def postprocess_image(image_tensor: np.ndarray, original_size: Tuple[int, int]) -> Image.Image:
+    """Denormalize, transpose, convert to PIL Image, and crop to original size."""
     img = image_tensor[0]
-    # Denormalize from [-1, 1] to [0, 255]
-    img = (img + 1.0) * 127.5
-    # Clip values to be in the valid range
+    img = (img + 1.0) * 127.5 # Denormalize
     img = np.clip(img, 0, 255)
-    # Transpose from CHW to HWC
-    img = img.transpose(1, 2, 0)
-    return Image.fromarray(img.astype(np.uint8))
+    img = img.transpose(1, 2, 0) # CHW to HWC
+    reconstructed_image = Image.fromarray(img.astype(np.uint8))
+
+    # Crop the image back to its original size to remove the padding
+    original_width, original_height = original_size
+    cropped_image = reconstructed_image.crop((0, 0, original_width, original_height))
+
+    return cropped_image
 
 
 # --- Main Execution ---
@@ -422,20 +436,18 @@ def postprocess_image(image_tensor: np.ndarray) -> Image.Image:
 if __name__ == '__main__':
     SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
     CONFIG_FILE_PATH = "/lab/model/vae/config.json"
-    TEST_IMAGE_PATH = "/lab/test.jpeg"
+    TEST_IMAGE_PATH = "/lab/test.png"
 
     try:
         # --- Build and Save Models ---
         config = load_config_from_json(CONFIG_FILE_PATH)
         state_dict = load_state_dict_from_safetensors(SAFETENSORS_FILE_PATH)
 
-        # Build and save the encoder
         encoder_proto = build_encoder_onnx_model(state_dict, config)
         with open("encoder.onnx", "wb") as f:
             f.write(encoder_proto.SerializeToString())
         print("Saved encoder model to encoder.onnx")
 
-        # Build and save the decoder
         decoder_proto = build_decoder_onnx_model(state_dict, config)
         with open("decoder.onnx", "wb") as f:
             f.write(decoder_proto.SerializeToString())
@@ -444,43 +456,35 @@ if __name__ == '__main__':
         # --- Run Inference ---
         print("\n--- Running Inference ---")
         target_dtype = np.float32 if config.get("force_upcast", False) else np.float16
-        
-        # 1. Load the ONNX models into Inference Sessions
+
         print("Loading ONNX models into inference sessions...")
         encoder_sess = onnxruntime.InferenceSession("encoder.onnx")
         decoder_sess = onnxruntime.InferenceSession("decoder.onnx")
 
-        # 2. Preprocess the input image
         print(f"Loading and preprocessing image: {TEST_IMAGE_PATH}")
-        image_np = preprocess_image(TEST_IMAGE_PATH, target_dtype)
+        # Capture both the processed image and its original size
+        image_np, original_size = preprocess_image(TEST_IMAGE_PATH, target_dtype)
 
-        # 3. Encode the image
         print("Encoding image into latent space...")
         encoder_inputs = {encoder_sess.get_inputs()[0].name: image_np}
         latent_dist_result = encoder_sess.run(None, encoder_inputs)[0]
 
-        # 4. Sample from the latent distribution
         print("Sampling from the latent distribution...")
         mean, logvar = np.split(latent_dist_result, 2, axis=1)
         std = np.exp(0.5 * logvar)
-        # Generate random noise with the same shape and type as the mean
         epsilon = np.random.randn(*mean.shape).astype(mean.dtype)
-        # Create the latent sample
         latents = mean + std * epsilon
-        # Apply the VAE scaling factor
         latents = latents * config["scaling_factor"]
-        
-        # 5. Decode the latent sample
+
         print("Decoding latents back into an image...")
         decoder_inputs = {decoder_sess.get_inputs()[0].name: latents}
         reconstructed_image_np = decoder_sess.run(None, decoder_inputs)[0]
 
-        # 6. Postprocess and save the final image
         print("Postprocessing and saving the output image...")
-        final_image = postprocess_image(reconstructed_image_np)
+        # Pass the original size to the postprocessing function
+        final_image = postprocess_image(reconstructed_image_np, original_size)
         final_image.save("test_out.png")
         print("\nSuccessfully saved reconstructed image to test_out.png")
-
 
     except FileNotFoundError as e:
         print(f"\nERROR: Could not find a required file: {e.filename}", file=sys.stderr)

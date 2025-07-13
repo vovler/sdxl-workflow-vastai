@@ -45,7 +45,7 @@ class AttentionBlock(nn.Module):
         k = k.view(batch, -1, 1, channel)
         v = v.view(batch, -1, 1, channel)
         
-        q,k,v = map(lambda t: t.transpose(1, 2), (q,k,v))
+        q,k,v = [t.transpose(1, 2) for t in (q,k,v)]
         
         scores = torch.matmul(q, k.transpose(-2, -1)) / (channel ** 0.5)
         attn_probs = F.softmax(scores, dim=-1)

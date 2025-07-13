@@ -50,8 +50,7 @@ def row_sum_loop_body(iteration_num, condition_in, input_tensor):
     row = op.Gather(input_tensor, iteration_num, axis=0)
     row_sum = op.ReduceSum(row, keepdims=False)
     
-    # FIX: Use onnx.helper.make_tensor to create the boolean constant.
-    # This creates a proper ONNX TensorProto, which is correctly handled.
+    # Use onnx.helper.make_tensor to create the boolean constant.
     condition_out = op.Constant(value=onnx.helper.make_tensor(
         name='const_true',
         data_type=onnx.TensorProto.BOOL,
@@ -69,7 +68,7 @@ def onnx_row_sum_loop(input_tensor: OnnxFunction):
     """
     shape = op.Shape(input_tensor)
     
-    # FIX: Use onnx.helper.make_tensor to create the int64 constant for the Gather index.
+    # Use onnx.helper.make_tensor to create the int64 constant for the Gather index.
     gather_index = op.Constant(value=onnx.helper.make_tensor(
         name='const_zero',
         data_type=onnx.TensorProto.INT64,
@@ -78,7 +77,9 @@ def onnx_row_sum_loop(input_tensor: OnnxFunction):
     ))
     trip_count = op.Gather(shape, gather_index)
     
-    loop_node = op.Loop(trip_count, None, body=row_sum_loop_body, new_inputs=[input_tensor])
+    # FIX: Provide an empty list `[]` for the required 'v_initial' argument.
+    # This signifies that there are no loop-carried dependencies.
+    loop_node = op.Loop(trip_count, None, [], body=row_sum_loop_body, new_inputs=[input_tensor])
     
     scan_output_sums = loop_node
     final_output = op.Unsqueeze(scan_output_sums, axes=[1])

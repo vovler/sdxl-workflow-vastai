@@ -339,6 +339,28 @@ def spox_autoencoder_kl_forward(
 
 # --- Main Build Function ---
 
+def build_encoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
+    """Builds and returns the ONNX model for the VAE Encoder."""
+    force_upcast = config.get("force_upcast", False)
+    target_dtype = np.float32 if force_upcast else np.float16
+    print(f"Building ENCODER with target data type: {target_dtype.__name__}")
+
+    spox_params = load_and_create_spox_params(state_dict, target_dtype)
+
+    sample_type = spox.Tensor(target_dtype, ('batch_size', config["in_channels"], 'height', 'width'))
+    sample_arg = spox.argument(sample_type)
+
+    # Encoder forward pass
+    h = spox_encoder(sample_arg, spox_params["encoder"], config, target_dtype)
+    moments = spox_conv_2d(h, spox_params["quant_conv"]["weight"], spox_params["quant_conv"]["bias"], padding=0)
+
+    # Build the encoder model
+    encoder_model = spox.build(
+        inputs={"sample": sample_arg},
+        outputs={"latent_dist": moments}
+    )
+    print("Successfully built Encoder ONNX ModelProto.")
+    return encoder_model
 
 def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
     """Builds and returns the ONNX model for the VAE Decoder."""
@@ -397,7 +419,7 @@ def postprocess_image(image_tensor: np.ndarray) -> Image.Image:
 if __name__ == '__main__':
     SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
     CONFIG_FILE_PATH = "/lab/model/vae/config.json"
-    TEST_IMAGE_PATH = "/lab/test.png"
+    TEST_IMAGE_PATH = "/lab/test.jpg"
 
     try:
         # --- Build and Save Models ---

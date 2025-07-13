@@ -33,7 +33,10 @@ class IterativeDenoisingModel(nn.Module):
         # CRITICAL FIX: Return the entire output tuple of the while_loop
         # This makes the model's output unambiguously a tuple of two elements.
         final_loop_vars = torch.while_loop(cond, body, initial_loop_vars)
-        return final_loop_vars
+        
+        # Unpack the tuple and return elements explicitly for ONNX export compatibility.
+        final_iter_count, final_image = final_loop_vars
+        return final_iter_count, final_image
 
 # --- 2. Instantiate the Model ---
 

@@ -2,3 +2,5 @@ uuid.txt
 pipeline/compel
 sd-forge-couple-copy/
 model/
+venv/
+.vscode/

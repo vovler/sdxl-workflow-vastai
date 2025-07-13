@@ -2,6 +2,7 @@ import torch
 import onnxscript
 from onnxscript import script
 from onnxscript.values import Opset, OnnxFunction
+from onnxscript import opset20 as op
 from torch.export import Dim
 import onnx
 
@@ -30,7 +31,7 @@ class RowSumModel(torch.nn.Module):
 
 
 # --- Step 3: Define the ONNX Loop Body using onnxscript ---
-op = Opset('', 20)
+#op = Opset('', 20)
 
 # FIX: The body signature for ONNX Loop with no loop-carried dependencies
 # takes iteration_num, condition, and then the new_inputs

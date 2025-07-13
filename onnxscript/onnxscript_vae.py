@@ -392,7 +392,7 @@ def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) ->
 
 # --- New Inference Helper Functions ---
 
-def preprocess_image(image_path: str, target_dtype: np.dtype, image_size: tuple[int, int] = (512, 512)) -> np.ndarray:
+def preprocess_image(image_path: str, target_dtype: np.dtype, image_size: Tuple[int, int] = (512, 512)) -> np.ndarray:
     """Load, resize, normalize, and transpose an image for VAE input."""
     img = Image.open(image_path).convert("RGB")
     img = img.resize(image_size, Image.LANCZOS)

@@ -392,43 +392,32 @@ def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) ->
 
 # --- New Inference Helper Functions ---
 
-def preprocess_image(image_path: str, target_dtype: np.dtype) -> Tuple[np.ndarray, Tuple[int, int]]:
+def preprocess_image(image_path: str, target_dtype: np.dtype) -> np.ndarray:
     """
     Loads an image, pads it to be divisible by 8, normalizes, and transposes it.
-    Returns the processed numpy array and the original image dimensions.
     """
     img = Image.open(image_path).convert("RGB")
     original_width, original_height = img.size
 
-    # Calculate the new size, padding up to the nearest multiple of 8
+    # Pad the image to be divisible by 8
     target_width = math.ceil(original_width / 8) * 8
     target_height = math.ceil(original_height / 8) * 8
 
-    # Create a new black image canvas and paste the original image onto it
     canvas = Image.new("RGB", (target_width, target_height), (0, 0, 0))
     canvas.paste(img, (0, 0))
 
-    # Continue with standard preprocessing on the padded image (canvas)
     img_array = np.array(canvas).astype(target_dtype)
-    img_array = (img_array / 127.5) - 1.0  # Normalize from [0, 255] to [-1, 1]
-    img_array = img_array.transpose(2, 0, 1) # HWC to CHW
-    img_array = np.expand_dims(img_array, 0) # Add batch dimension
+    img_array = (img_array / 127.5) - 1.0
+    img_array = img_array.transpose(2, 0, 1)
+    return np.expand_dims(img_array, 0)
 
-    return img_array, (original_width, original_height)
-
-def postprocess_image(image_tensor: np.ndarray, original_size: Tuple[int, int]) -> Image.Image:
-    """Denormalize, transpose, convert to PIL Image, and crop to original size."""
+def postprocess_image(image_tensor: np.ndarray) -> Image.Image:
+    """Denormalize, transpose, and convert the full tensor back to a PIL Image."""
     img = image_tensor[0]
-    img = (img + 1.0) * 127.5 # Denormalize
+    img = (img + 1.0) * 127.5
     img = np.clip(img, 0, 255)
-    img = img.transpose(1, 2, 0) # CHW to HWC
-    reconstructed_image = Image.fromarray(img.astype(np.uint8))
-
-    # Crop the image back to its original size to remove the padding
-    original_width, original_height = original_size
-    cropped_image = reconstructed_image.crop((0, 0, original_width, original_height))
-
-    return cropped_image
+    img = img.transpose(1, 2, 0)
+    return Image.fromarray(img.astype(np.uint8))
 
 
 # --- Main Execution ---
@@ -454,16 +443,16 @@ if __name__ == '__main__':
         print("Saved decoder model to decoder.onnx")
 
         # --- Run Inference ---
-        print("\n--- Running Inference ---")
+        print("\n--- Running Inference on GPU ---")
         target_dtype = np.float32 if config.get("force_upcast", False) else np.float16
-
-        print("Loading ONNX models into inference sessions...")
-        encoder_sess = onnxruntime.InferenceSession("encoder.onnx")
-        decoder_sess = onnxruntime.InferenceSession("decoder.onnx")
+        
+        print("Loading ONNX models into inference sessions with CUDA provider...")
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        encoder_sess = onnxruntime.InferenceSession("encoder.onnx", providers=providers)
+        decoder_sess = onnxruntime.InferenceSession("decoder.onnx", providers=providers)
 
         print(f"Loading and preprocessing image: {TEST_IMAGE_PATH}")
-        # Capture both the processed image and its original size
-        image_np, original_size = preprocess_image(TEST_IMAGE_PATH, target_dtype)
+        image_np = preprocess_image(TEST_IMAGE_PATH, target_dtype)
 
         print("Encoding image into latent space...")
         encoder_inputs = {encoder_sess.get_inputs()[0].name: image_np}
@@ -473,16 +462,17 @@ if __name__ == '__main__':
         mean, logvar = np.split(latent_dist_result, 2, axis=1)
         std = np.exp(0.5 * logvar)
         epsilon = np.random.randn(*mean.shape).astype(mean.dtype)
-        latents = mean + std * epsilon
-        latents = latents * config["scaling_factor"]
-
+        latents_sampled = mean + std * epsilon
+        
+        # CORRECT: Scale latents DOWN by the scaling factor before decoding
+        latents_for_decoder = latents_sampled / config["scaling_factor"]
+        
         print("Decoding latents back into an image...")
-        decoder_inputs = {decoder_sess.get_inputs()[0].name: latents}
+        decoder_inputs = {decoder_sess.get_inputs()[0].name: latents_for_decoder}
         reconstructed_image_np = decoder_sess.run(None, decoder_inputs)[0]
 
         print("Postprocessing and saving the output image...")
-        # Pass the original size to the postprocessing function
-        final_image = postprocess_image(reconstructed_image_np, original_size)
+        final_image = postprocess_image(reconstructed_image_np)
         final_image.save("test_out.png")
         print("\nSuccessfully saved reconstructed image to test_out.png")
 
@@ -496,4 +486,11 @@ if __name__ == '__main__':
         print(f"and the weights in the .safetensors file.", file=sys.stderr)
         print(f"\nDETAILS: Missing Key -> {e}\n", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+        if "CUDAExecutionProvider" in str(e):
+             print("\n--- ONNX RUNTIME GPU ERROR ---", file=sys.stderr)
+             print("Could not initialize the CUDAExecutionProvider. This usually means:", file=sys.stderr)
+             print("1. You have not installed the 'onnxruntime-gpu' package.", file=sys.stderr)
+             print("2. Your NVIDIA drivers or CUDA Toolkit are missing or incompatible.", file=sys.stderr)
+             print("Please run 'pip install onnxruntime-gpu' and ensure your GPU environment is set up correctly.", file=sys.stderr)
+        else:
+             print(f"An unexpected error occurred: {e}", file=sys.stderr)

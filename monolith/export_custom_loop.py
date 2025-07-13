@@ -62,15 +62,10 @@ def onnx_row_sum_loop(input_tensor: OnnxFunction):
         name='const_zero', data_type=onnx.TensorProto.INT64, dims=[], vals=[0]))
     trip_count = op.Gather(shape, gather_index)
     
-    # FIX: Create an explicitly typed, empty sequence for `v_initial`.
-    # This resolves the type inference error permanently. The dtype should
-    # match the scan output's type (`row_sum`, which is a float).
-    empty_loop_state = op.SequenceEmpty(dtype=onnx.TensorProto.FLOAT)
-    
-    # FIX: Call the Loop with the typed empty sequence.
-    # With no loop-carried dependencies, the Loop has a single output: the scan output.
+    # FIX: For loops with no loop-carried dependencies, we don't need v_initial
+    # The Loop operator will only output scan outputs in this case
     scan_output_sums = op.Loop(
-        trip_count, None, empty_loop_state,
+        trip_count, None,
         body=row_sum_loop_body, new_inputs=[input_tensor])
 
     final_output = op.Unsqueeze(scan_output_sums, axes=[1])
@@ -89,33 +84,40 @@ if __name__ == "__main__":
 
     print("--- Starting ONNX Export with Dynamo, Dynamic Shapes, and Reporting ---")
     
+    # Get the custom operator reference using getattr to avoid linter issues
+    custom_op = getattr(torch.ops.mylibrary.row_sum_loop, 'default')
+    
     onnx_program = torch.onnx.export(
         model,
         (dummy_input,),
         dynamo=True,
         opset_version=20,
         custom_translation_table={
-            torch.ops.mylibrary.row_sum_loop.default: onnx_row_sum_loop,
+            custom_op: onnx_row_sum_loop,
         },
         dynamic_shapes=dynamic_shapes,
         report=True,
     )
 
-    print("\n--- ONNX Export Successful ---")
-    print("Export report has been saved to the current directory.")
+    if onnx_program is not None:
+        print("\n--- ONNX Export Successful ---")
+        print("Export report has been saved to the current directory.")
 
-    print("\n--- ONNX Model Graph (with dynamic axes) ---")
-    print(onnx_program.model)
+        print("\n--- ONNX Model Graph (with dynamic axes) ---")
+        print(onnx_program.model)
 
-    # --- Verification ---
-    print("\n--- Verifying Outputs ---")
-    
-    pytorch_output = model(dummy_input)
-    print(f"Input Tensor (shape {dummy_input.shape}):\n{dummy_input}")
-    print(f"\nPyTorch Model Output:\n{pytorch_output}")
+        # --- Verification ---
+        print("\n--- Verifying Outputs ---")
+        
+        pytorch_output = model(dummy_input)
+        print(f"Input Tensor (shape {dummy_input.shape}):\n{dummy_input}")
+        print(f"\nPyTorch Model Output:\n{pytorch_output}")
 
-    onnx_output = onnx_program(dummy_input)[0]
-    print(f"\nONNX Model Output:\n{onnx_output}")
+        onnx_output = onnx_program(dummy_input)[0]
+        print(f"\nONNX Model Output:\n{onnx_output}")
 
-    torch.testing.assert_close(pytorch_output, onnx_output)
-    print("\n✅ Verification successful: The outputs of the PyTorch and ONNX models are identical.")
+        torch.testing.assert_close(pytorch_output, onnx_output)
+        print("\n✅ Verification successful: The outputs of the PyTorch and ONNX models are identical.")
+    else:
+        print("\n--- ONNX Export Failed ---")
+        print("onnx_program is None. Check the export process.")

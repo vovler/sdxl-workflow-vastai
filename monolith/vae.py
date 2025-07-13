@@ -439,7 +439,7 @@ class AutoEncoderKL(nn.Module):
                 j = col_idx * overlap_size
                 
                 # Decode tile using roll and slice to avoid dynamic slicing
-                rolled_latent = torch.roll(latent, shifts=(-int(i), -int(j)), dims=(2, 3))
+                rolled_latent = torch.roll(latent, shifts=(-i, -j), dims=(2, 3))
                 tile_latent = rolled_latent[:, :, :self.tile_latent_min_size, :self.tile_latent_min_size]
 
                 decoded_tile = self.decoder(self.post_quant_conv(tile_latent))
@@ -474,7 +474,7 @@ class AutoEncoderKL(nn.Module):
                 # Create a canvas for the new tile and roll it into position
                 tile_canvas = torch.zeros_like(updated_stitched_row)
                 tile_canvas[..., :slice_width] = selected_tile[..., :slice_width]
-                rolled_tile = torch.roll(tile_canvas, shifts=int(start_w), dims=3)
+                rolled_tile = torch.roll(tile_canvas, shifts=start_w, dims=3)
 
                 # Create a mask for the update area and apply using torch.where
                 mask_coords = torch.arange(stitched_row.shape[-1], device=stitched_row.device).view(1, 1, 1, -1)
@@ -517,7 +517,7 @@ class AutoEncoderKL(nn.Module):
             # Create a canvas for the new row and roll it into position
             row_canvas = torch.zeros_like(updated_final_image)
             row_canvas[..., :slice_height, :] = selected_row[..., :slice_height, :]
-            rolled_row = torch.roll(row_canvas, shifts=int(start_h), dims=2)
+            rolled_row = torch.roll(row_canvas, shifts=start_h, dims=2)
 
             # Create a mask for the update area and apply using torch.where
             mask_coords_h = torch.arange(current_final_image.shape[-2], device=current_final_image.device).view(1, 1, -1, 1)

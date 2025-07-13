@@ -6,7 +6,7 @@ from PIL import Image
 import math
 
 # --- Configuration ---
-VAE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
+VAE_PATH = "madebyollin/sdxl-vae-fp16-fix"
 ENCODER_PATH = "encoder.onnx"
 TEST_IMAGE_PATH = "test.png"
 OUTPUT_IMAGE_PATH = "testOnnxDiffusers.png"
@@ -42,7 +42,8 @@ if __name__ == '__main__':
     encoder_sess = onnxruntime.InferenceSession(ENCODER_PATH, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
     
     print(f"Loading Diffusers VAE from {VAE_PATH}...")
-    vae = AutoencoderKL.from_single_file(VAE_PATH, torch_dtype=dtype).to(device)
+    vae = AutoencoderKL.from_pretrained(VAE_PATH, torch_dtype=torch.float16).to(device)
+    
 
     # Preprocess image for ONNX
     print(f"Loading and preprocessing {TEST_IMAGE_PATH}...")

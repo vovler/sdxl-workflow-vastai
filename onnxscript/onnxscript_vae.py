@@ -55,7 +55,17 @@ def spox_silu(x: spox.Var) -> spox.Var:
 def spox_group_norm(
     x: spox.Var, weight: spox.Var, bias: spox.Var, num_groups: int, epsilon: float = 1e-6
 ) -> spox.Var:
-    return op.group_normalization(x, weight, bias, num_groups=num_groups, epsilon=epsilon)
+    # Get the shape of the input tensor before the operation
+    original_shape = op.shape(x)
+
+    # Perform the group normalization
+    normalized_x = op.group_normalization(x, weight, bias, num_groups=num_groups, epsilon=epsilon)
+
+    # Explicitly reshape the output to match the original input shape.
+    # This is a no-op at runtime but provides the necessary shape info to the builder.
+    return op.reshape(normalized_x, original_shape)
+
+
 
 def spox_conv_2d(
     x: spox.Var, weight: spox.Var, bias: spox.Var, stride: int = 1, padding: int = 0

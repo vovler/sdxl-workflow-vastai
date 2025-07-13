@@ -16,61 +16,51 @@ class IterativeDenoisingModel(nn.Module):
     def __init__(self, max_iterations=5):
         super().__init__()
         self.denoising_filter = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False)
-        # Ensure the max_iterations is a tensor for graph compatibility
         self.max_iterations = torch.tensor(max_iterations, dtype=torch.int64)
 
         # Initialize weights for demonstration
         torch.nn.init.xavier_uniform_(self.denoising_filter.weight)
 
+    # The input argument here is named 'x'
     def forward(self, x):
-        # Initial loop variables: (iteration_count, image_tensor)
-        # Explicitly set the dtype for the iteration counter
         initial_loop_vars = (torch.tensor(0, dtype=torch.int64), x)
 
         def cond(iter_count, image):
-            # Loop until the maximum number of iterations is reached
             return iter_count < self.max_iterations
 
         def body(iter_count, image):
-            # Apply the denoising filter
             denoised_image = self.denoising_filter(image)
-            # Increment the iteration counter
             return iter_count + 1, denoised_image
 
-        # Execute the while loop
         _, final_image = torch.while_loop(cond, body, initial_loop_vars)
         
-        # CRITICAL FIX for dynamo: Return the output as a tuple
         return (final_image,)
 
 # --- 2. Instantiate the Model ---
 
 model = IterativeDenoisingModel(max_iterations=5)
-model.eval() # Set model to evaluation mode
+model.eval()
 
 # --- 3. Export the Model to ONNX with Dynamic Shapes using Dynamo ---
 
 print("--- Exporting to ONNX with Dynamic Shapes using Dynamo ---")
 onnx_file_path = "iterative_denoising_model_dynamic.onnx"
+
+# The name for the ONNX graph's input node will be 'input'
 input_names = ["input"]
 output_names = ["output"]
 
-# --- THE MODERN DYNAMIC SHAPES APPROACH ---
-# 1. Create symbolic dimension objects for each dynamic dimension.
+# --- DYNAMIC SHAPES SETUP ---
 batch = Dim("batch_size")
 height = Dim("height")
 width = Dim("width")
 
-# 2. Define the dynamic shapes for inputs.
-#    This replaces the 'dynamic_axes' dictionary.
+# CRITICAL FIX: The key 'x' must match the forward() argument name.
 dynamic_shapes = {
-    "input": {0: batch, 2: height, 3: width},
+    "x": {0: batch, 2: height, 3: width},
 }
 
-# 3. Use these dynamic dimensions when creating the dummy input.
-#    The actual values (e.g., 1, 32, 32) are placeholders for tracing.
 dummy_input = torch.randn(1, 3, 32, 32)
-
 
 torch.onnx.export(
     model,
@@ -80,7 +70,6 @@ torch.onnx.export(
     output_names=output_names,
     opset_version=20,
     dynamo=True,
-    # Use the new 'dynamic_shapes' argument
     dynamic_shapes=dynamic_shapes
 )
 
@@ -94,28 +83,32 @@ print("-" * 45 + "\n")
 print("--- Verifying the Dynamic ONNX Model ---")
 
 try:
-    # Create an ONNX Runtime inference session
     ort_session = onnxruntime.InferenceSession(onnx_file_path)
     print("ONNX Runtime session created successfully.")
 
-    # --- Test Case 1: Input with shape (1, 3, 64, 64) ---
+    # Get the actual input name from the loaded ONNX model
+    onnx_input_name = ort_session.get_inputs()[0].name
+    print(f"ONNX model input name: {onnx_input_name}")
+    assert onnx_input_name == "input"
+
+    # --- Test Case 1 ---
     print("\n--- Test Case 1 ---")
     input_data_1 = np.random.randn(1, 3, 64, 64).astype(np.float32)
     print(f"Input shape: {input_data_1.shape}")
 
-    ort_inputs_1 = {ort_session.get_inputs()[0].name: input_data_1}
+    ort_inputs_1 = {onnx_input_name: input_data_1}
     ort_outs_1 = ort_session.run(None, ort_inputs_1)
     output_tensor_1 = ort_outs_1[0]
     print(f"Output shape: {output_tensor_1.shape}")
     assert input_data_1.shape == output_tensor_1.shape
     print("Shape check passed.")
 
-    # --- Test Case 2: Input with a different shape (2, 3, 48, 48) ---
+    # --- Test Case 2 ---
     print("\n--- Test Case 2 ---")
     input_data_2 = np.random.randn(2, 3, 48, 48).astype(np.float32)
     print(f"Input shape: {input_data_2.shape}")
 
-    ort_inputs_2 = {ort_session.get_inputs()[0].name: input_data_2}
+    ort_inputs_2 = {onnx_input_name: input_data_2}
     ort_outs_2 = ort_session.run(None, ort_inputs_2)
     output_tensor_2 = ort_outs_2[0]
     print(f"Output shape: {output_tensor_2.shape}")

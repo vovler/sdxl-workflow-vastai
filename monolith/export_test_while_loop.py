@@ -4,8 +4,6 @@ import onnx
 import onnxruntime
 import numpy as np
 import os
-import torch._dynamo as dynamo
-import sys
 
 # --- 1. Define the PyTorch Model using torch.while_loop ---
 
@@ -17,14 +15,15 @@ class IterativeDenoisingModel(nn.Module):
     def __init__(self, max_iterations=5):
         super().__init__()
         self.denoising_filter = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, padding=1, bias=False)
-        self.max_iterations = torch.tensor(max_iterations)
+        self.max_iterations = torch.tensor(max_iterations, dtype=torch.int64)
 
         # Initialize weights for demonstration
         torch.nn.init.xavier_uniform_(self.denoising_filter.weight)
 
     def forward(self, x):
         # Initial loop variables: (iteration_count, image_tensor)
-        initial_loop_vars = (torch.tensor(0), x)
+        # Ensure the iteration count is a tensor
+        initial_loop_vars = (torch.tensor(0, dtype=torch.int64), x)
 
         def cond(iter_count, image):
             # Loop until the maximum number of iterations is reached
@@ -37,7 +36,7 @@ class IterativeDenoisingModel(nn.Module):
             return iter_count + 1, denoised_image
 
         # Execute the while loop
-        final_iter_count, final_image = torch.while_loop(cond, body, initial_loop_vars)
+        _, final_image = torch.while_loop(cond, body, initial_loop_vars)
         return final_image
 
 # --- 2. Instantiate the Model ---
@@ -45,7 +44,7 @@ class IterativeDenoisingModel(nn.Module):
 model = IterativeDenoisingModel(max_iterations=5)
 model.eval() # Set model to evaluation mode
 
-# --- 3. Export the Model to ONNX with Dynamic Shapes ---
+# --- 3. Export the Model to ONNX with Dynamic Shapes using Dynamo ---
 
 print("--- Exporting to ONNX with Dynamic Shapes using Dynamo ---")
 onnx_file_path = "iterative_denoising_model_dynamic.onnx"
@@ -55,32 +54,25 @@ output_names = ["output"]
 # Define a dummy input for tracing
 dummy_input = torch.randn(1, 3, 32, 32)
 
-# With Dynamo, dynamic axes are usually detected automatically.
-# We no longer need to specify `dynamic_axes` manually.
+# Define the dynamic axes. Here, we mark the batch size, height, and width as dynamic.
+dynamic_axes = {
+    input_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'},
+    output_names[0]: {0: 'batch_size', 2: 'height', 3: 'width'}
+}
 
-try:
-    dynamo.config.capture_scalar_outputs = True
-    torch.onnx.export(
-        model,
-        (dummy_input,),
-        onnx_file_path,
-        input_names=input_names,
-        output_names=output_names,
-        opset_version=20, # The Loop operator is well-supported in recent opsets
-        dynamo=True
-    )
-    print(f"Model successfully exported to {onnx_file_path}")
-    print("You can inspect the model with Netron to see the Loop operator.")
+torch.onnx.export(
+    model,
+    (dummy_input,),
+    onnx_file_path,
+    input_names=input_names,
+    output_names=output_names,
+    opset_version=20,
+    dynamo=True,
+    dynamic_axes=dynamic_axes
+)
 
-except Exception as e:
-    print(f"✗ ONNX export with Dynamo failed: {e}")
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-finally:
-    dynamo.config.capture_scalar_outputs = False
-
-
+print(f"Model successfully exported to {onnx_file_path}")
+print("You can inspect the model with Netron to see the Loop operator.")
 print("-" * 45 + "\n")
 
 

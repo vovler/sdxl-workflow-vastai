@@ -328,78 +328,33 @@ class AutoEncoderKL(nn.Module):
         self.enable_tiling(False)
 
     def blend_h(self, a, b, blend_extent):
-        blend_extent = min(a.shape[3], b.shape[3], blend_extent)
+        blend_amount = min(a.shape[3], b.shape[3], blend_extent)
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent)
         
         a_fp32 = a.to(torch.float32)
         b_fp32 = b.to(torch.float32)
 
-        slice_a = a_fp32[:, :, :, -blend_extent:]
-        slice_b = b_fp32[:, :, :, :blend_extent]
+        slice_a = a_fp32[:, :, :, -blend_amount:]
+        slice_b = b_fp32[:, :, :, :blend_amount]
         
-        b_fp32[:, :, :, :blend_extent] = slice_a * (1.0 - ramp) + slice_b * ramp
+        b_fp32[:, :, :, :blend_amount] = slice_a * (1.0 - ramp[:,:,:,-blend_amount:]) + slice_b * ramp[:,:,:,-blend_amount:]
         
         return b_fp32.to(a.dtype)
 
     def blend_v(self, a, b, blend_extent):
-        blend_extent = min(a.shape[2], b.shape[2], blend_extent)
+        blend_amount = min(a.shape[2], b.shape[2], blend_extent)
         ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, blend_extent, 1)
         
         a_fp32 = a.to(torch.float32)
         b_fp32 = b.to(torch.float32)
 
-        slice_a = a_fp32[:, :, -blend_extent:, :]
-        slice_b = b_fp32[:, :, :blend_extent, :]
+        slice_a = a_fp32[:, :, -blend_amount:, :]
+        slice_b = b_fp32[:, :, :blend_amount, :]
         
-        b_fp32[:, :, :blend_extent, :] = slice_a * (1.0 - ramp) + slice_b * ramp
-        
-        return b_fp32.to(a.dtype)
-
-    def _blend_h(self, a, b, blend_extent):
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, 1, blend_extent)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[..., -blend_extent:]
-        slice_b = b_fp32[..., :blend_extent]
-        
-        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
-
-        b_fp32[..., :blend_extent] = blended_slice
-        
-        return b_fp32.to(a.dtype)
-    
-    def _blend_v(self, a, b, blend_extent):
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent, 1)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[..., -blend_extent:, :]
-        slice_b = b_fp32[..., :blend_extent, :]
-
-        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
-        
-        b_fp32[..., :blend_extent, :] = blended_slice
+        b_fp32[:, :, :blend_amount, :] = slice_a * (1.0 - ramp[:,:,-blend_amount:,:]) + slice_b * ramp[:,:,-blend_amount:,:]
         
         return b_fp32.to(a.dtype)
 
-    
-    def encode(self, x):
-        h = self.encoder(x)
-        moments = self.quant_conv(h)
-        return DiagonalGaussianDistribution(moments)
-
-    
-    def decode(self, z):
-        if self.tile_decode:
-            return self.tiled_decode(z)
-
-        z = self.post_quant_conv(z)
-        return self.decoder(z)
-
-   
     def tiled_decode(self, z: torch.Tensor) -> torch.Tensor:
         r"""
         Decode a batch of images using a tiled decoder.
@@ -458,6 +413,19 @@ class AutoEncoderKL(nn.Module):
             return torch.zeros(z.shape[0], self.config["out_channels"], 0, 0, device=z.device, dtype=z.dtype)
 
         return torch.cat(final_image_cat, dim=-2)
+
+    def encode(self, x):
+        h = self.encoder(x)
+        moments = self.quant_conv(h)
+        return DiagonalGaussianDistribution(moments)
+
+    
+    def decode(self, z):
+        if self.tile_decode:
+            return self.tiled_decode(z)
+
+        z = self.post_quant_conv(z)
+        return self.decoder(z)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)

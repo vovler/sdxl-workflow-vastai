@@ -289,7 +289,7 @@ def spox_diagonal_gaussian_distribution_sample(parameters: spox.Var, target_dtyp
     logvar = op.clip(logvar, min=to_const(np.array(-30.0, dtype=target_dtype)), max=to_const(np.array(20.0, dtype=target_dtype)))
     std = op.exp(op.mul(logvar, to_const(np.array(0.5, dtype=target_dtype))))
     shape = op.shape(std)
-    epsilon = op.random_normal(shape=shape, dtype=target_dtype, mean=0.0, scale=1.0)
+    epsilon = op.random_normal_like(std, dtype=target_dtype, mean=0.0, scale=1.0)
     return op.add(mean, op.mul(std, epsilon))
 
 def spox_diagonal_gaussian_distribution_mode(parameters: spox.Var) -> spox.Var:

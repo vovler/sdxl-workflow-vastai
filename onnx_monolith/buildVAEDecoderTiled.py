@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
         # Build and save the encoder
         print(f"\nBuilding tiled decoder...")
-        encoder_proto = spoxVAE.build_tiled_decoder_onnx_model(state_dict, config)
+        encoder_proto = spoxVAE.build_tiled_decoder_onnx_model_with_loop(state_dict, config)
         with open(DECODER_OUTPUT_PATH, "wb") as f:
             f.write(encoder_proto.SerializeToString())
         print(f"Saved encoder model to {DECODER_OUTPUT_PATH}")

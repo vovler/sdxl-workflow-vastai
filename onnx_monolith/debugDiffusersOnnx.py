@@ -6,7 +6,7 @@ from PIL import Image
 import math
 
 # --- Configuration ---
-VAE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
+VAE_PATH = "madebyollin/sdxl-vae-fp16-fix"
 DECODER_PATH = "decoder.onnx"
 TEST_IMAGE_PATH = "test.png"
 OUTPUT_IMAGE_PATH = "testDiffusersOnnx.png"

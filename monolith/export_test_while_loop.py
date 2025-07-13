@@ -27,7 +27,7 @@ def loop_op(x: torch.Tensor, loop_iterations: torch.Tensor, weight: torch.Tensor
 # The 'meta' implementation (also called a 'fake' implementation) tells PyTorch
 # what the properties (e.g., shape, dtype) of the output tensor will be.
 # This allows `torch.export` to trace the model without actually running the operator.
-@impl(loop_op, "meta")
+@impl("mylibrary::loop_op", "meta")
 def loop_op_meta(x, loop_iterations, weight):
     # The shape of 'x' does not change inside the loop, so the output shape is the same as the input.
     return torch.empty_like(x)

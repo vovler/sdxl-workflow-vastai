@@ -1,8 +1,7 @@
 import torch
 import onnxscript
 from onnxscript import script
-from onnxscript.values import Opset, OnnxFunction
-from onnxscript import opset20 as op
+from onnxscript.values import Opset
 from torch.export import Dim
 import onnx
 
@@ -31,7 +30,7 @@ class RowSumModel(torch.nn.Module):
 
 
 # --- Step 3: Define the ONNX Loop Body using onnxscript ---
-#op = Opset('', 20)
+op = Opset('', 20)
 
 # FIX: The body signature for ONNX Loop with no loop-carried dependencies
 # takes iteration_num, condition, and then the new_inputs
@@ -53,7 +52,7 @@ def row_sum_loop_body(iteration_num, condition_in, input_tensor):
 
 
 # --- Step 4: Implement the Custom ONNX Translation Function ---
-def onnx_row_sum_loop(input_tensor: OnnxFunction):
+def onnx_row_sum_loop(input_tensor):
     """
     This function provides the custom ONNX implementation for our PyTorch op.
     """

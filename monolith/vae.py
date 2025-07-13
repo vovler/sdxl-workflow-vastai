@@ -7,7 +7,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch._higher_order_ops.while_loop import while_loop
 
 class DiagonalGaussianDistribution:
     def __init__(self, parameters):
@@ -313,78 +312,6 @@ class AutoEncoderKL(nn.Module):
             self.post_quant_conv = nn.Conv2d(config["latent_channels"], config["latent_channels"], 1)
         else:
             self.post_quant_conv = nn.Identity()
-
-        self.tile_decode = False
-        self.tile_sample_min_size = config.get("sample_size", 512)
-        self.tile_overlap_factor = config.get("tile_overlap_factor", 0.25)
-        self.scale_factor = 2 ** (len(config["block_out_channels"]) - 1)
-        self.tile_latent_min_size = self.tile_sample_min_size // self.scale_factor
-
-
-    def enable_tiling(self, use_tiling=True):
-        self.tile_decode = use_tiling
-
-    def disable_tiling(self):
-        self.enable_tiling(False)
-
-    def blend_h(self, a, b, blend_extent):
-        blend_extent = min(a.shape[3], b.shape[3], blend_extent)
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[:, :, :, -blend_extent:]
-        slice_b = b_fp32[:, :, :, :blend_extent]
-        
-        b_fp32[:, :, :, :blend_extent] = slice_a * (1.0 - ramp) + slice_b * ramp
-        
-        return b_fp32.to(a.dtype)
-
-    def blend_v(self, a, b, blend_extent):
-        blend_extent = min(a.shape[2], b.shape[2], blend_extent)
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, blend_extent, 1)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[:, :, -blend_extent:, :]
-        slice_b = b_fp32[:, :, :blend_extent, :]
-        
-        b_fp32[:, :, :blend_extent, :] = slice_a * (1.0 - ramp) + slice_b * ramp
-        
-        return b_fp32.to(a.dtype)
-
-    def _blend_h(self, a, b, blend_extent):
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, 1, blend_extent)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[..., -blend_extent:]
-        slice_b = b_fp32[..., :blend_extent]
-        
-        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
-
-        b_fp32[..., :blend_extent] = blended_slice
-        
-        return b_fp32.to(a.dtype)
-    
-    def _blend_v(self, a, b, blend_extent):
-        ramp = torch.linspace(0.0, 1.0, blend_extent, device=a.device, dtype=torch.float32).view(1, 1, 1, blend_extent, 1)
-        
-        a_fp32 = a.to(torch.float32)
-        b_fp32 = b.to(torch.float32)
-
-        slice_a = a_fp32[..., -blend_extent:, :]
-        slice_b = b_fp32[..., :blend_extent, :]
-
-        blended_slice = slice_a * (1.0 - ramp) + slice_b * ramp
-        
-        b_fp32[..., :blend_extent, :] = blended_slice
-        
-        return b_fp32.to(a.dtype)
-
     
     def encode(self, x):
         h = self.encoder(x)
@@ -399,53 +326,6 @@ class AutoEncoderKL(nn.Module):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
-   
-    def tiled_decode(self, latent):
-        r"""
-        Decode a batch of images using a tiled decoder.
-        """
-        overlap_size = int(self.tile_latent_min_size * (1.0 - self.tile_overlap_factor))
-        blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
-        row_limit = self.tile_sample_min_size - blend_extent
-
-        h_steps = list(range(0, latent.shape[2], overlap_size))
-        w_steps = list(range(0, latent.shape[3], overlap_size))
-
-        output_rows = []
-        prev_row_tiles = None
-
-        for i in h_steps:
-            decoded_row_tiles = []
-            for j in w_steps:
-                tile_latent = latent[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
-                decoded_tile = self.decoder(self.post_quant_conv(tile_latent))
-                decoded_row_tiles.append(decoded_tile)
-            
-            if prev_row_tiles is not None:
-                for j in range(len(w_steps)):
-                    decoded_row_tiles[j] = self.blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
-
-            stitched_row_tiles = []
-            for j in range(len(w_steps)):
-                tile = decoded_row_tiles[j]
-                if j > 0:
-                    tile = self.blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
-                
-                is_last_col = (j == len(w_steps) - 1)
-                slice_width = tile.shape[-1] if is_last_col else row_limit
-                stitched_row_tiles.append(tile[..., :slice_width])
-            
-            output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
-            prev_row_tiles = decoded_row_tiles
-
-        final_image_cat = []
-        for i in range(len(h_steps)):
-            row = output_rows[i]
-            is_last_row = (i == len(h_steps) - 1)
-            slice_height = row.shape[-2] if is_last_row else row_limit
-            final_image_cat.append(row[..., :slice_height, :])
-
-        return torch.cat(final_image_cat, dim=-2)
 
     def forward(self, sample, sample_posterior=False):
         posterior = self.encode(sample)
@@ -455,24 +335,3 @@ class AutoEncoderKL(nn.Module):
             z = posterior.mode()
         dec = self.decode(z)
         return dec
-
-    def test_export(self, x):
-        def case_1(x_):
-            return x_[0].sum()
-
-        def case_2(x_):
-            return x_[0].sum() + x_[1].sum()
-
-        def case_3(x_):
-            return x_[0].sum() + x_[1].sum() + x_[2].sum()
-
-        def other_cases(x_):
-            return x_.sum()
-
-        def else_2(x__):
-            return torch.cond(torch.tensor(x__.shape[0]) == 3, case_3, other_cases, (x__,))
-
-        def else_1(x_):
-            return torch.cond(torch.tensor(x_.shape[0]) == 2, case_2, else_2, (x_,))
-
-        return torch.cond(torch.tensor(x.shape[0]) == 1, case_1, else_1, (x,))

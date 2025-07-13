@@ -3,6 +3,10 @@ https://civitai.com/articles/16016/illustrious-prompt-guide-optimized-and-comple
 https://civitai.com/articles/16297/using-civitai-for-generation-and-my-personal-generation-guide-as-of-62925
 
 
+move to onnxscript
+find out how to restore int8 quantized state
+
+
 onnxslim --skip-fusion-patterns
 
 #### Deployment should use #####

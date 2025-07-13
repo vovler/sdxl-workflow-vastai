@@ -3,34 +3,27 @@ import spox.opset.ai.onnx.v21 as op
 import numpy as np
 from safetensors.numpy import load_file
 from typing import Dict, Any
-import onnx # Required for the onnx.ModelProto type hint
-
-# Model configuration
-config = {
-    "in_channels": 3,
-    "out_channels": 3,
-    "down_block_types": ["DownEncoderBlock2D", "DownEncoderBlock2D", "DownEncoderBlock2D", "DownEncoderBlock2D"],
-    "up_block_types": ["UpDecoderBlock2D", "UpDecoderBlock2D", "UpDecoderBlock2D", "UpDecoderBlock2D"],
-    "block_out_channels": [128, 256, 512, 512],
-    "layers_per_block": 2,
-    "norm_num_groups": 32,
-    "latent_channels": 4,
-    "mid_block_add_attention": True,
-    "use_quant_conv": True,
-    "use_post_quant_conv": True,
-}
+import onnx  # Required for the onnx.ModelProto type hint
+import json
+import sys
 
 # --- Parameter Loading Utilities ---
+
+def load_config_from_json(filepath: str) -> Dict[str, Any]:
+    """Loads the model's configuration from a JSON file."""
+    print(f"Loading configuration from: {filepath}")
+    with open(filepath, 'r') as f:
+        return json.load(f)
 
 def load_state_dict_from_safetensors(filepath: str) -> Dict[str, np.ndarray]:
     """Loads a state_dict from a .safetensors file."""
     print(f"Loading state dictionary from: {filepath}")
     return load_file(filepath)
 
-def load_and_create_spox_params(state_dict: Dict[str, np.ndarray]) -> Dict[str, Any]:
+def load_and_create_spox_params(state_dict: Dict[str, np.ndarray], target_dtype: np.dtype) -> Dict[str, Any]:
     """
     Converts a flat state_dict into a nested dictionary of Spox constant Vars,
-    ensuring all float tensors are cast to float16.
+    ensuring all float tensors are cast to the target data type.
     """
     spox_params = {}
     for key, value in state_dict.items():
@@ -44,15 +37,14 @@ def load_and_create_spox_params(state_dict: Dict[str, np.ndarray]) -> Dict[str, 
         
         last_part = parts[-1]
         
-        # --- FIX: Ensure all floating point weights are float16 ---
+        # FIX: Ensure all floating point weights are cast to the target dtype
         if np.issubdtype(value.dtype, np.floating):
-            value = value.astype(np.float16)
+            value = value.astype(target_dtype)
         
         current_level[last_part] = op.const(value)
     return spox_params
 
-
-# --- Spox Implementations of PyTorch Modules (Unchanged) ---
+# --- Spox Implementations of PyTorch Modules ---
 
 def to_const(arr: np.ndarray) -> spox.Var:
     return op.const(arr)
@@ -78,6 +70,8 @@ def spox_linear(x: spox.Var, weight: spox.Var, bias: spox.Var) -> spox.Var:
 
 def spox_resnet_block_2d(
     input_tensor: spox.Var,
+    in_channels: int,
+    out_channels: int,
     params: Dict[str, Any],
     norm_num_groups: int,
     param_path: str 
@@ -93,10 +87,11 @@ def spox_resnet_block_2d(
         act2_out = spox_silu(norm2_out)
         conv2_out = spox_conv_2d(act2_out, params["conv2"]["weight"], params["conv2"]["bias"], padding=1)
 
+        shortcut = input_tensor
         if "conv_shortcut" in params:
-            input_tensor = spox_conv_2d(input_tensor, params["conv_shortcut"]["weight"], params["conv_shortcut"]["bias"], padding=0, stride=1)
+            shortcut = spox_conv_2d(input_tensor, params["conv_shortcut"]["weight"], params["conv_shortcut"]["bias"], padding=0, stride=1)
         
-        return op.add(input_tensor, conv2_out)
+        return op.add(shortcut, conv2_out)
     except KeyError as e:
         raise KeyError(f"Missing parameter in ResNet Block at '{param_path}'. Required key: {e}") from e
 
@@ -105,7 +100,8 @@ def spox_attention_block(
     channels: int,
     params: Dict[str, Any],
     norm_num_groups: int,
-    param_path: str
+    param_path: str,
+    target_dtype: np.dtype
 ) -> spox.Var:
     try:
         residual = hidden_states
@@ -124,7 +120,7 @@ def spox_attention_block(
         k = spox_linear(transposed_norm, params["to_k"]["weight"], params["to_k"]["bias"])
         v = spox_linear(transposed_norm, params["to_v"]["weight"], params["to_v"]["bias"])
         
-        scale = to_const(np.array(channels**-0.5, dtype=np.float16))
+        scale = to_const(np.array(channels**-0.5, dtype=target_dtype))
         
         q = op.reshape(q, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0))
         k = op.reshape(k, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0))
@@ -149,17 +145,17 @@ def spox_attention_block(
     except KeyError as e:
         raise KeyError(f"Missing parameter in Attention Block at '{param_path}'. Required key: {e}") from e
 
-
 def spox_vae_mid_block(
     hidden_states: spox.Var,
     in_channels: int,
     params: Dict[str, Any],
     norm_num_groups: int,
-    param_path: str
+    param_path: str,
+    target_dtype: np.dtype
 ) -> spox.Var:
-    hidden_states = spox_resnet_block_2d(hidden_states, params["resnets"]["0"], norm_num_groups, f"{param_path}.resnets.0")
-    hidden_states = spox_attention_block(hidden_states, in_channels, params["attentions"]["0"], norm_num_groups, f"{param_path}.attentions.0")
-    hidden_states = spox_resnet_block_2d(hidden_states, params["resnets"]["1"], norm_num_groups, f"{param_path}.resnets.1")
+    hidden_states = spox_resnet_block_2d(hidden_states, in_channels, in_channels, params["resnets"]["0"], norm_num_groups, f"{param_path}.resnets.0")
+    hidden_states = spox_attention_block(hidden_states, in_channels, params["attentions"]["0"], norm_num_groups, f"{param_path}.attentions.0", target_dtype)
+    hidden_states = spox_resnet_block_2d(hidden_states, in_channels, in_channels, params["resnets"]["1"], norm_num_groups, f"{param_path}.resnets.1")
     return hidden_states
 
 def spox_downsample(
@@ -172,21 +168,27 @@ def spox_upsample(
     hidden_states: spox.Var,
     params: Dict[str, spox.Var],
 ) -> spox.Var:
-    scales = to_const(np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32))
+    scales = to_const(np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32)) # Resize scales are float
     hidden_states = op.resize(hidden_states, scales=scales, mode='nearest')
     hidden_states = spox_conv_2d(hidden_states, params["conv"]["weight"], params["conv"]["bias"], padding=1)
     return hidden_states
 
 def spox_down_encoder_block_2d(
     hidden_states: spox.Var,
+    in_channels: int,
+    out_channels: int,
+    num_layers: int,
     params: Dict[str, Any],
     add_downsample: bool,
     norm_num_groups: int,
     param_path: str,
 ) -> spox.Var:
-    num_layers = len(params["resnets"])
+    current_in_channels = in_channels
     for i in range(num_layers):
-        hidden_states = spox_resnet_block_2d(hidden_states, params["resnets"][str(i)], norm_num_groups, f"{param_path}.resnets.{i}")
+        hidden_states = spox_resnet_block_2d(
+            hidden_states, current_in_channels, out_channels, params["resnets"][str(i)], norm_num_groups, f"{param_path}.resnets.{i}"
+        )
+        current_in_channels = out_channels
 
     if add_downsample:
         hidden_states = spox_downsample(hidden_states, params["downsamplers"]["0"])
@@ -195,14 +197,20 @@ def spox_down_encoder_block_2d(
 
 def spox_up_decoder_block_2d(
     hidden_states: spox.Var,
+    in_channels: int,
+    out_channels: int,
+    num_layers: int,
     params: Dict[str, Any],
     add_upsample: bool,
     norm_num_groups: int,
     param_path: str,
 ) -> spox.Var:
-    num_layers = len(params["resnets"])
+    current_in_channels = in_channels
     for i in range(num_layers):
-        hidden_states = spox_resnet_block_2d(hidden_states, params["resnets"][str(i)], norm_num_groups, f"{param_path}.resnets.{i}")
+        hidden_states = spox_resnet_block_2d(
+            hidden_states, current_in_channels, out_channels, params["resnets"][str(i)], norm_num_groups, f"{param_path}.resnets.{i}"
+        )
+        current_in_channels = out_channels
 
     if add_upsample:
         hidden_states = spox_upsample(hidden_states, params["upsamplers"]["0"])
@@ -210,23 +218,30 @@ def spox_up_decoder_block_2d(
     return hidden_states
 
 def spox_encoder(
-    x: spox.Var, params: Dict[str, Any], config: Dict
+    x: spox.Var, params: Dict[str, Any], config: Dict, target_dtype: np.dtype
 ) -> spox.Var:
     try:
         x = spox_conv_2d(x, params["conv_in"]["weight"], params["conv_in"]["bias"], padding=1)
         
-        for i, down_block_type in enumerate(config["down_block_types"]):
+        in_channel = config["block_out_channels"][0]
+        for i, _ in enumerate(config["down_block_types"]):
+            out_channel = config["block_out_channels"][i]
             is_final_block = i == len(config["block_out_channels"]) - 1
+            
             x = spox_down_encoder_block_2d(
                 hidden_states=x,
+                in_channels=in_channel,
+                out_channels=out_channel,
+                num_layers=config["layers_per_block"],
                 params=params["down_blocks"][str(i)],
                 add_downsample=not is_final_block,
                 norm_num_groups=config["norm_num_groups"],
                 param_path=f"encoder.down_blocks.{i}"
             )
+            in_channel = out_channel
 
         if config.get("mid_block_add_attention", True):
-            x = spox_vae_mid_block(x, config["block_out_channels"][-1], params["mid_block"], config["norm_num_groups"], "encoder.mid_block")
+            x = spox_vae_mid_block(x, in_channel, params["mid_block"], config["norm_num_groups"], "encoder.mid_block", target_dtype)
         
         x = spox_group_norm(x, params["conv_norm_out"]["weight"], params["conv_norm_out"]["bias"], config["norm_num_groups"])
         x = spox_silu(x)
@@ -236,23 +251,31 @@ def spox_encoder(
         raise KeyError(f"Missing parameter in Encoder. Required key: {e}") from e
 
 def spox_decoder(
-    z: spox.Var, params: Dict[str, Any], config: Dict
+    z: spox.Var, params: Dict[str, Any], config: Dict, target_dtype: np.dtype
 ) -> spox.Var:
     try:
         z = spox_conv_2d(z, params["conv_in"]["weight"], params["conv_in"]["bias"], padding=1)
 
         if config.get("mid_block_add_attention", True):
-            z = spox_vae_mid_block(z, config["block_out_channels"][-1], params["mid_block"], config["norm_num_groups"], "decoder.mid_block")
+            z = spox_vae_mid_block(z, config["block_out_channels"][-1], params["mid_block"], config["norm_num_groups"], "decoder.mid_block", target_dtype)
 
-        for i, up_block_type in enumerate(config["up_block_types"]):
+        reversed_block_out_channels = list(reversed(config["block_out_channels"]))
+        in_channel = reversed_block_out_channels[0]
+        for i, _ in enumerate(config["up_block_types"]):
+            out_channel = reversed_block_out_channels[i]
             is_final_block = i == len(config["block_out_channels"]) - 1
+            
             z = spox_up_decoder_block_2d(
                 hidden_states=z,
+                in_channels=in_channel,
+                out_channels=out_channel,
+                num_layers=config["layers_per_block"] + 1,
                 params=params["up_blocks"][str(i)],
                 add_upsample=not is_final_block,
                 norm_num_groups=config["norm_num_groups"],
                 param_path=f"decoder.up_blocks.{i}"
             )
+            in_channel = out_channel
 
         z = spox_group_norm(z, params["conv_norm_out"]["weight"], params["conv_norm_out"]["bias"], config["norm_num_groups"])
         z = spox_silu(z)
@@ -261,12 +284,12 @@ def spox_decoder(
     except KeyError as e:
         raise KeyError(f"Missing parameter in Decoder. Required key: {e}") from e
 
-def spox_diagonal_gaussian_distribution_sample(parameters: spox.Var) -> spox.Var:
+def spox_diagonal_gaussian_distribution_sample(parameters: spox.Var, target_dtype: np.dtype) -> spox.Var:
     mean, logvar = op.split(parameters, num_outputs=2, axis=1)
-    logvar = op.clip(logvar, min=to_const(np.array(-30.0, dtype=np.float16)), max=to_const(np.array(20.0, dtype=np.float16)))
-    std = op.exp(op.mul(logvar, to_const(np.array(0.5, dtype=np.float16))))
+    logvar = op.clip(logvar, min=to_const(np.array(-30.0, dtype=target_dtype)), max=to_const(np.array(20.0, dtype=target_dtype)))
+    std = op.exp(op.mul(logvar, to_const(np.array(0.5, dtype=target_dtype))))
     shape = op.shape(std)
-    epsilon = op.random_normal(shape=shape, dtype=np.float16, mean=0.0, scale=1.0)
+    epsilon = op.random_normal(shape=shape, dtype=target_dtype, mean=0.0, scale=1.0)
     return op.add(mean, op.mul(std, epsilon))
 
 def spox_diagonal_gaussian_distribution_mode(parameters: spox.Var) -> spox.Var:
@@ -277,10 +300,11 @@ def spox_autoencoder_kl_forward(
     sample: spox.Var,
     sample_posterior: spox.Var,
     params: Dict[str, Any],
-    config: Dict
+    config: Dict,
+    target_dtype: np.dtype
 ) -> spox.Var:
     try:
-        h = spox_encoder(sample, params["encoder"], config)
+        h = spox_encoder(sample, params["encoder"], config, target_dtype)
         
         if config.get("use_quant_conv", True):
             moments = spox_conv_2d(h, params["quant_conv"]["weight"], params["quant_conv"]["bias"], padding=0)
@@ -289,27 +313,31 @@ def spox_autoencoder_kl_forward(
         
         (z,) = op.if_(
             sample_posterior,
-            then_branch=lambda: [spox_diagonal_gaussian_distribution_sample(moments)],
+            then_branch=lambda: [spox_diagonal_gaussian_distribution_sample(moments, target_dtype)],
             else_branch=lambda: [spox_diagonal_gaussian_distribution_mode(moments)]
         )
         
         if config.get("use_post_quant_conv", True):
             z = spox_conv_2d(z, params["post_quant_conv"]["weight"], params["post_quant_conv"]["bias"], padding=0)
         
-        dec = spox_decoder(z, params["decoder"], config)
+        dec = spox_decoder(z, params["decoder"], config, target_dtype)
         return dec
     except KeyError as e:
         raise KeyError(f"Missing parameter at top level. Required key: {e}") from e
 
-
 # --- Main Build Function ---
 
 def build_autoencoder_kl_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) -> onnx.ModelProto:
+    # Determine the target data type based on the config
+    force_upcast = config.get("force_upcast", False)
+    target_dtype = np.float32 if force_upcast else np.float16
+    print(f"Building model with target data type: {target_dtype.__name__}")
+
     print("Loading parameters into Spox constants...")
-    spox_params = load_and_create_spox_params(state_dict)
+    spox_params = load_and_create_spox_params(state_dict, target_dtype)
     
     print("Defining model inputs and building graph...")
-    sample_type = spox.Tensor(np.float16, ('batch_size', config["in_channels"], 'height', 'width'))
+    sample_type = spox.Tensor(target_dtype, ('batch_size', config["in_channels"], 'height', 'width'))
     sample_arg = spox.argument(sample_type)
     
     sample_posterior_type = spox.Tensor(np.bool_, ())
@@ -320,6 +348,7 @@ def build_autoencoder_kl_onnx_model(state_dict: Dict[str, np.ndarray], config: D
         sample_posterior=sample_posterior_arg,
         params=spox_params,
         config=config,
+        target_dtype=target_dtype,
     )
     
     onnx_model = spox.build(
@@ -334,8 +363,10 @@ def build_autoencoder_kl_onnx_model(state_dict: Dict[str, np.ndarray], config: D
 
 if __name__ == '__main__':
     SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
+    CONFIG_FILE_PATH = "/lab/model/vae/config.json"
 
     try:
+        config = load_config_from_json(CONFIG_FILE_PATH)
         state_dict = load_state_dict_from_safetensors(SAFETENSORS_FILE_PATH)
         model_proto = build_autoencoder_kl_onnx_model(state_dict, config)
         
@@ -344,14 +375,14 @@ if __name__ == '__main__':
             f.write(model_proto.SerializeToString())
         print(f"\nSaved complete model to {output_filename}")
 
-    except FileNotFoundError:
-        print(f"\nERROR: Could not find the safetensors file at '{SAFETENSORS_FILE_PATH}'.")
-        print("Please update the SAFETENSORS_FILE_PATH variable in the script.")
+    except FileNotFoundError as e:
+        print(f"\nERROR: Could not find a required file: {e.filename}")
+        print("Please check the SAFETENSORS_FILE_PATH and CONFIG_FILE_PATH variables.")
     except KeyError as e:
-        print(f"\n--- MODEL BUILDING FAILED ---")
-        print(f"A required weight/bias was not found. This usually means there is a mismatch")
-        print(f"between the model architecture defined in the script and the weights in")
-        print(f"the .safetensors file.")
-        print(f"\nDETAILS: {e}\n")
+        print(f"\n--- MODEL BUILDING FAILED ---", file=sys.stderr)
+        print(f"A required weight/bias was not found in the safetensors file. This usually", file=sys.stderr)
+        print(f"means there is a mismatch between the model architecture defined in the script", file=sys.stderr)
+        print(f"and the weights in the .safetensors file.", file=sys.stderr)
+        print(f"\nDETAILS: Missing Key -> {e}\n", file=sys.stderr)
     except Exception as e:
-        print(f"An unexpected error occurred during model building: {e}")
+        print(f"An unexpected error occurred during model building: {e}", file=sys.stderr)

@@ -3,11 +3,13 @@ import sys
 import traceback
 from safetensors.numpy import load_file
 import spoxVAE
+import onnxruntime as rt
 
 # --- Configuration ---
 SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
 CONFIG_FILE_PATH = "/lab/model/vae/config.json"
 DECODER_OUTPUT_PATH = "tiled_decoder.onnx"
+OPTIMIZED_OUTPUT_PATH = "tiled_decoder_optimized2.onnx"
 
 if __name__ == '__main__':
     try:
@@ -26,6 +28,20 @@ if __name__ == '__main__':
         with open(DECODER_OUTPUT_PATH, "wb") as f:
             f.write(encoder_proto.SerializeToString())
         print(f"Saved encoder model to {DECODER_OUTPUT_PATH}")
+
+        # Optimize the model using onnxruntime
+        print(f"\nOptimizing model with onnxruntime...")
+        sess_options = rt.SessionOptions()
+        
+        # Set graph optimization level
+        sess_options.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+        
+        # To enable model serialization after graph optimization set this
+        sess_options.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH
+        
+        # Create session which will trigger optimization and save the optimized model
+        session = rt.InferenceSession(DECODER_OUTPUT_PATH, sess_options)
+        print(f"Saved optimized model to {OPTIMIZED_OUTPUT_PATH}")
 
         print("\n--- Build process completed successfully! ---")
 

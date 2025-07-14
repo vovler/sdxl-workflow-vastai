@@ -40,7 +40,7 @@ if __name__ == '__main__':
         sess_options.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH
         
         # Create session which will trigger optimization and save the optimized model
-        session = rt.InferenceSession(DECODER_OUTPUT_PATH, sess_options)
+        session = rt.InferenceSession(DECODER_OUTPUT_PATH, sess_options, providers=['CUDAExecutionProvider'])
         print(f"Saved optimized model to {OPTIMIZED_OUTPUT_PATH}")
 
         print("\n--- Build process completed successfully! ---")

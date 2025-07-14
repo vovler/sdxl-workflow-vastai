@@ -4,7 +4,6 @@ import traceback
 from safetensors.numpy import load_file
 import spoxVAE
 import onnxruntime as rt
-import onnxoptimizer
 import onnx
 import subprocess
 

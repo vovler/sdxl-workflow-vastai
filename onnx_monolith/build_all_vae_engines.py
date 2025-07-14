@@ -4,6 +4,7 @@ import argparse
 import os
 from collections import OrderedDict
 from tqdm import tqdm
+from typing import Optional
 
 class TQDMProgressMonitor(trt.IProgressMonitor):
     def __init__(self):
@@ -77,7 +78,7 @@ def build_engine(
     onnx_path: str,
     input_profiles: dict,
     fp16: bool = True,
-    timing_cache_path: str = None
+    timing_cache_path: Optional[str] = None
 ):
     """Builds a TensorRT engine from an ONNX model, following a standardized configuration."""
     
@@ -203,6 +204,10 @@ def main():
         engine_filename = os.path.splitext(onnx_file)[0] + ".engine"
         engine_path = os.path.join(args.engine_dir, engine_filename)
         
+        if os.path.exists(engine_path):
+            print(f"Engine file already exists, skipping: {engine_path}")
+            continue
+
         cache_filename = os.path.splitext(onnx_file)[0] + ".cache"
         timing_cache_path = os.path.join(args.timing_cache_dir, cache_filename)
 

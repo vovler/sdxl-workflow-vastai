@@ -393,105 +393,126 @@ def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) ->
 
 
 
-
-
-def spox_blend_v(
-    top_tile: spox.Var, 
-    bottom_tile: spox.Var, 
+def spox_blend_and_append_h(
+    accumulated_row: spox.Var, 
+    new_tile: spox.Var, 
     blend_extent: int, 
-    tile_size: int, 
     target_dtype: np.dtype
 ) -> spox.Var:
     """
-    Blends the bottom rows of top_tile with the top rows of bottom_tile.
+    Blends the right side of an accumulated row with the left side of a new tile,
+    and appends the non-overlapping part of the new tile.
     """
-    # Create a vertical blending ramp (1.0 -> 0.0)
-    ramp_np = np.linspace(1.0, 0.0, blend_extent, dtype=target_dtype).astype(target_dtype)
-    ramp = to_const(ramp_np.reshape(1, 1, blend_extent, 1))
-
-    # Slice the regions to be blended
-    # Slice the bottom `blend_extent` rows from the top tile
-    top_blend_region = op.slice(
-        top_tile, 
-        starts=to_const(np.array([tile_size - blend_extent])), 
-        ends=to_const(np.array([tile_size])), 
-        axes=to_const(np.array([2]))
+    # Slice the part of the accumulated row that will not be blended
+    acc_row_shape = op.shape(accumulated_row)
+    acc_row_width = op.gather(acc_row_shape, to_const(np.array([3], dtype=np.int64)))
+    
+    # The part of the row that is kept as-is
+    main_accumulated_part = op.slice(
+        accumulated_row,
+        starts=to_const(np.array([0])),
+        ends=op.sub(acc_row_width, to_const(np.array([blend_extent], dtype=np.int64))),
+        axes=to_const(np.array([3]))
     )
     
-    # Slice the top `blend_extent` rows from the bottom tile
-    bottom_blend_region = op.slice(
-        bottom_tile, 
-        starts=to_const(np.array([0])), 
-        ends=to_const(np.array([blend_extent])), 
-        axes=to_const(np.array([2]))
-    )
-
-    # Perform the blend: (bottom * ramp) + (top * (1 - ramp))
-    one_const = to_const(np.array(1.0, dtype=target_dtype))
-    blended_region = op.add(
-        op.mul(bottom_blend_region, ramp),
-        op.mul(top_blend_region, op.sub(one_const, ramp))
-    )
-
-    # Get the remaining part of the bottom tile that is not blended
-    bottom_remaining = op.slice(
-        bottom_tile, 
-        starts=to_const(np.array([blend_extent])), 
-        ends=to_const(np.array([tile_size])), 
-        axes=to_const(np.array([2]))
+    # The part of the row that will be used for blending
+    left_blend_region = op.slice(
+        accumulated_row,
+        starts=op.sub(acc_row_width, to_const(np.array([blend_extent], dtype=np.int64))),
+        ends=acc_row_width,
+        axes=to_const(np.array([3]))
     )
     
-    # Concatenate the blended region with the rest of the tile
-    return op.concat([blended_region, bottom_remaining], axis=2)
+    # Slice the parts of the new tile
+    right_blend_region = op.slice(
+        new_tile,
+        starts=to_const(np.array([0])),
+        ends=to_const(np.array([blend_extent])),
+        axes=to_const(np.array([3]))
+    )
+    
+    new_tile_shape = op.shape(new_tile)
+    new_tile_width = op.gather(new_tile_shape, to_const(np.array([3], dtype=np.int64)))
+    right_remaining = op.slice(
+        new_tile,
+        starts=to_const(np.array([blend_extent])),
+        ends=new_tile_width,
+        axes=to_const(np.array([3]))
+    )
 
-def spox_blend_h(
-    left_tile: spox.Var, 
-    right_tile: spox.Var, 
-    blend_extent: int, 
-    tile_size: int, 
-    target_dtype: np.dtype
-) -> spox.Var:
-    """
-    Blends the right columns of left_tile with the left columns of right_tile.
-    """
-    # Create a horizontal blending ramp (1.0 -> 0.0)
+    # Create the horizontal blending ramp
     ramp_np = np.linspace(1.0, 0.0, blend_extent, dtype=target_dtype).astype(target_dtype)
     ramp = to_const(ramp_np.reshape(1, 1, 1, blend_extent))
-    
-    # Slice the regions to be blended
-    # Slice the right `blend_extent` columns from the left tile
-    left_blend_region = op.slice(
-        left_tile, 
-        starts=to_const(np.array([tile_size - blend_extent])), 
-        ends=to_const(np.array([tile_size])), 
-        axes=to_const(np.array([3]))
-    )
-    
-    # Slice the left `blend_extent` columns from the right tile
-    right_blend_region = op.slice(
-        right_tile, 
-        starts=to_const(np.array([0])), 
-        ends=to_const(np.array([blend_extent])), 
-        axes=to_const(np.array([3]))
-    )
-
-    # Perform the blend: (right * ramp) + (left * (1 - ramp))
     one_const = to_const(np.array(1.0, dtype=target_dtype))
+
+    # Perform the blend
     blended_region = op.add(
         op.mul(right_blend_region, ramp),
         op.mul(left_blend_region, op.sub(one_const, ramp))
     )
 
-    # Get the remaining part of the right tile that is not blended
-    right_remaining = op.slice(
-        right_tile, 
-        starts=to_const(np.array([blend_extent])), 
-        ends=to_const(np.array([tile_size])), 
-        axes=to_const(np.array([3]))
+    # Concatenate all parts to form the new, larger accumulated row
+    return op.concat([main_accumulated_part, blended_region, right_remaining], axis=3)
+
+def spox_blend_and_append_v(
+    accumulated_canvas: spox.Var, 
+    new_row: spox.Var, 
+    blend_extent: int, 
+    target_dtype: np.dtype
+) -> spox.Var:
+    """
+    Blends the bottom of an accumulated canvas with the top of a new row,
+    and appends the non-overlapping part of the new row.
+    """
+    # Slice the part of the canvas that will not be blended
+    canvas_shape = op.shape(accumulated_canvas)
+    canvas_height = op.gather(canvas_shape, to_const(np.array([2], dtype=np.int64)))
+    
+    main_canvas_part = op.slice(
+        accumulated_canvas,
+        starts=to_const(np.array([0])),
+        ends=op.sub(canvas_height, to_const(np.array([blend_extent], dtype=np.int64))),
+        axes=to_const(np.array([2]))
     )
     
-    # Concatenate the blended region with the rest of the tile
-    return op.concat([blended_region, right_remaining], axis=3)
+    # The part of the canvas that will be used for blending
+    top_blend_region = op.slice(
+        accumulated_canvas,
+        starts=op.sub(canvas_height, to_const(np.array([blend_extent], dtype=np.int64))),
+        ends=canvas_height,
+        axes=to_const(np.array([2]))
+    )
+    
+    # Slice the parts of the new row
+    bottom_blend_region = op.slice(
+        new_row,
+        starts=to_const(np.array([0])),
+        ends=to_const(np.array([blend_extent])),
+        axes=to_const(np.array([2]))
+    )
+    
+    new_row_shape = op.shape(new_row)
+    new_row_height = op.gather(new_row_shape, to_const(np.array([2], dtype=np.int64)))
+    bottom_remaining = op.slice(
+        new_row,
+        starts=to_const(np.array([blend_extent])),
+        ends=new_row_height,
+        axes=to_const(np.array([2]))
+    )
+
+    # Create the vertical blending ramp
+    ramp_np = np.linspace(1.0, 0.0, blend_extent, dtype=target_dtype).astype(target_dtype)
+    ramp = to_const(ramp_np.reshape(1, 1, blend_extent, 1))
+    one_const = to_const(np.array(1.0, dtype=target_dtype))
+
+    # Perform the blend
+    blended_region = op.add(
+        op.mul(bottom_blend_region, ramp),
+        op.mul(top_blend_region, op.sub(one_const, ramp))
+    )
+
+    # Concatenate all parts to form the new, larger canvas
+    return op.concat([main_canvas_part, blended_region, bottom_remaining], axis=2)
 
 
 
@@ -534,34 +555,26 @@ def build_tiled_decoder_onnx_model_with_loop(
     num_rows = op.div(op.add(latent_height, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
     num_cols = op.div(op.add(latent_width, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
     
-    # The initial state is an empty canvas to which we will add rows.
+    fill_value = np.array([0], dtype=target_dtype)
+    
+    # The initial state for the outer loop (row assembly) is an empty canvas
     initial_canvas_shape = op.concat([
         batch_size,
         to_const(np.array([config['out_channels'], 0], dtype=np.int64)),
         op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
     ], axis=0)
-
-    # --- FIX START ---
-    # The `value` parameter is an ATTRIBUTE and expects a raw NumPy array, not a spox.Var.
-    # The ONNX spec requires this to be a one-element tensor.
-    fill_value = np.array([0], dtype=target_dtype)
     initial_canvas = op.constant_of_shape(initial_canvas_shape, value=fill_value)
-    # --- FIX END ---
 
-    # We also need to carry the previously decoded row for vertical blending.
-    prev_row_shape = op.concat([
-        batch_size, 
-        to_const(np.array([config['out_channels'], tile_sample_min_size], dtype=np.int64)), 
-        op.mul(num_cols, to_const(np.array(overlap_size, dtype=np.int64))) # This will be the full width of a row of tiles
-    ], axis=0)
-    initial_prev_row = op.constant_of_shape(prev_row_shape, value=fill_value)
-
-    @with_error_context("Main Loop Body")
-    def main_loop_body(row_idx, _, current_canvas, previous_row):
-        # This loop iterates over rows.
+    # --- 4. Define the Loop Bodies ---
+    @with_error_context("Main Loop Body (Rows)")
+    def main_loop_body(row_idx, _, current_canvas):
         
+        # Initial state for the inner loop (column assembly) is an empty row
+        initial_row_shape = op.concat([batch_size, to_const(np.array([config['out_channels'], tile_sample_min_size, 0], dtype=np.int64))], axis=0)
+        initial_row = op.constant_of_shape(initial_row_shape, value=fill_value)
+
         @with_error_context("Inner Loop Body (Columns)")
-        def col_loop_body(col_idx, _, prev_tile_in_row):
+        def col_loop_body(col_idx, _, accumulated_row):
             start_h = op.mul(row_idx, overlap_size_const)
             start_w = op.mul(col_idx, overlap_size_const)
             
@@ -576,76 +589,67 @@ def build_tiled_decoder_onnx_model_with_loop(
             post_quant_tile = spox_conv_2d(latent_tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
             decoded_tile = spox_decoder(post_quant_tile, spox_params["decoder"], config, target_dtype)
 
-            def blend_left():
-                return [spox_blend_h(prev_tile_in_row, decoded_tile, blend_extent, tile_sample_min_size, target_dtype)]
-            def no_blend_left():
+            # If it's the first column, the accumulated row is just the new tile.
+            # Otherwise, blend and append the new tile to the accumulated row.
+            def blend_and_append_horizontally():
+                return [spox_blend_and_append_h(accumulated_row, decoded_tile, blend_extent, target_dtype)]
+            def just_the_tile():
                 return [decoded_tile]
+            
             is_not_first_col = op.greater(col_idx, to_const(np.array(0, dtype=np.int64)))
-            (blended_tile,) = op.if_(is_not_first_col, then_branch=blend_left, else_branch=no_blend_left)
+            (new_accumulated_row,) = op.if_(is_not_first_col, then_branch=blend_and_append_horizontally, else_branch=just_the_tile)
+            
+            return op.const(True), new_accumulated_row
 
-            return op.const(True), blended_tile
-        
-        initial_inner_tile_shape = op.concat([
-            batch_size, to_const(np.array([config['out_channels'], tile_sample_min_size, 0], dtype=np.int64))
-        ], axis=0)
+        # Run the inner loop to build a complete row by accumulating columns
+        (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=col_loop_body)
 
-        # --- FIX START ---
-        initial_inner_tile = op.constant_of_shape(initial_inner_tile_shape, value=fill_value)
-        # --- FIX END ---
-        
-        (final_row_tile,) = op.loop(num_cols, v_initial=[initial_inner_tile], body=col_loop_body)
-
-        def blend_up():
-            return [spox_blend_v(previous_row, final_row_tile, blend_extent, tile_sample_min_size, target_dtype)]
-        def no_blend_up():
-            return [op.slice(final_row_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_sample_min_size])), axes=to_const(np.array([2])))]
+        # Now, append the fully assembled row to the main canvas
+        def blend_and_append_vertically():
+            return [spox_blend_and_append_v(current_canvas, full_row, blend_extent, target_dtype)]
+        def just_the_row():
+            return [full_row]
             
         is_not_first_row = op.greater(row_idx, to_const(np.array(0, dtype=np.int64)))
-        (final_row_for_canvas,) = op.if_(is_not_first_row, then_branch=blend_up, else_branch=no_blend_up)
-
-        updated_canvas = op.concat([current_canvas, final_row_for_canvas], axis=2)
+        (updated_canvas,) = op.if_(is_not_first_row, then_branch=blend_and_append_vertically, else_branch=just_the_row)
         
-        return op.const(True), updated_canvas, final_row_tile
+        return op.const(True), updated_canvas
 
     # --- 5. Execute the Main Loop ---
-    (final_canvas, _) = op.loop(
+    (final_canvas,) = op.loop(
         num_rows,
-        v_initial=[initial_canvas, initial_prev_row],
+        v_initial=[initial_canvas],
         body=main_loop_body
     )
 
     # --- 6. Crop Final Image to Dynamic Size ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))
     final_out_width = op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
-
-    final_image_cropped = op.slice(
-        final_canvas,
-        starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)),
-        ends=op.concat([
-            batch_size, 
-            to_const(np.array([config['out_channels']], dtype=np.int64)), 
-            final_out_height, 
-            final_out_width
-        ], axis=0),
-        axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64))
-    )
-
-    target_output_shape = op.concat([
-        batch_size,
-        to_const(np.array([config['out_channels']], dtype=np.int64)),
-        final_out_height,
+    
+    # The ends Var also defines our target shape
+    target_output_shape_var = op.concat([
+        batch_size, 
+        to_const(np.array([config['out_channels']], dtype=np.int64)), 
+        final_out_height, 
         final_out_width
     ], axis=0)
     
-    final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape)
+    final_image_cropped = op.slice(
+        final_canvas,
+        starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)),
+        ends=target_output_shape_var,
+        axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64))
+    )
+
+    # --- 7. Build the Model using spox.build ---
+    # To satisfy the spox.build strict shape check, we explicitly reshape our
+    # final output to the dynamic shape we know it should have.
+    final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape_var)
     
-    # Now we can use the clean spox.build API.
     decoder_model = spox.build(
         inputs={"latent_sample": latent_z_arg},
-        # Pass the newly reshaped Var as the output
         outputs={"reconstructed_sample": final_output_with_shape_hint}
     )
-    # --- FIX END ---
     
     print("Successfully built Tiled Decoder ONNX ModelProto using spox.build.")
     return decoder_model

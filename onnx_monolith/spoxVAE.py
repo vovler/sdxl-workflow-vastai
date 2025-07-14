@@ -466,8 +466,6 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a TensorRT-compatible VAE Tiled Decoder ONNX model.
-    This version uses a multi-stage tensor caching strategy to avoid shape-variant
-    loop state variables, making it compatible with TensorRT's IRecurrenceLayer.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
@@ -506,7 +504,6 @@ def build_tiled_decoder_onnx_model_with_loop(
 
     @with_error_context("Stage 1: Tile Decoding Loop")
     def tile_decoding_body(iteration_num, _, current_tile_cache):
-        # This function's logic is correct and remains the same.
         row_idx = op.div(iteration_num, num_cols)
         col_idx = op.mod(iteration_num, num_cols)
         start_h = op.mul(row_idx, overlap_size_const)
@@ -524,26 +521,14 @@ def build_tiled_decoder_onnx_model_with_loop(
         padding_amounts = op.concat([to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))), op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))], axis=0)
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
-        # --- FINAL FIX ---
-        # To update data[i] = update_slice:
-        # `indices` should be [[i]], shape (1, 1).
-        # `updates` should be [update_slice], shape (1, ...slice_shape).
-        
-        # `iteration_num` is a scalar (rank 0). We need to make it shape (1, 1).
-        scatter_indices = op.unsqueeze(
-            op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), 
-            axes=to_const(np.array([0]))
-        )
-        
-        # `padded_decoded_tile` has shape [batch, C, H, W]. We need to add a leading dimension.
-        scatter_updates = op.unsqueeze(
-            padded_decoded_tile, 
-            axes=to_const(np.array([0]))
-        )
-        
-        updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
+        # --- FINAL FIX 1 ---
+        # `indices` must be a 1D tensor [i] to update the i-th slice.
+        # `updates` must be the raw 4D slice.
+        scatter_indices = op.unsqueeze(iteration_num, axes=to_const(np.array([0]))) # Shape [1]
+        scatter_updates = padded_decoded_tile # Shape [batch, C, H, W]
         # --- END FIX ---
         
+        updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
         return op.const(True), updated_tile_cache
 
     (final_tile_cache,) = op.loop(trip_count, v_initial=[initial_tile_cache], body=tile_decoding_body)
@@ -560,7 +545,6 @@ def build_tiled_decoder_onnx_model_with_loop(
         
         @with_error_context("Inner Column Loop")
         def col_assembly_body(col_idx, _, accumulated_row):
-            # This logic is the same as before, but it now gathers from the cache.
             flat_idx = op.add(op.mul(row_idx, num_cols), col_idx)
             current_blending_tile = op.squeeze(op.gather(final_tile_cache, flat_idx, axis=0), axes=to_const(np.array([0])))
             def blend_v_fn():
@@ -578,18 +562,20 @@ def build_tiled_decoder_onnx_model_with_loop(
 
         (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=col_assembly_body)
 
-        scatter_indices = op.unsqueeze(op.unsqueeze(row_idx, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates = op.unsqueeze(full_row, axes=to_const(np.array([0])))
-        updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices, scatter_updates)
+        # --- FINAL FIX 2 ---
+        # Apply the same simplified logic to the second ScatterND call.
+        scatter_indices_row = op.unsqueeze(row_idx, axes=to_const(np.array([0]))) # Shape [1]
+        scatter_updates_row = full_row # Shape [batch, C, H_limit, W_full]
+        # --- END FIX ---
+        
+        updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices_row, scatter_updates_row)
         return op.const(True), updated_row_cache
 
     (final_row_cache,) = op.loop(num_rows, v_initial=[initial_row_cache], body=row_assembly_loop_body)
 
     # --- STAGE 3: Final Assembly from Row Cache ---
-    # Transpose from [num_rows, batch, C, row_limit, W] to [batch, C, num_rows, row_limit, W]
     transposed_cache = op.transpose(final_row_cache, perm=[1, 2, 0, 3, 4])
     
-    # Reshape to merge the num_rows and row_limit dimensions: [batch, C, num_rows * row_limit, W]
     final_canvas_shape = op.concat([
         batch_size,
         to_const(np.array([config['out_channels']], dtype=np.int64)),

@@ -522,9 +522,10 @@ def build_tiled_decoder_onnx_model_with_loop(
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
         # --- FINAL FIX 1 ---
-        # To update data[i], `indices` must be [[i]] (shape [1,1]) and `updates` must be [slice] (shape [1, ...slice_shape]).
+        # The runtime reports indices shape {1,1,1}, so updates must be rank 6.
+        # Unsqueeze twice to add two leading dimensions.
         scatter_indices = op.unsqueeze(op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
+        scatter_updates = op.unsqueeze(op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         # --- END FIX ---
         
         updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
@@ -564,7 +565,7 @@ def build_tiled_decoder_onnx_model_with_loop(
         # --- FINAL FIX 2 ---
         # Apply the same logic to the second ScatterND call.
         scatter_indices_row = op.unsqueeze(op.unsqueeze(row_idx, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates_row = op.unsqueeze(full_row, axes=to_const(np.array([0])))
+        scatter_updates_row = op.unsqueeze(op.unsqueeze(full_row, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         # --- END FIX ---
         
         updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices_row, scatter_updates_row)

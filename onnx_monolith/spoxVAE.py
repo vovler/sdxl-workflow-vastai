@@ -633,11 +633,12 @@ def build_tiled_decoder_onnx_model_with_loop(
     outputs_dict = {"reconstructed_sample": final_image_cropped}
     inputs_dict = {"latent_sample": latent_z_arg}
     
-    # Add a descriptive name for the graph as the third argument.
-    graph = Graph(outputs_dict, inputs_dict, name="tiled_decoder_graph")
-    
-    # The `concrete=False` parameter is still essential.
+    graph = Graph(outputs_dict, inputs_dict)
     decoder_model = graph.to_onnx_model(concrete=False)
+    
+    # Step 2: Set the required metadata on the returned ONNX ModelProto object.
+    # The underlying onnx.helper requires the graph to have a name.
+    decoder_model.graph.name = "tiled_decoder_graph"
     # --- FIX END ---
     
     print("Successfully built Tiled Decoder ONNX ModelProto using op.loop.")

@@ -516,23 +516,25 @@ def build_tiled_decoder_onnx_model_with_loop(
         post_quant_tile = spox_conv_2d(latent_tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
         decoded_tile = spox_decoder(post_quant_tile, spox_params["decoder"], config, target_dtype)
         
-    # --- FIX: CORRECT CONSTRUCTION OF THE PADS TENSOR ---
+        # --- FIX: SQUEEZE THE GATHERED VALUES TO MAKE THEM SCALARS ---
         decoded_shape = op.shape(decoded_tile)
-        decoded_height = op.gather(decoded_shape, to_const(np.array([2], dtype=np.int64)))
-        decoded_width = op.gather(decoded_shape, to_const(np.array([3], dtype=np.int64)))
         
-        pad_h_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_height)
-        pad_w_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_width)
+        # op.gather returns a 1D tensor [H]. Squeeze it to get a scalar H.
+        decoded_height_scalar = op.squeeze(op.gather(decoded_shape, to_const(np.array([2], dtype=np.int64))), axes=to_const(np.array([0])))
+        decoded_width_scalar = op.squeeze(op.gather(decoded_shape, to_const(np.array([3], dtype=np.int64))), axes=to_const(np.array([0])))
         
-        # Create the full 8-element pads tensor: [N_start, C_start, H_start, W_start, N_end, C_end, H_end, W_end]
-        # We only pad the end of the H and W dimensions.
-        # Note: We unsqueeze the scalar padding values to make them 1D before concatenating.
+        # Now pad_h_end and pad_w_end will correctly be scalars (rank-0).
+        pad_h_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_height_scalar)
+        pad_w_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_width_scalar)
+        
+        # Create the full 8-element pads tensor.
+        # Unsqueezing a scalar results in a 1D tensor [value], which is what we need for concat.
         padding_amounts = op.concat([
-            to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), # Pads for N_s, C_s, H_s, W_s, N_e, C_e
-            op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))),       # Pad for H_e
-            op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))        # Pad for W_e
+            to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), # Ranks = 1
+            op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))),       # Rank 0 -> Rank 1
+            op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))        # Rank 0 -> Rank 1
         ], axis=0)
-
+        
         # Pad the tile with zeros to make it the full size.
         padded_decoded_tile = op.pad(
             decoded_tile,

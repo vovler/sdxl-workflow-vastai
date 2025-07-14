@@ -394,49 +394,67 @@ def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) ->
 
 
 def spox_blend_v(
-    top_tile: spox.Var,
-    bottom_tile: spox.Var,
-    blend_extent: int,
-    tile_size: int,
+    top_tile: spox.Var, 
+    bottom_tile: spox.Var, 
+    blend_extent: int, 
+    tile_size: int, 
     target_dtype: np.dtype
 ) -> spox.Var:
     """
     Blends the bottom rows of top_tile with the top rows of bottom_tile.
     """
-    ramp_np = np.linspace(1.0, 0.0, blend_extent, dtype=target_dtype)
+    # --- FIX: The ramp must go from 0.0 to 1.0 to match diffusers fade-in logic ---
+    ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
     ramp = to_const(ramp_np.reshape(1, 1, blend_extent, 1))
 
+    # Slice the regions to be blended
     top_blend_region = op.slice(top_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([2])))
     bottom_blend_region = op.slice(bottom_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([2])))
 
+    # The formula is now: blended = top * (1 - ramp) + bottom * ramp
+    # This matches the diffusers logic: the new tile (bottom) fades IN.
     one_const = to_const(np.array(1.0, dtype=target_dtype))
-    blended_region = op.add(op.mul(bottom_blend_region, ramp), op.mul(top_blend_region, op.sub(one_const, ramp)))
+    blended_region = op.add(
+        op.mul(top_blend_region, op.sub(one_const, ramp)),
+        op.mul(bottom_blend_region, ramp)
+    )
 
+    # Get the remaining part of the bottom tile that is not blended
     bottom_remaining = op.slice(bottom_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([2])))
     
+    # Concatenate the blended region with the rest of the tile
     return op.concat([blended_region, bottom_remaining], axis=2)
 
 def spox_blend_h(
-    left_tile: spox.Var,
-    right_tile: spox.Var,
-    blend_extent: int,
-    tile_size: int,
+    left_tile: spox.Var, 
+    right_tile: spox.Var, 
+    blend_extent: int, 
+    tile_size: int, 
     target_dtype: np.dtype
 ) -> spox.Var:
     """
     Blends the right columns of left_tile with the left columns of right_tile.
     """
-    ramp_np = np.linspace(1.0, 0.0, blend_extent, dtype=target_dtype)
+    # --- FIX: The ramp must go from 0.0 to 1.0 to match diffusers fade-in logic ---
+    ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
     ramp = to_const(ramp_np.reshape(1, 1, 1, blend_extent))
 
+    # Slice the regions to be blended
     left_blend_region = op.slice(left_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
     right_blend_region = op.slice(right_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([3])))
-    
-    one_const = to_const(np.array(1.0, dtype=target_dtype))
-    blended_region = op.add(op.mul(right_blend_region, ramp), op.mul(left_blend_region, op.sub(one_const, ramp)))
-    
-    right_remaining = op.slice(right_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
 
+    # The formula is now: blended = left * (1 - ramp) + right * ramp
+    # This matches the diffusers logic: the new tile (right) fades IN.
+    one_const = to_const(np.array(1.0, dtype=target_dtype))
+    blended_region = op.add(
+        op.mul(left_blend_region, op.sub(one_const, ramp)),
+        op.mul(right_blend_region, ramp)
+    )
+
+    # Get the remaining part of the right tile that is not blended
+    right_remaining = op.slice(right_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
+    
+    # Concatenate the blended region with the rest of the tile
     return op.concat([blended_region, right_remaining], axis=3)
 
 

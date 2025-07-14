@@ -466,11 +466,13 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a TensorRT-compatible VAE Tiled Decoder ONNX model.
+    This version uses a multi-stage tensor caching strategy to avoid shape-variant
+    loop state variables, making it compatible with TensorRT's IRecurrenceLayer.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
 
-    # --- 1. Calculate Tiling Parameters ---
+    # --- 1. Tiling and Shape Parameter Calculation ---
     tile_sample_min_size = config["sample_size"]
     tile_latent_min_size = int(tile_sample_min_size / (2 ** (len(config["block_out_channels"]) - 1)))
     tile_overlap_factor = 0.25
@@ -479,7 +481,7 @@ def build_tiled_decoder_onnx_model_with_loop(
     blend_extent = int(tile_sample_min_size * tile_overlap_factor)
     row_limit = tile_sample_min_size - blend_extent
     
-    print(f"Tiling config: latent_tile={tile_latent_min_size}, sample_tile={tile_sample_min_size}, overlap={overlap_size}, blend={blend_extent}")
+    print(f"Tiling config: latent_tile={tile_latent_min_size}, sample_tile={tile_sample_min_size}, overlap={overlap_size}, blend={blend_extent}, row_limit={row_limit}")
 
     # --- 2. Load Parameters & Define Inputs ---
     spox_params = load_and_create_spox_params(state_dict, target_dtype)
@@ -496,108 +498,91 @@ def build_tiled_decoder_onnx_model_with_loop(
     num_rows = op.div(op.add(latent_height, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
     num_cols = op.div(op.add(latent_width, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
     trip_count = op.mul(num_rows, num_cols)
-    
-    # --- STAGE 1: Decode all tiles and store them in a single cache tensor ---
-    
-    # The `value` attribute needs a raw NumPy array (as a one-element tensor for this op).
     fill_value = np.array([0.0], dtype=target_dtype)
-    
-    cache_shape = op.concat([
-        trip_count,
-        batch_size,
-        to_const(np.array([config['out_channels'], tile_sample_min_size, tile_sample_min_size], dtype=np.int64))
-    ], axis=0)
-    # FIX: Pass the raw NumPy array to the `value` attribute.
+
+    # --- STAGE 1: Decode all tiles and store in a 5D cache tensor ---
+    cache_shape = op.concat([trip_count, batch_size, to_const(np.array([config['out_channels'], tile_sample_min_size, tile_sample_min_size], dtype=np.int64))], axis=0)
     initial_tile_cache = op.constant_of_shape(cache_shape, value=fill_value)
 
     @with_error_context("Stage 1: Tile Decoding Loop")
     def tile_decoding_body(iteration_num, _, current_tile_cache):
+        # This function's logic is correct and remains the same.
         row_idx = op.div(iteration_num, num_cols)
         col_idx = op.mod(iteration_num, num_cols)
-        
         start_h = op.mul(row_idx, overlap_size_const)
         start_w = op.mul(col_idx, overlap_size_const)
-
-        latent_tile = op.slice(latent_z_arg,
-            starts=op.concat([start_h, start_w], axis=0),
-            ends=op.concat([op.add(start_h, to_const(np.array(tile_latent_min_size, dtype=np.int64))),
-                             op.add(start_w, to_const(np.array(tile_latent_min_size, dtype=np.int64)))], axis=0),
-            axes=to_const(np.array([2, 3], dtype=np.int64)))
-        
+        latent_tile = op.slice(latent_z_arg, starts=op.concat([start_h, start_w], axis=0), ends=op.concat([op.add(start_h, to_const(np.array(tile_latent_min_size, dtype=np.int64))), op.add(start_w, to_const(np.array(tile_latent_min_size, dtype=np.int64)))], axis=0), axes=to_const(np.array([2, 3], dtype=np.int64)))
         post_quant_tile = spox_conv_2d(latent_tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
         decoded_tile = spox_decoder(post_quant_tile, spox_params["decoder"], config, target_dtype)
         
-        # Pad edge tiles to ensure all tiles are the same size before caching
+        # Pad edge tiles
         decoded_shape = op.shape(decoded_tile)
         decoded_height_scalar = op.squeeze(op.gather(decoded_shape, to_const(np.array([2]))), axes=to_const(np.array([0])))
         decoded_width_scalar = op.squeeze(op.gather(decoded_shape, to_const(np.array([3]))), axes=to_const(np.array([0])))
         pad_h_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_height_scalar)
         pad_w_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_width_scalar)
-        
-        padding_amounts = op.concat([
-            to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)),
-            op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))),
-            op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))
-        ], axis=0)
-        
-        # FIX: Pass the raw NumPy array to the `constant_value` attribute.
+        padding_amounts = op.concat([to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))), op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))], axis=0)
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
+        # Scatter the result into the cache
         scatter_indices = op.unsqueeze(op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
-        
         updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
-        
         return op.const(True), updated_tile_cache
 
     (final_tile_cache,) = op.loop(trip_count, v_initial=[initial_tile_cache], body=tile_decoding_body)
 
-    # --- STAGE 2: Blend and assemble from the cache tensor ---
-    initial_canvas_shape = op.concat([batch_size, to_const(np.array([config['out_channels'], 0], dtype=np.int64)), op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))], axis=0)
-    # FIX: Pass the raw NumPy array to the `value` attribute.
-    initial_canvas = op.constant_of_shape(initial_canvas_shape, value=fill_value)
+    # --- STAGE 2: Assemble blended rows and store them in a row cache ---
+    final_row_width = op.mul(num_cols, to_const(np.array(row_limit, dtype=np.int64)))
+    row_cache_shape = op.concat([num_rows, batch_size, to_const(np.array([config['out_channels'], row_limit], dtype=np.int64)), final_row_width], axis=0)
+    initial_row_cache = op.constant_of_shape(row_cache_shape, value=fill_value)
 
-    @with_error_context("Stage 2: Blending & Assembly Loop (Rows)")
-    def assembly_loop_body(row_idx, _, current_canvas):
+    @with_error_context("Stage 2: Row Assembly Loop")
+    def row_assembly_loop_body(row_idx, _, current_row_cache):
         initial_row_shape = op.concat([batch_size, to_const(np.array([config['out_channels'], row_limit, 0], dtype=np.int64))], axis=0)
-        # FIX: Pass the raw NumPy array to the `value` attribute.
         initial_row = op.constant_of_shape(initial_row_shape, value=fill_value)
-
-        @with_error_context("Inner Loop (Columns)")
-        def row_assembly_body(col_idx, _, accumulated_row):
+        
+        @with_error_context("Inner Column Loop")
+        def col_assembly_body(col_idx, _, accumulated_row):
+            # This logic is the same as before, but it now gathers from the cache.
             flat_idx = op.add(op.mul(row_idx, num_cols), col_idx)
-            
-            current_tile_unsq = op.gather(final_tile_cache, flat_idx, axis=0)
-            current_blending_tile = op.squeeze(current_tile_unsq, axes=to_const(np.array([0])))
+            current_blending_tile = op.squeeze(op.gather(final_tile_cache, flat_idx, axis=0), axes=to_const(np.array([0])))
+            def blend_v_fn():
+                tile_above = op.squeeze(op.gather(final_tile_cache, op.sub(flat_idx, num_cols), axis=0), axes=to_const(np.array([0])))
+                return [spox_blend_v(tile_above, current_blending_tile, blend_extent, tile_sample_min_size, target_dtype)]
+            v_blended = op.if_(op.equal(row_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_v_fn, then_branch=lambda: [current_blending_tile])[0]
 
-            def blend_vertically():
-                tile_from_above_unsq = op.gather(final_tile_cache, op.sub(flat_idx, num_cols), axis=0)
-                tile_from_above = op.squeeze(tile_from_above_unsq, axes=to_const(np.array([0])))
-                return [spox_blend_v(tile_from_above, current_blending_tile, blend_extent, tile_sample_min_size, target_dtype)]
-            
-            is_first_row = op.equal(row_idx, to_const(np.array(0, dtype=np.int64)))
-            (v_blended_tile,) = op.if_(is_first_row, else_branch=blend_vertically, then_branch=lambda: [current_blending_tile])
+            def blend_h_fn():
+                tile_left = op.squeeze(op.gather(final_tile_cache, op.sub(flat_idx, to_const(np.array(1, dtype=np.int64))), axis=0), axes=to_const(np.array([0])))
+                return [spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)]
+            final_blended = op.if_(op.equal(col_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_h_fn, then_branch=lambda: [v_blended])[0]
 
-            def blend_horizontally():
-                tile_from_left_unsq = op.gather(final_tile_cache, op.sub(flat_idx, to_const(np.array(1, dtype=np.int64))), axis=0)
-                tile_from_left = op.squeeze(tile_from_left_unsq, axes=to_const(np.array([0])))
-                return [spox_blend_h(tile_from_left, v_blended_tile, blend_extent, tile_sample_min_size, target_dtype)]
+            cropped = op.slice(final_blended, starts=to_const(np.array([0, 0])), ends=to_const(np.array([row_limit, row_limit])), axes=to_const(np.array([2, 3])))
+            return op.const(True), op.concat([accumulated_row, cropped], axis=3)
 
-            is_first_col = op.equal(col_idx, to_const(np.array(0, dtype=np.int64)))
-            (final_blended_tile,) = op.if_(is_first_col, else_branch=blend_horizontally, then_branch=lambda: [v_blended_tile])
-            
-            cropped_tile = op.slice(final_blended_tile, starts=to_const(np.array([0, 0])), ends=to_const(np.array([row_limit, row_limit])), axes=to_const(np.array([2, 3])))
-            
-            new_accumulated_row = op.concat([accumulated_row, cropped_tile], axis=3)
-            return op.const(True), new_accumulated_row
+        (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=col_assembly_body)
 
-        (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=row_assembly_body)
-        updated_canvas = op.concat([current_canvas, full_row], axis=2)
-        return op.const(True), updated_canvas
+        scatter_indices = op.unsqueeze(op.unsqueeze(row_idx, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
+        scatter_updates = op.unsqueeze(full_row, axes=to_const(np.array([0])))
+        updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices, scatter_updates)
+        return op.const(True), updated_row_cache
 
-    (final_canvas,) = op.loop(num_rows, v_initial=[initial_canvas], body=assembly_loop_body)
+    (final_row_cache,) = op.loop(num_rows, v_initial=[initial_row_cache], body=row_assembly_loop_body)
 
-    # --- 7. Final Cropping and Reshaping for Output ---
+    # --- STAGE 3: Final Assembly from Row Cache ---
+    # Transpose from [num_rows, batch, C, row_limit, W] to [batch, C, num_rows, row_limit, W]
+    transposed_cache = op.transpose(final_row_cache, perm=[1, 2, 0, 3, 4])
+    
+    # Reshape to merge the num_rows and row_limit dimensions: [batch, C, num_rows * row_limit, W]
+    final_canvas_shape = op.concat([
+        batch_size,
+        to_const(np.array([config['out_channels']], dtype=np.int64)),
+        op.mul(num_rows, to_const(np.array(row_limit, dtype=np.int64))),
+        final_row_width
+    ], axis=0)
+    final_canvas = op.reshape(transposed_cache, final_canvas_shape)
+    
+    # --- Final Cropping and Reshaping for Output ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))
     final_out_width = op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
     target_output_shape_var = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), final_out_height, final_out_width], axis=0)
@@ -605,7 +590,7 @@ def build_tiled_decoder_onnx_model_with_loop(
     final_image_cropped = op.slice(final_canvas, starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)), ends=target_output_shape_var, axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64)))
     final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape_var)
     
-    # --- 8. Build Model ---
+    # --- Build Model ---
     decoder_model = spox.build(
         inputs={"latent_sample": latent_z_arg},
         outputs={"reconstructed_sample": final_output_with_shape_hint}

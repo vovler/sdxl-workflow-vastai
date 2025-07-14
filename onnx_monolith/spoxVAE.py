@@ -524,10 +524,26 @@ def build_tiled_decoder_onnx_model_with_loop(
         padding_amounts = op.concat([to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))), op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))], axis=0)
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
-        # Scatter the result into the cache
-        scatter_indices = op.unsqueeze(op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
+        # --- FINAL FIX ---
+        # To update data[i] = update_slice:
+        # `indices` should be [[i]], shape (1, 1).
+        # `updates` should be [update_slice], shape (1, ...slice_shape).
+        
+        # `iteration_num` is a scalar (rank 0). We need to make it shape (1, 1).
+        scatter_indices = op.unsqueeze(
+            op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), 
+            axes=to_const(np.array([0]))
+        )
+        
+        # `padded_decoded_tile` has shape [batch, C, H, W]. We need to add a leading dimension.
+        scatter_updates = op.unsqueeze(
+            padded_decoded_tile, 
+            axes=to_const(np.array([0]))
+        )
+        
         updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
+        # --- END FIX ---
+        
         return op.const(True), updated_tile_cache
 
     (final_tile_cache,) = op.loop(trip_count, v_initial=[initial_tile_cache], body=tile_decoding_body)
@@ -562,24 +578,9 @@ def build_tiled_decoder_onnx_model_with_loop(
 
         (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=col_assembly_body)
 
-        # --- FINAL FIX ---
-        # To update data[i] = update_slice:
-        # `indices` should be [[i]], shape (1, 1).
-        # `updates` should be [update_slice], shape (1, ...slice_shape).
-        # `iteration_num` is a scalar (rank 0). We need to make it shape (1, 1).
-        scatter_indices = op.unsqueeze(
-            op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), 
-            axes=to_const(np.array([0]))
-        )
-        
-        # `padded_decoded_tile` has shape [batch, C, H, W]. We need to add a leading dimension.
-        scatter_updates = op.unsqueeze(
-            padded_decoded_tile, 
-            axes=to_const(np.array([0]))
-        )
-        
-        updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
-        # --- END FIX ---
+        scatter_indices = op.unsqueeze(op.unsqueeze(row_idx, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
+        scatter_updates = op.unsqueeze(full_row, axes=to_const(np.array([0])))
+        updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices, scatter_updates)
         return op.const(True), updated_row_cache
 
     (final_row_cache,) = op.loop(num_rows, v_initial=[initial_row_cache], body=row_assembly_loop_body)

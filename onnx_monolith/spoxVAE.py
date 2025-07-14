@@ -466,8 +466,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     config: Dict
 ) -> onnx.ModelProto:
     """
-    Builds the VAE Tiled Decoder ONNX model using a two-stage loop process
-    to faithfully replicate the diffusers blending logic.
+    Builds the VAE Tiled Decoder ONNX model with explicit padding for edge tiles
+    to ensure seam-free blending.
     """
     target_dtype = np.float16
     print(f"Building TILED DECODER with target data type: {target_dtype.__name__}")
@@ -477,7 +477,6 @@ def build_tiled_decoder_onnx_model_with_loop(
     tile_latent_min_size = int(tile_sample_min_size / (2 ** (len(config["block_out_channels"]) - 1)))
     tile_overlap_factor = 0.25
     downsample_factor = 2**(len(config["block_out_channels"]) - 1)
-
     overlap_size = int(tile_latent_min_size * (1 - tile_overlap_factor))
     blend_extent = int(tile_sample_min_size * tile_overlap_factor)
     row_limit = tile_sample_min_size - blend_extent
@@ -494,13 +493,12 @@ def build_tiled_decoder_onnx_model_with_loop(
     batch_size = op.gather(latent_shape, to_const(np.array([0], dtype=np.int64)))
     latent_height = op.gather(latent_shape, to_const(np.array([2], dtype=np.int64)))
     latent_width = op.gather(latent_shape, to_const(np.array([3], dtype=np.int64)))
-
     overlap_size_const = to_const(np.array(overlap_size, dtype=np.int64))
     num_rows = op.div(op.add(latent_height, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
     num_cols = op.div(op.add(latent_width, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
     trip_count = op.mul(num_rows, num_cols)
     
-    # --- STAGE 1: Decode all tiles into a sequence ---
+    # --- STAGE 1: Decode all tiles into a sequence, padding edge tiles ---
     @with_error_context("Stage 1: Tile Decoding Loop")
     def tile_decoding_body(iteration_num, _, decoded_tiles_seq):
         row_idx = op.div(iteration_num, num_cols)
@@ -518,13 +516,41 @@ def build_tiled_decoder_onnx_model_with_loop(
         post_quant_tile = spox_conv_2d(latent_tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
         decoded_tile = spox_decoder(post_quant_tile, spox_params["decoder"], config, target_dtype)
         
-        updated_sequence = op.sequence_insert(decoded_tiles_seq, decoded_tile)
+        # --- FIX: EXPLICIT PADDING FOR EDGE TILES ---
+        # Get the actual shape of the decoded tile. It might be smaller than the full tile size.
+        decoded_shape = op.shape(decoded_tile)
+        decoded_height = op.gather(decoded_shape, to_const(np.array([2], dtype=np.int64)))
+        decoded_width = op.gather(decoded_shape, to_const(np.array([3], dtype=np.int64)))
+        
+        # Calculate the required padding to bring it up to the full tile_sample_min_size
+        pad_h = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_height)
+        pad_w = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_width)
+        
+        # `pads` format is [start_axis_0, start_axis_1, ..., end_axis_0, end_axis_1, ...]
+        # We only pad the end of the H and W dimensions (axes 2 and 3).
+        padding_amounts = op.concat([
+            to_const(np.array([0, 0, 0, 0], dtype=np.int64)), # Pads for N and C axes
+            pad_h, pad_w                          # Pads for H and W axes
+        ], axis=0)
+
+        # Pad the tile with zeros to make it the full size.
+        padded_decoded_tile = op.pad(
+            decoded_tile,
+            pads=padding_amounts,
+            mode='constant',
+            constant_value=to_const(np.array(0.0, dtype=target_dtype))
+        )
+        # --- END FIX ---
+        
+        # Insert the *padded* tile into the sequence.
+        updated_sequence = op.sequence_insert(decoded_tiles_seq, padded_decoded_tile)
         return op.const(True), updated_sequence
 
     initial_sequence = op.sequence_empty(dtype=target_dtype)
     (final_decoded_tiles_seq,) = op.loop(trip_count, v_initial=[initial_sequence], body=tile_decoding_body)
 
-    # --- STAGE 2: Blend and assemble from the sequence of decoded tiles ---
+    # --- STAGE 2: Blend and assemble (this logic is now correct because all tiles are full-sized) ---
+    # ... (The entire Stage 2 and final building logic remains unchanged from the previous answer) ...
     fill_value = np.array([0], dtype=target_dtype)
     initial_canvas_shape = op.concat([batch_size, to_const(np.array([config['out_channels'], 0], dtype=np.int64)), op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))], axis=0)
     initial_canvas = op.constant_of_shape(initial_canvas_shape, value=fill_value)
@@ -536,39 +562,27 @@ def build_tiled_decoder_onnx_model_with_loop(
 
         @with_error_context("Inner Loop (Columns)")
         def row_assembly_body(col_idx, _, accumulated_row):
-            # Get the original decoded tile for this position
             flat_idx = op.add(op.mul(row_idx, num_cols), col_idx)
             current_blending_tile = op.sequence_at(final_decoded_tiles_seq, flat_idx)
 
-            # V-Blend with the original decoded tile from the row above
             def blend_vertically():
                 tile_from_above = op.sequence_at(final_decoded_tiles_seq, op.sub(flat_idx, num_cols))
                 return [spox_blend_v(tile_from_above, current_blending_tile, blend_extent, tile_sample_min_size, target_dtype)]
-            
             is_first_row = op.equal(row_idx, to_const(np.array(0, dtype=np.int64)))
             (v_blended_tile,) = op.if_(is_first_row, else_branch=blend_vertically, then_branch=lambda: [current_blending_tile])
 
-            # H-Blend the (maybe v-blended) tile with the original decoded tile from the left
             def blend_horizontally():
                 tile_from_left = op.sequence_at(final_decoded_tiles_seq, op.sub(flat_idx, to_const(np.array(1, dtype=np.int64))))
                 return [spox_blend_h(tile_from_left, v_blended_tile, blend_extent, tile_sample_min_size, target_dtype)]
-
             is_first_col = op.equal(col_idx, to_const(np.array(0, dtype=np.int64)))
             (final_blended_tile,) = op.if_(is_first_col, else_branch=blend_horizontally, then_branch=lambda: [v_blended_tile])
             
-            # Crop the now fully-blended tile before concatenation
-            cropped_tile = op.slice(final_blended_tile, 
-                                    starts=to_const(np.array([0, 0])), 
-                                    ends=to_const(np.array([row_limit, row_limit])), 
-                                    axes=to_const(np.array([2, 3])))
+            cropped_tile = op.slice(final_blended_tile, starts=to_const(np.array([0, 0])), ends=to_const(np.array([row_limit, row_limit])), axes=to_const(np.array([2, 3])))
             
-            # Append the cropped tile to the current row being built
             new_accumulated_row = op.concat([accumulated_row, cropped_tile], axis=3)
             return op.const(True), new_accumulated_row
 
         (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=row_assembly_body)
-        
-        # Concatenate the full row to the final canvas
         updated_canvas = op.concat([current_canvas, full_row], axis=2)
         return op.const(True), updated_canvas
 
@@ -577,14 +591,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     # --- 7. Final Cropping and Reshaping ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))
     final_out_width = op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
-    
     target_output_shape_var = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), final_out_height, final_out_width], axis=0)
-    
-    final_image_cropped = op.slice(final_canvas,
-        starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)),
-        ends=target_output_shape_var,
-        axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64)))
-
+    final_image_cropped = op.slice(final_canvas, starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)), ends=target_output_shape_var, axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64)))
     final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape_var)
     
     # --- 8. Build Model ---
@@ -593,5 +601,5 @@ def build_tiled_decoder_onnx_model_with_loop(
         outputs={"reconstructed_sample": final_output_with_shape_hint}
     )
     
-    print("Successfully built Tiled Decoder ONNX ModelProto using two-stage logic.")
+    print("Successfully built Tiled Decoder ONNX ModelProto with explicit edge padding.")
     return decoder_model

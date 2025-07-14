@@ -6,13 +6,15 @@ import spoxVAE
 import onnxruntime as rt
 import onnxoptimizer
 import onnx
+import subprocess
 
 # --- Configuration ---
 SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
 CONFIG_FILE_PATH = "/lab/model/vae/config.json"
 DECODER_OUTPUT_PATH = "tiled_decoder.onnx"
 OPTIMIZED_OUTPUT_PATH1 = "tiled_decoder_optimized_constant_folding.onnx"
-OPTIMIZED_OUTPUT_PATH2 = "tiled_decoder_optimized_runtime_extended.onnx"
+OPTIMIZED_OUTPUT_PATH2 = "tiled_decoder_optimized_onnxslim_full.onnx"
+OPTIMIZED_OUTPUT_PATH3 = "tiled_decoder_optimized_runtime_extended.onnx"
 
 if __name__ == '__main__':
     try:
@@ -32,29 +34,29 @@ if __name__ == '__main__':
             f.write(encoder_proto.SerializeToString())
         print(f"Saved encoder model to {DECODER_OUTPUT_PATH}")
 
+        # Optimize with onnxslim (constant folding only approximation)
+        print(f"\nOptimizing model with onnxslim (constant folding focused)...")
+        onnxslim_cmd1 = f"onnxslim {DECODER_OUTPUT_PATH} {OPTIMIZED_OUTPUT_PATH1} --skip-optimizations graph_fusion dead_node_elimination subexpression_elimination weight_tying"
+        print(f"Running command: {onnxslim_cmd1}")
+        subprocess.run(onnxslim_cmd1, shell=True, check=True)
+        print(f"Saved constant folding optimized model to {OPTIMIZED_OUTPUT_PATH1}")
+
+        # Optimize with onnxslim (full)
+        print(f"\nOptimizing model with onnxslim (full)...")
+        onnxslim_cmd2 = f"onnxslim {DECODER_OUTPUT_PATH} {OPTIMIZED_OUTPUT_PATH2}"
+        print(f"Running command: {onnxslim_cmd2}")
+        subprocess.run(onnxslim_cmd2, shell=True, check=True)
+        print(f"Saved full optimized model to {OPTIMIZED_OUTPUT_PATH2}")
+
         # Optimize the model using onnxruntime
         print(f"\nOptimizing model with onnxruntime...")
-        
-        # First, create a version with ONLY constant folding using ONNX Optimizer
-        print(f"Creating constant folding optimized version...")
-        
-        model = onnx.load(DECODER_OUTPUT_PATH)
-            
-        # Apply only constant folding optimization
-        optimized_model = onnxoptimizer.optimize(model, ['eliminate_unused_initializer', 'eliminate_constant_of_shape', 'constant_folding'])
-            
-        # Save the optimized model
-        onnx.save(optimized_model, OPTIMIZED_OUTPUT_PATH1)
-    
-           
-        # Fallback to ONNXRuntime if onnxoptimizer is not available
         sess_options_basic = rt.SessionOptions()
         sess_options_basic.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_ALL
-        sess_options_basic.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH2
+        sess_options_basic.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH3
         
         # Create session for basic optimization (constant folding focused)
         session_basic = rt.InferenceSession(DECODER_OUTPUT_PATH, sess_options_basic, providers=['CPUExecutionProvider'])
-        print(f"Saved constant folding optimized model to {OPTIMIZED_OUTPUT_PATH2}")
+        print(f"Saved constant folding optimized model to {OPTIMIZED_OUTPUT_PATH3}")
         
         # Now create the extended optimization version
         print(f"Creating extended optimized version...")
@@ -64,11 +66,11 @@ if __name__ == '__main__':
         sess_options.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
         
         # To enable model serialization after graph optimization set this
-        sess_options.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH2
+        sess_options.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH3
 
         # Create session which will trigger optimization and save the optimized model
         session = rt.InferenceSession(DECODER_OUTPUT_PATH, sess_options, providers=['CPUExecutionProvider'])
-        print(f"Saved optimized model to {OPTIMIZED_OUTPUT_PATH2}")
+        print(f"Saved optimized model to {OPTIMIZED_OUTPUT_PATH3}")
 
         print("\n--- Build process completed successfully! ---")
 

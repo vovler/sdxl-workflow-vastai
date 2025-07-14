@@ -630,16 +630,22 @@ def build_tiled_decoder_onnx_model_with_loop(
         axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64))
     )
 
-    outputs_dict = {"reconstructed_sample": final_image_cropped}
-    inputs_dict = {"latent_sample": latent_z_arg}
+    target_output_shape = op.concat([
+        batch_size,
+        to_const(np.array([config['out_channels']], dtype=np.int64)),
+        final_out_height,
+        final_out_width
+    ], axis=0)
     
-    graph = Graph(outputs_dict, inputs_dict)
-    decoder_model = graph.to_onnx_model(concrete=False)
+    final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape)
     
-    # Step 2: Set the required metadata on the returned ONNX ModelProto object.
-    # The underlying onnx.helper requires the graph to have a name.
-    decoder_model.graph.name = "tiled_decoder_graph"
+    # Now we can use the clean spox.build API.
+    decoder_model = spox.build(
+        inputs={"latent_sample": latent_z_arg},
+        # Pass the newly reshaped Var as the output
+        outputs={"reconstructed_sample": final_output_with_shape_hint}
+    )
     # --- FIX END ---
     
-    print("Successfully built Tiled Decoder ONNX ModelProto using op.loop.")
+    print("Successfully built Tiled Decoder ONNX ModelProto using spox.build.")
     return decoder_model

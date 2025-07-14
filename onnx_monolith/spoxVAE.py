@@ -522,10 +522,9 @@ def build_tiled_decoder_onnx_model_with_loop(
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
         # --- FINAL FIX 1 ---
-        # `indices` must be a 1D tensor [i] to update the i-th slice.
-        # `updates` must be the raw 4D slice.
-        scatter_indices = op.unsqueeze(iteration_num, axes=to_const(np.array([0]))) # Shape [1]
-        scatter_updates = padded_decoded_tile # Shape [batch, C, H, W]
+        # To update data[i], `indices` must be [[i]] (shape [1,1]) and `updates` must be [slice] (shape [1, ...slice_shape]).
+        scatter_indices = op.unsqueeze(op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
+        scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
         # --- END FIX ---
         
         updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
@@ -563,9 +562,9 @@ def build_tiled_decoder_onnx_model_with_loop(
         (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=col_assembly_body)
 
         # --- FINAL FIX 2 ---
-        # Apply the same simplified logic to the second ScatterND call.
-        scatter_indices_row = op.unsqueeze(row_idx, axes=to_const(np.array([0]))) # Shape [1]
-        scatter_updates_row = full_row # Shape [batch, C, H_limit, W_full]
+        # Apply the same logic to the second ScatterND call.
+        scatter_indices_row = op.unsqueeze(op.unsqueeze(row_idx, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
+        scatter_updates_row = op.unsqueeze(full_row, axes=to_const(np.array([0])))
         # --- END FIX ---
         
         updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices_row, scatter_updates_row)

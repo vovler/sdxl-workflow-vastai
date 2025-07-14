@@ -4,12 +4,15 @@ import traceback
 from safetensors.numpy import load_file
 import spoxVAE
 import onnxruntime as rt
+import onnxoptimizer
+import onnx
 
 # --- Configuration ---
 SAFETENSORS_FILE_PATH = "/lab/model/vae/diffusion_pytorch_model.safetensors"
 CONFIG_FILE_PATH = "/lab/model/vae/config.json"
 DECODER_OUTPUT_PATH = "tiled_decoder.onnx"
-OPTIMIZED_OUTPUT_PATH = "tiled_decoder_optimized2.onnx"
+OPTIMIZED_OUTPUT_PATH1 = "tiled_decoder_optimized_constant_folding.onnx"
+OPTIMIZED_OUTPUT_PATH2 = "tiled_decoder_optimized_runtime_extended.onnx"
 
 if __name__ == '__main__':
     try:
@@ -31,17 +34,41 @@ if __name__ == '__main__':
 
         # Optimize the model using onnxruntime
         print(f"\nOptimizing model with onnxruntime...")
+        
+        # First, create a version with ONLY constant folding using ONNX Optimizer
+        print(f"Creating constant folding optimized version...")
+        
+        model = onnx.load(DECODER_OUTPUT_PATH)
+            
+        # Apply only constant folding optimization
+        optimized_model = onnxoptimizer.optimize(model, ['eliminate_unused_initializer', 'eliminate_constant_of_shape', 'constant_folding'])
+            
+        # Save the optimized model
+        onnx.save(optimized_model, OPTIMIZED_OUTPUT_PATH1)
+    
+           
+        # Fallback to ONNXRuntime if onnxoptimizer is not available
+        sess_options_basic = rt.SessionOptions()
+        sess_options_basic.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_ALL
+        sess_options_basic.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH2
+        
+        # Create session for basic optimization (constant folding focused)
+        session_basic = rt.InferenceSession(DECODER_OUTPUT_PATH, sess_options_basic, providers=['CPUExecutionProvider'])
+        print(f"Saved constant folding optimized model to {OPTIMIZED_OUTPUT_PATH2}")
+        
+        # Now create the extended optimization version
+        print(f"Creating extended optimized version...")
         sess_options = rt.SessionOptions()
         
         # Set graph optimization level
         sess_options.graph_optimization_level = rt.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
         
         # To enable model serialization after graph optimization set this
-        sess_options.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH
+        sess_options.optimized_model_filepath = OPTIMIZED_OUTPUT_PATH2
 
         # Create session which will trigger optimization and save the optimized model
         session = rt.InferenceSession(DECODER_OUTPUT_PATH, sess_options, providers=['CPUExecutionProvider'])
-        print(f"Saved optimized model to {OPTIMIZED_OUTPUT_PATH}")
+        print(f"Saved optimized model to {OPTIMIZED_OUTPUT_PATH2}")
 
         print("\n--- Build process completed successfully! ---")
 

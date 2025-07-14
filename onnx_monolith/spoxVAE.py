@@ -516,21 +516,21 @@ def build_tiled_decoder_onnx_model_with_loop(
         post_quant_tile = spox_conv_2d(latent_tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
         decoded_tile = spox_decoder(post_quant_tile, spox_params["decoder"], config, target_dtype)
         
-        # --- FIX: EXPLICIT PADDING FOR EDGE TILES ---
-        # Get the actual shape of the decoded tile. It might be smaller than the full tile size.
+    # --- FIX: CORRECT CONSTRUCTION OF THE PADS TENSOR ---
         decoded_shape = op.shape(decoded_tile)
         decoded_height = op.gather(decoded_shape, to_const(np.array([2], dtype=np.int64)))
         decoded_width = op.gather(decoded_shape, to_const(np.array([3], dtype=np.int64)))
         
-        # Calculate the required padding to bring it up to the full tile_sample_min_size
-        pad_h = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_height)
-        pad_w = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_width)
+        pad_h_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_height)
+        pad_w_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_width)
         
-        # `pads` format is [start_axis_0, start_axis_1, ..., end_axis_0, end_axis_1, ...]
-        # We only pad the end of the H and W dimensions (axes 2 and 3).
+        # Create the full 8-element pads tensor: [N_start, C_start, H_start, W_start, N_end, C_end, H_end, W_end]
+        # We only pad the end of the H and W dimensions.
+        # Note: We unsqueeze the scalar padding values to make them 1D before concatenating.
         padding_amounts = op.concat([
-            to_const(np.array([0, 0, 0, 0], dtype=np.int64)), # Pads for N and C axes
-            pad_h, pad_w                          # Pads for H and W axes
+            to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), # Pads for N_s, C_s, H_s, W_s, N_e, C_e
+            op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))),       # Pad for H_e
+            op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))        # Pad for W_e
         ], axis=0)
 
         # Pad the tile with zeros to make it the full size.

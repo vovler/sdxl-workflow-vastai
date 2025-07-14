@@ -187,7 +187,7 @@ def main():
     width_div_8 = width // 8
     
     input_profiles = OrderedDict([
-        ("latent", {
+        ("latent_sample", {
             "min": (batch_size, 4, height_div_8, width_div_8),
             "opt": (batch_size, 4, height_div_8, width_div_8),
             "max": (batch_size, 4, height_div_8, width_div_8),

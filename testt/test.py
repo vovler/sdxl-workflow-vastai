@@ -24,11 +24,14 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
 class VaeDecoder(nn.Module):
     def __init__(self, vae: AutoencoderKL):
         super().__init__()
-        self.vae = vae
+        # Wrap the non-scriptable VAE in a list to prevent the JIT
+        # from trying to compile it as a submodule.
+        self.vae_container: List[AutoencoderKL] = [vae]
 
     @torch.jit.ignore
     def _ignored_decode(self, latent_tile: torch.Tensor) -> torch.Tensor:
-        return self.vae.decode(latent_tile).sample
+        # Access the VAE from the list.
+        return self.vae_container[0].decode(latent_tile).sample
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
         r"""

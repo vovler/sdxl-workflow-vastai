@@ -24,8 +24,11 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
 class VaeDecoder(nn.Module):
     def __init__(self, vae: AutoencoderKL):
         super().__init__()
-        # The VAE is not scriptable, so we need to ignore its decode method.
-        self._vae_decode = torch.jit.ignore(vae.decode)
+        self.vae = vae
+
+    @torch.jit.ignore
+    def _ignored_decode(self, latent_tile: torch.Tensor) -> torch.Tensor:
+        return self.vae.decode(latent_tile).sample
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
         r"""
@@ -49,8 +52,7 @@ class VaeDecoder(nn.Module):
             decoded_row_tiles: List[torch.Tensor] = []
             for j in w_steps:
                 tile_latent = latent[:, :, i : i + tile_latent_min_size, j : j + tile_latent_min_size]
-                # We need to access the sample from the output of the VAE decode.
-                decoded_tile = self._vae_decode(tile_latent).sample
+                decoded_tile = self._ignored_decode(tile_latent)
                 decoded_row_tiles.append(decoded_tile)
             
             if len(prev_row_tiles) > 0:

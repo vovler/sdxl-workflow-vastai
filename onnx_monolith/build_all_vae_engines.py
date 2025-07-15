@@ -176,7 +176,8 @@ def main():
     
     onnx_files = [
         "decoder_opt.onnx",
-        "tiled_decoder_optimized_onnxslim_full.onnx",
+        "vae_clean.onnx"
+        #"tiled_decoder_optimized_onnxslim_full.onnx",
         #"tiled_decoder_optimized_constant_folding.onnx",
         #"tiled_decoder_optimized_runtime_extended.onnx"
     ]

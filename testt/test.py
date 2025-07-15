@@ -9,12 +9,17 @@ import traceback
 @torch.jit.script
 def _onnx_friendly_min(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
-    Calculates min(a, b) using torch.where, which is more stable for ONNX export.
+    Calculates min(a, b) using a method that is stable for ONNX export when
+    dealing with scalar tensors derived from dynamic shapes.
     """
     # --- FIX ---
-    # Replaced the mathematical formula with torch.where, which is directly
-    # supported and more stable for ONNX conversion.
-    return torch.where(a < b, a, b)
+    # Unsqueeze scalar tensors to 1D to stabilize rank inference for ONNX.
+    # The exporter can struggle with the rank of a 0-D tensor derived from
+    # a dynamic shape input.
+    a = a.unsqueeze(0)
+    b = b.unsqueeze(0)
+    # Perform the comparison and then squeeze back to a scalar tensor.
+    return torch.where(a < b, a, b).squeeze(0)
 
 @torch.jit.script
 def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:
@@ -23,7 +28,7 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
     shape_b_dim = torch.tensor(b.shape[2], device=a.device, dtype=torch.long)
     blend_extent_in_tensor = torch.tensor(blend_extent_in, device=a.device, dtype=torch.long)
 
-    # --- ONNX EXPORT FIX: Replace torch.min with a math-based equivalent ---
+    # Use the ONNX-friendly min function
     min_of_shapes = _onnx_friendly_min(shape_a_dim, shape_b_dim)
     blend_extent = _onnx_friendly_min(min_of_shapes, blend_extent_in_tensor)
 
@@ -53,7 +58,7 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
     shape_b_dim = torch.tensor(b.shape[3], device=a.device, dtype=torch.long)
     blend_extent_in_tensor = torch.tensor(blend_extent_in, device=a.device, dtype=torch.long)
 
-    # --- ONNX EXPORT FIX: Replace torch.min with a math-based equivalent ---
+    # Use the ONNX-friendly min function
     min_of_shapes = _onnx_friendly_min(shape_a_dim, shape_b_dim)
     blend_extent = _onnx_friendly_min(min_of_shapes, blend_extent_in_tensor)
 

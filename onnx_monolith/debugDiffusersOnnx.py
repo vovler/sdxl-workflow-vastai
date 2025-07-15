@@ -7,7 +7,7 @@ import math
 
 # --- Configuration ---
 VAE_PATH = "madebyollin/sdxl-vae-fp16-fix"
-DECODER_PATH = "tiled_decoder.onnx"
+DECODER_PATH = "tiled_decoder_optimized_onnxslim_full.onnx"
 TEST_IMAGE_PATH = "test.png"
 OUTPUT_IMAGE_PATH = "testDiffusersOnnx.png"
 

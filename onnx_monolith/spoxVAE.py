@@ -442,79 +442,67 @@ def spox_blend_v(
     bottom_tile: spox.Var, 
     blend_extent: int, 
     tile_size: int, 
-    is_first_row_mask: spox.Var, # New input: A mask that is 1.0 for first row, 0.0 otherwise
     target_dtype: np.dtype
 ) -> spox.Var:
     """
     Blends the bottom rows of top_tile with the top rows of bottom_tile.
-    Uses an arithmetic mask to disable blending for the first row.
     """
-    # Base ramp always goes from 0.0 to 1.0
-    base_ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
-    base_ramp = to_const(base_ramp_np.reshape(1, 1, blend_extent, 1))
-    
-    # Final ramp is `base_ramp` unless it's the first row, in which case it's all ones.
-    # ramp = base_ramp * (1 - mask) + 1.0 * mask
-    one_const = to_const(np.array(1.0, dtype=target_dtype))
-    ramp = op.add(
-        op.mul(base_ramp, op.sub(one_const, is_first_row_mask)),
-        is_first_row_mask
-    )
+    # The reshape here is on a numpy array, not a Spox Var. This is safe for TRT.
+    ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
+    ramp = to_const(ramp_np.reshape(1, 1, blend_extent, 1))
 
     # Slice the regions to be blended
     top_blend_region = op.slice(top_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([2])))
     bottom_blend_region = op.slice(bottom_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([2])))
 
-    # The formula remains: blended = top * (1 - ramp) + bottom * ramp
+    # The formula is: blended = top * (1 - ramp) + bottom * ramp
+    # This matches the diffusers logic: the new tile (bottom) fades IN.
+    one_const = to_const(np.array(1.0, dtype=target_dtype))
     blended_region = op.add(
         op.mul(top_blend_region, op.sub(one_const, ramp)),
         op.mul(bottom_blend_region, ramp)
     )
 
+    # Get the remaining part of the bottom tile that is not blended
     bottom_remaining = op.slice(bottom_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([2])))
     
+    # Concatenate the blended region with the rest of the tile
     return op.concat([blended_region, bottom_remaining], axis=2)
-
 
 def spox_blend_h(
     left_tile: spox.Var, 
     right_tile: spox.Var, 
     blend_extent: int, 
     tile_size: int, 
-    is_first_col_mask: spox.Var, # New input: A mask that is 1.0 for first col, 0.0 otherwise
     target_dtype: np.dtype
 ) -> spox.Var:
     """
     Blends the right columns of left_tile with the left columns of right_tile.
-    Uses an arithmetic mask to disable blending for the first column.
     """
-    # Base ramp always goes from 0.0 to 1.0
-    base_ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
-    base_ramp = to_const(base_ramp_np.reshape(1, 1, 1, blend_extent))
-    
-    # Final ramp is `base_ramp` unless it's the first col, in which case it's all ones.
-    # ramp = base_ramp * (1 - mask) + 1.0 * mask
-    one_const = to_const(np.array(1.0, dtype=target_dtype))
-    ramp = op.add(
-        op.mul(base_ramp, op.sub(one_const, is_first_col_mask)),
-        is_first_col_mask
-    )
+    # The reshape here is on a numpy array, not a Spox Var. This is safe for TRT.
+    ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
+    ramp = to_const(ramp_np.reshape(1, 1, 1, blend_extent))
 
     # Slice the regions to be blended
     left_blend_region = op.slice(left_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
     right_blend_region = op.slice(right_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([3])))
 
-    # The formula remains: blended = left * (1 - ramp) + right * ramp
+    # The formula is: blended = left * (1 - ramp) + right * ramp
+    # This matches the diffusers logic: the new tile (right) fades IN.
+    one_const = to_const(np.array(1.0, dtype=target_dtype))
     blended_region = op.add(
         op.mul(left_blend_region, op.sub(one_const, ramp)),
         op.mul(right_blend_region, ramp)
     )
 
+    # Get the remaining part of the right tile that is not blended
     right_remaining = op.slice(right_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
     
+    # Concatenate the blended region with the rest of the tile
     return op.concat([blended_region, right_remaining], axis=3)
 
 
+# --- Main Build Function (Corrected Two-Stage Logic) ---
 @with_error_context("Tiled Decoder Model")
 def build_tiled_decoder_onnx_model_with_loop(
     state_dict: Dict[str, np.ndarray],
@@ -522,30 +510,29 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a fully TensorRT-compatible VAE Tiled Decoder ONNX model.
-    This version uses a two-stage process and arithmetic masking to eliminate
-    all conditional logic (`op.where`) from the loop body, ensuring static
-    analyzability for the TensorRT builder.
+    This version refactors the blending loop to use op.Where instead of op.If,
+    making it more amenable to TensorRT's static analysis.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
 
-    # --- 1. Tiling and Shape Parameter Calculation (Identical to previous) ---
+    # --- 1. Tiling and Shape Parameter Calculation ---
     tile_sample_min_size = config["sample_size"]
     tile_latent_min_size = int(tile_sample_min_size / (2 ** (len(config["block_out_channels"]) - 1)))
     tile_overlap_factor = 0.25
     downsample_factor = 2**(len(config["block_out_channels"]) - 1)
-    overlap_size = int(tile_latent_min_size * tile_overlap_factor)
+    overlap_size = int(tile_latent_min_size * (1 - tile_overlap_factor))
     blend_extent = int(tile_sample_min_size * tile_overlap_factor)
     row_limit = tile_sample_min_size - blend_extent
     
     print(f"Tiling config: latent_tile={tile_latent_min_size}, sample_tile={tile_sample_min_size}, overlap={overlap_size}, blend={blend_extent}, row_limit={row_limit}")
 
-    # --- 2. Load Parameters & Define Inputs (Identical to previous) ---
+    # --- 2. Load Parameters & Define Inputs ---
     spox_params = load_and_create_spox_params(state_dict, target_dtype)
     latent_type = spox.Tensor(target_dtype, ('batch_size', config["latent_channels"], 'latent_height', 'latent_width'))
     latent_z_arg = spox.argument(latent_type)
 
-    # --- 3. Dynamic Shape Calculations (Identical to previous) ---
+    # --- 3. Dynamic Shape Calculations ---
     latent_shape = op.shape(latent_z_arg)
     batch_size = op.gather(latent_shape, to_const(np.array([0], dtype=np.int64)))
     latent_height = op.gather(latent_shape, to_const(np.array([2], dtype=np.int64)))
@@ -557,8 +544,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     trip_count = op.mul(num_rows, num_cols)
     fill_value = np.array([0.0], dtype=target_dtype)
     empty_shape_const = to_const(np.array([], dtype=np.int64))
-    
-    # --- STAGE 1: Decode all tiles and store in a cache (Identical to previous) ---
+
+    # --- STAGE 1: Decode all tiles and store in a 5D cache tensor ---
     cache_shape = op.concat([trip_count, batch_size, to_const(np.array([config['out_channels'], tile_sample_min_size, tile_sample_min_size], dtype=np.int64))], axis=0)
     initial_tile_cache = op.constant_of_shape(cache_shape, value=fill_value)
 
@@ -589,48 +576,48 @@ def build_tiled_decoder_onnx_model_with_loop(
 
     (final_tile_cache,) = op.loop(trip_count, v_initial=[initial_tile_cache], body=tile_decoding_body)
 
-    # --- STAGE 2: Blend all tiles using unconditional arithmetic masking ---
+    # --- STAGE 2: Blend all tiles and store them in a new blended_cache tensor ---
     initial_blended_cache = op.constant_of_shape(cache_shape, value=fill_value)
 
-    @with_error_context("Stage 2: Blending Loop (Arithmetic Masking)")
+    @with_error_context("Stage 2: Blending Loop")
     def blending_loop_body(iteration_num, _, current_blended_cache):
         row_idx = op.div(iteration_num, num_cols)
         col_idx = op.mod(iteration_num, num_cols)
         
         scalar_iter = op.reshape(iteration_num, empty_shape_const, allowzero=1)
-        current_tile = op.gather(final_tile_cache, scalar_iter, axis=0) # Get unblended tile
-
-        # Create floating point masks (0.0 or 1.0)
-        is_first_row_mask_f = op.cast(op.equal(row_idx, to_const(np.array(0, dtype=np.int64))), to=target_dtype)
-        is_first_col_mask_f = op.cast(op.equal(col_idx, to_const(np.array(0, dtype=np.int64))), to=target_dtype)
         
-        # Unconditionally get the tile above. For the first row, this will gather garbage,
-        # but the mask will ensure it has no effect on the output.
-        idx_above = op.sub(iteration_num, num_cols)
-        scalar_idx_above = op.reshape(idx_above, empty_shape_const, allowzero=1)
+        current_tile = op.gather(final_tile_cache, scalar_iter, axis=0)
+
+        # --- FIX: Vertical Blend using op.Where instead of op.If ---
+        is_first_row_mask = op.equal(row_idx, to_const(np.array([0], dtype=np.int64)))
+        
+        # This branch is computed unconditionally, but only selected if the mask is false.
+        scalar_idx_above = op.reshape(op.sub(iteration_num, num_cols), empty_shape_const, allowzero=1)
         tile_above = op.gather(final_tile_cache, scalar_idx_above, axis=0)
+        v_blended_result = spox_blend_v(tile_above, current_tile, blend_extent, tile_sample_min_size, target_dtype)
         
-        # The result of the vertical blend. The mask handles the boundary condition.
-        tile_after_v_blend = spox_blend_v(tile_above, current_tile, blend_extent, tile_sample_min_size, is_first_row_mask_f, target_dtype)
+        v_blended = op.where(is_first_row_mask, current_tile, v_blended_result)
 
-        # Unconditionally get the tile to the left from the blended cache.
-        idx_left = op.sub(iteration_num, to_const(np.array(1, dtype=np.int64)))
-        scalar_idx_left = op.reshape(idx_left, empty_shape_const, allowzero=1)
+        # --- FIX: Horizontal Blend using op.Where instead of op.If ---
+        is_first_col_mask = op.equal(col_idx, to_const(np.array([0], dtype=np.int64)))
+        
+        # This branch is computed unconditionally.
+        scalar_idx_left = op.reshape(op.sub(iteration_num, to_const(np.array([1], dtype=np.int64))), empty_shape_const, allowzero=1)
         tile_left = op.gather(current_blended_cache, scalar_idx_left, axis=0)
+        h_blended_result = spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)
 
-        # The final blended tile. The mask handles the boundary condition.
-        final_blended_tile = spox_blend_h(tile_left, tile_after_v_blend, blend_extent, tile_sample_min_size, is_first_col_mask_f, target_dtype)
-
+        final_blended = op.where(is_first_col_mask, v_blended, h_blended_result)
+        
         # Scatter the final blended result into the new cache
         scatter_indices = op.unsqueeze(op.unsqueeze(scalar_iter, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates = op.unsqueeze(final_blended_tile, axes=to_const(np.array([0])))
+        scatter_updates = op.unsqueeze(final_blended, axes=to_const(np.array([0])))
         updated_blended_cache = op.scatter_nd(current_blended_cache, scatter_indices, scatter_updates)
-        
         return op.const(True), updated_blended_cache
     
     (final_blended_cache,) = op.loop(trip_count, v_initial=[initial_blended_cache], body=blending_loop_body)
 
-    # --- STAGE 3: Final Assembly from Blended Cache (Identical to previous) ---
+    # --- STAGE 3: Final Assembly from Blended Cache (No Loops) ---
+    
     cropped_blended_cache = op.slice(final_blended_cache,
         starts=to_const(np.array([0, 0, 0, 0, 0], dtype=np.int64)),
         ends=op.concat([
@@ -655,6 +642,7 @@ def build_tiled_decoder_onnx_model_with_loop(
     final_canvas_shape = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), op.mul(num_rows, to_const(np.array(row_limit, dtype=np.int64))), final_row_width], axis=0)
     final_canvas = op.reshape(transposed_for_canvas, final_canvas_shape, allowzero=1)
     
+    # --- Final Cropping and Reshaping for Output ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))
     final_out_width = op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
     target_output_shape_var = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), final_out_height, final_out_width], axis=0)

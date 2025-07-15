@@ -466,6 +466,8 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a fully TensorRT-compatible VAE Tiled Decoder ONNX model.
+    This version uses a multi-stage tensor caching strategy with no shape-variant
+    loop state variables to ensure compatibility with TensorRT's IRecurrenceLayer.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
@@ -521,13 +523,13 @@ def build_tiled_decoder_onnx_model_with_loop(
         padding_amounts = op.concat([to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))), op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))], axis=0)
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
-        # --- FINAL, DEFINITIVE FIX 1 ---
-        # The iteration_num is a 1D tensor [i]. Squeeze to a scalar i.
+        # --- FINAL, DEFINITIVE SCATTERND FIX ---
+        # The runtime error indicates indices will be {1,1,1}, so updates must be rank 6.
+        # `iteration_num` from the loop is shape [1].
         scalar_iter = op.squeeze(iteration_num, axes=to_const(np.array([0])))
-        # Build indices as [[i]], shape [1, 1].
         scatter_indices = op.unsqueeze(op.unsqueeze(scalar_iter, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        # Build updates as [padded_tile], shape [1, batch, C, H, W].
-        scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
+        # Unsqueeze the updates tensor twice to give it the required rank 6.
+        scatter_updates = op.unsqueeze(op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         # --- END FIX ---
         
         updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
@@ -564,12 +566,10 @@ def build_tiled_decoder_onnx_model_with_loop(
 
         (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=col_assembly_body)
 
-        # --- FINAL, DEFINITIVE FIX 2 ---
-        # Apply the same robust logic to the second ScatterND call.
+        # Apply the same robust fix to the second ScatterND call.
         scalar_row_idx = op.squeeze(row_idx, axes=to_const(np.array([0])))
         scatter_indices_row = op.unsqueeze(op.unsqueeze(scalar_row_idx, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates_row = op.unsqueeze(full_row, axes=to_const(np.array([0])))
-        # --- END FIX ---
+        scatter_updates_row = op.unsqueeze(op.unsqueeze(full_row, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         
         updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices_row, scatter_updates_row)
         return op.const(True), updated_row_cache
@@ -585,7 +585,8 @@ def build_tiled_decoder_onnx_model_with_loop(
         op.mul(num_rows, to_const(np.array(row_limit, dtype=np.int64))),
         final_row_width
     ], axis=0)
-    final_canvas = op.reshape(transposed_for_canvas, final_canvas_shape)
+    # FIX: Correct the variable name here.
+    final_canvas = op.reshape(transposed_cache, final_canvas_shape)
     
     # --- Final Cropping and Reshaping for Output ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))

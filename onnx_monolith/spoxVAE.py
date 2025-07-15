@@ -466,8 +466,6 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a fully TensorRT-compatible VAE Tiled Decoder ONNX model.
-    This version uses a multi-stage tensor caching strategy with no shape-variant
-    loop state variables to ensure compatibility with TensorRT's IRecurrenceLayer.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
@@ -506,7 +504,6 @@ def build_tiled_decoder_onnx_model_with_loop(
 
     @with_error_context("Stage 1: Tile Decoding Loop")
     def tile_decoding_body(iteration_num, _, current_tile_cache):
-        # This function's logic is correct and remains the same.
         row_idx = op.div(iteration_num, num_cols)
         col_idx = op.mod(iteration_num, num_cols)
         start_h = op.mul(row_idx, overlap_size_const)
@@ -524,74 +521,65 @@ def build_tiled_decoder_onnx_model_with_loop(
         padding_amounts = op.concat([to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), op.unsqueeze(pad_h_end, axes=to_const(np.array([0]))), op.unsqueeze(pad_w_end, axes=to_const(np.array([0])))], axis=0)
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
-        # Scatter the result into the cache
-        scatter_indices = op.unsqueeze(op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
+        # --- THE FINAL FIX ---
+        # To update data[i], `indices` must be [i] (shape [1]) and `updates` must be the raw slice.
+        scatter_indices = op.unsqueeze(iteration_num, axes=to_const(np.array([0], dtype=np.int64)))
+        scatter_updates = padded_decoded_tile
+        # --- END FIX ---
+        
         updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
         return op.const(True), updated_tile_cache
 
     (final_tile_cache,) = op.loop(trip_count, v_initial=[initial_tile_cache], body=tile_decoding_body)
 
     # --- STAGE 2: Blend all tiles and store in a new blended_cache tensor ---
-    initial_blended_cache = op.constant_of_shape(cache_shape, value=fill_value) # Same shape as tile cache
+    initial_blended_cache = op.constant_of_shape(cache_shape, value=fill_value)
 
     @with_error_context("Stage 2: Blending Loop")
     def blending_loop_body(iteration_num, _, current_blended_cache):
         row_idx = op.div(iteration_num, num_cols)
         col_idx = op.mod(iteration_num, num_cols)
         
-        # Get the current tile to be blended
         current_tile = op.squeeze(op.gather(final_tile_cache, iteration_num, axis=0), axes=to_const(np.array([0])))
 
-        # V-Blend with the original decoded tile from the row above
         def blend_v_fn():
             tile_above = op.squeeze(op.gather(final_tile_cache, op.sub(iteration_num, num_cols), axis=0), axes=to_const(np.array([0])))
             return [spox_blend_v(tile_above, current_tile, blend_extent, tile_sample_min_size, target_dtype)]
         v_blended = op.if_(op.equal(row_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_v_fn, then_branch=lambda: [current_tile])[0]
 
-        # H-Blend with the original decoded tile from the left
         def blend_h_fn():
             tile_left = op.squeeze(op.gather(final_tile_cache, op.sub(iteration_num, to_const(np.array(1, dtype=np.int64))), axis=0), axes=to_const(np.array([0])))
             return [spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)]
         final_blended = op.if_(op.equal(col_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_h_fn, then_branch=lambda: [v_blended])[0]
         
-        # Scatter the final blended result into the new cache
-        scatter_indices = op.unsqueeze(op.unsqueeze(iteration_num, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates = op.unsqueeze(final_blended, axes=to_const(np.array([0])))
+        # --- THE FINAL FIX ---
+        scatter_indices = op.unsqueeze(iteration_num, axes=to_const(np.array([0], dtype=np.int64)))
+        scatter_updates = final_blended
+        # --- END FIX ---
+
         updated_blended_cache = op.scatter_nd(current_blended_cache, scatter_indices, scatter_updates)
         return op.const(True), updated_blended_cache
     
     (final_blended_cache,) = op.loop(trip_count, v_initial=[initial_blended_cache], body=blending_loop_body)
 
     # --- STAGE 3: Final Assembly from Blended Cache (No Loops) ---
+    final_row_width = op.mul(num_cols, to_const(np.array(row_limit, dtype=np.int64)))
     
-    # Crop all tiles first
     cropped_blended_cache = op.slice(final_blended_cache,
         starts=to_const(np.array([0, 0, 0, 0, 0])),
-        ends=op.concat([
-            trip_count,
-            batch_size,
-            to_const(np.array([config['out_channels'], row_limit, row_limit], dtype=np.int64))
-        ], axis=0),
-        axes=to_const(np.array([0, 1, 2, 3, 4]))
-    )
+        ends=op.concat([trip_count, batch_size, to_const(np.array([config['out_channels'], row_limit, row_limit], dtype=np.int64))], axis=0),
+        axes=to_const(np.array([0, 1, 2, 3, 4])))
     
-    # Reshape to group by row: [num_rows, num_cols, batch, C, row_limit, row_limit]
     grouped_by_row_shape = op.concat([num_rows, num_cols, batch_size, to_const(np.array([config['out_channels'], row_limit, row_limit], dtype=np.int64))], axis=0)
     grouped_by_row = op.reshape(cropped_blended_cache, grouped_by_row_shape)
     
-    # Transpose to bring columns next to each other for concatenation: [num_rows, batch, C, row_limit, num_cols, row_limit]
     transposed_for_rows = op.transpose(grouped_by_row, perm=[0, 2, 3, 4, 1, 5])
     
-    # Reshape to form rows: [num_rows, batch, C, row_limit, num_cols * row_limit]
-    final_row_width = op.mul(num_cols, to_const(np.array(row_limit, dtype=np.int64)))
     rows_concatenated_shape = op.concat([num_rows, batch_size, to_const(np.array([config['out_channels'], row_limit], dtype=np.int64)), final_row_width], axis=0)
     rows_concatenated = op.reshape(transposed_for_rows, rows_concatenated_shape)
     
-    # Transpose to bring rows next to each other for concatenation: [batch, C, num_rows, row_limit, final_row_width]
     transposed_for_canvas = op.transpose(rows_concatenated, perm=[1, 2, 0, 3, 4])
     
-    # Reshape to form the full canvas: [batch, C, num_rows * row_limit, final_row_width]
     final_canvas_shape = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), op.mul(num_rows, to_const(np.array(row_limit, dtype=np.int64))), final_row_width], axis=0)
     final_canvas = op.reshape(transposed_for_canvas, final_canvas_shape)
     

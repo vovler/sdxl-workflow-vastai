@@ -512,8 +512,8 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a fully TensorRT-compatible VAE Tiled Decoder ONNX model.
-    This version refactors the blending loop to use op.Where instead of op.If,
-    making it more amenable to TensorRT's static analysis.
+    This version refactors the blending logic into a separate, sequential loop
+    to resolve internal TensorRT builder errors.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
@@ -588,32 +588,37 @@ def build_tiled_decoder_onnx_model_with_loop(
         
         scalar_iter = op.reshape(iteration_num, empty_shape_const, allowzero=1)
         
+        # --- FIX: Refactored Blending Logic ---
+        # Get the current *unblended* tile from the first cache.
         current_tile = op.gather(final_tile_cache, scalar_iter, axis=0)
 
-        # --- FIX: Vertical Blend using op.Where instead of op.If ---
-        is_first_row_mask = op.equal(row_idx, to_const(np.array([0], dtype=np.int64)))
-        
-        # This branch is computed unconditionally, but only selected if the mask is false.
+        # -- Vertical Blend branch --
+        # This branch is always computed, but only selected via `op.where` if not the first row.
         scalar_idx_above = op.reshape(op.sub(iteration_num, num_cols), empty_shape_const, allowzero=1)
         tile_above = op.gather(final_tile_cache, scalar_idx_above, axis=0)
         v_blended_result = spox_blend_v(tile_above, current_tile, blend_extent, tile_sample_min_size, target_dtype)
         
-        v_blended = op.where(is_first_row_mask, current_tile, v_blended_result)
-
-        # --- FIX: Horizontal Blend using op.Where instead of op.If ---
-        is_first_col_mask = op.equal(col_idx, to_const(np.array([0], dtype=np.int64)))
+        # Select either the original tile or the vertically blended result.
+        is_first_row_mask = op.equal(row_idx, to_const(np.array([0], dtype=np.int64)))
+        v_blended_or_original = op.where(is_first_row_mask, current_tile, v_blended_result)
         
-        # This branch is computed unconditionally.
+        # -- Horizontal Blend branch --
+        # This branch is always computed, but only selected if not the first column.
         scalar_idx_left = op.reshape(op.sub(iteration_num, to_const(np.array([1], dtype=np.int64))), empty_shape_const, allowzero=1)
+        # CRUCIAL FIX: Get the tile to the left from the *current* blending loop's cache to get the
+        # already-blended version.
         tile_left = op.gather(current_blended_cache, scalar_idx_left, axis=0)
-        h_blended_result = spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)
-
-        final_blended = op.where(is_first_col_mask, v_blended, h_blended_result)
+        h_blended_result = spox_blend_h(tile_left, v_blended_or_original, blend_extent, tile_sample_min_size, target_dtype)
         
+        # Select either the result from the vertical blend stage or the horizontally blended result.
+        is_first_col_mask = op.equal(col_idx, to_const(np.array([0], dtype=np.int64)))
+        final_blended = op.where(is_first_col_mask, v_blended_or_original, h_blended_result)
+
         # Scatter the final blended result into the new cache
         scatter_indices = op.unsqueeze(op.unsqueeze(scalar_iter, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         scatter_updates = op.unsqueeze(final_blended, axes=to_const(np.array([0])))
         updated_blended_cache = op.scatter_nd(current_blended_cache, scatter_indices, scatter_updates)
+        
         return op.const(True), updated_blended_cache
     
     (final_blended_cache,) = op.loop(trip_count, v_initial=[initial_blended_cache], body=blending_loop_body)

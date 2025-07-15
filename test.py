@@ -1,7 +1,8 @@
-
 import torch
 import torch.nn as nn
 import onnx
+import tensorrt as trt
+import numpy as np
 
 # Simple model with a loop
 class SimpleLoop(nn.Module):
@@ -65,30 +66,76 @@ def test_exports():
     except Exception as e:
         print(f"❌ Regular model failed: {e}")
     
-    # Analyze the ONNX graphs
+def build_tensorrt_engine(onnx_file, engine_file):
+    """Build TensorRT engine from ONNX model"""
+    logger = trt.Logger(trt.Logger.WARNING)
+    builder = trt.Builder(logger)
+    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+    parser = trt.OnnxParser(network, logger)
+    
+    # Parse ONNX model
+    with open(onnx_file, 'rb') as model:
+        if not parser.parse(model.read()):
+            for error in range(parser.num_errors):
+                print(parser.get_error(error))
+            return None
+    
+    # Build engine
+    config = builder.create_builder_config()
+    config.max_workspace_size = 1 << 30  # 1GB
+    
+    # Create optimization profile for dynamic shapes
+    profile = builder.create_optimization_profile()
+    profile.set_shape("x", (1, 10), (1, 10), (1, 10))
+    profile.set_shape("num_steps", (1,), (1,), (1,))
+    config.add_optimization_profile(profile)
+    
+    try:
+        engine = builder.build_engine(network, config)
+        if engine:
+            with open(engine_file, 'wb') as f:
+                f.write(engine.serialize())
+            return engine
+    except Exception as e:
+        print(f"Engine build failed: {e}")
+        return None
+
+def test_tensorrt_engines():
+    """Test TensorRT engines"""
     print("\n" + "="*50)
-    print("ONNX GRAPH ANALYSIS")
+    print("TENSORRT ENGINE BUILDING")
     print("="*50)
     
-    try:
-        # Load and analyze scripted version
-        scripted_onnx = onnx.load("scripted_loop.onnx")
-        print(f"\nScripted model nodes: {len(scripted_onnx.graph.node)}")
-        print("Node types:")
-        for i, node in enumerate(scripted_onnx.graph.node):
-            print(f"  {i}: {node.op_type}")
-    except:
-        print("Could not analyze scripted model")
+    # Build engines
+    scripted_engine = build_tensorrt_engine("scripted_loop.onnx", "scripted_loop.trt")
+    regular_engine = build_tensorrt_engine("regular_loop.onnx", "regular_loop.trt")
     
-    try:
-        # Load and analyze regular version  
-        regular_onnx = onnx.load("regular_loop.onnx")
-        print(f"\nRegular model nodes: {len(regular_onnx.graph.node)}")
-        print("Node types:")
-        for i, node in enumerate(regular_onnx.graph.node):
-            print(f"  {i}: {node.op_type}")
-    except:
-        print("Could not analyze regular model")
+    if scripted_engine:
+        print("✅ Scripted TensorRT engine built successfully")
+        print(f"   Engine size: {len(open('scripted_loop.trt', 'rb').read())} bytes")
+    else:
+        print("❌ Scripted TensorRT engine failed")
+    
+    if regular_engine:
+        print("✅ Regular TensorRT engine built successfully")
+        print(f"   Engine size: {len(open('regular_loop.trt', 'rb').read())} bytes")
+    else:
+        print("❌ Regular TensorRT engine failed")
+    
+    # Analyze engine details
+    if scripted_engine:
+        print(f"\nScripted engine layers: {scripted_engine.num_layers}")
+        print("Layer info:")
+        for i in range(scripted_engine.num_layers):
+            layer = scripted_engine.get_layer(i)
+            print(f"  Layer {i}: {layer.type}")
+    
+    if regular_engine:
+        print(f"\nRegular engine layers: {regular_engine.num_layers}")
+        print("Layer info:")
+        for i in range(regular_engine.num_layers):
+            layer = regular_engine.get_layer(i)
+            print(f"  Layer {i}: {layer.type}")
 
 if __name__ == "__main__":
     test_exports()

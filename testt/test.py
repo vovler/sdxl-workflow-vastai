@@ -9,16 +9,38 @@ import traceback
 @torch.jit.script
 def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
     blend_extent = min(a.shape[2], b.shape[2], blend_extent)
-    for y in range(blend_extent):
-        b[:, :, y, :] = a[:, :, -blend_extent + y, :] * (1 - y / blend_extent) + b[:, :, y, :] * (y / blend_extent)
-    return b
+    if blend_extent == 0:
+        return b
+
+    # Create a blending weight tensor, requires broadcasting on batch and width dimensions
+    y = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, blend_extent, 1)
+    weight = y / blend_extent
+
+    # Blend the overlapping regions
+    blended_slice = a[:, :, -blend_extent:, :] * (1 - weight) + b[:, :, :blend_extent, :] * weight
+
+    # Create a new tensor for the result to avoid in-place operations
+    result = b.clone()
+    result[:, :, :blend_extent, :] = blended_slice
+    return result
 
 @torch.jit.script
 def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
     blend_extent = min(a.shape[3], b.shape[3], blend_extent)
-    for x in range(blend_extent):
-        b[:, :, :, x] = a[:, :, :, -blend_extent + x] * (1 - x / blend_extent) + b[:, :, :, x] * (x / blend_extent)
-    return b
+    if blend_extent == 0:
+        return b
+
+    # Create a blending weight tensor, requires broadcasting on batch and height dimensions
+    x = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, 1, blend_extent)
+    weight = x / blend_extent
+
+    # Blend the overlapping regions
+    blended_slice = a[:, :, :, -blend_extent:] * (1 - weight) + b[:, :, :, :blend_extent] * weight
+    
+    # Create a new tensor for the result to avoid in-place operations
+    result = b.clone()
+    result[:, :, :, :blend_extent] = blended_slice
+    return result
 
 # VAE Decoder Wrapper for ONNX export
 class VaeDecoder(nn.Module):
@@ -112,7 +134,7 @@ def test_export(vae: AutoencoderKL):
                     'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
                     'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
                 },
-                opset_version=17
+                opset_version=21
             )
             print("✅ VAE Decoder exported successfully to onnx/vae_decoder.onnx")
     except Exception as e:

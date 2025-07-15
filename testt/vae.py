@@ -320,7 +320,6 @@ class AutoEncoderKL(nn.Module):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
-    @torch.jit.ignore
     def tiled_decode(self, latent):
         r"""
         Decode a batch of images using a tiled decoder.

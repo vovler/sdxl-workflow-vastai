@@ -437,8 +437,6 @@ def build_decoder_onnx_model(state_dict: Dict[str, np.ndarray], config: Dict) ->
 
 
 
-
-
 def spox_blend_v(
     top_tile: spox.Var, 
     bottom_tile: spox.Var, 
@@ -448,27 +446,28 @@ def spox_blend_v(
 ) -> spox.Var:
     """
     Blends the bottom rows of top_tile with the top rows of bottom_tile.
+    The returned tile is a modified version of the bottom_tile.
     """
-    # The reshape here is on a numpy array, not a Spox Var. This is safe for TRT.
+    # ramp shape: (1, 1, blend_extent, 1) for vertical blending
     ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
     ramp = to_const(ramp_np.reshape(1, 1, blend_extent, 1))
 
-    # Slice the regions to be blended
+    # Slice the regions to be blended from both tiles
     top_blend_region = op.slice(top_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([2])))
     bottom_blend_region = op.slice(bottom_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([2])))
 
-    # The formula is: blended = top * (1 - ramp) + bottom * ramp
-    # This matches the diffusers logic: the new tile (bottom) fades IN.
+    # The blending formula: blended = top * (1 - ramp) + bottom * ramp
+    # This fades in the new (bottom) tile.
     one_const = to_const(np.array(1.0, dtype=target_dtype))
     blended_region = op.add(
         op.mul(top_blend_region, op.sub(one_const, ramp)),
         op.mul(bottom_blend_region, ramp)
     )
 
-    # Get the remaining part of the bottom tile that is not blended
+    # Get the remaining part of the bottom tile that is not part of the blend
     bottom_remaining = op.slice(bottom_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([2])))
     
-    # Concatenate the blended region with the rest of the tile
+    # Concatenate the blended region with the rest of the tile to form a full-sized tile
     return op.concat([blended_region, bottom_remaining], axis=2)
 
 def spox_blend_h(
@@ -480,31 +479,31 @@ def spox_blend_h(
 ) -> spox.Var:
     """
     Blends the right columns of left_tile with the left columns of right_tile.
+    The returned tile is a modified version of the right_tile.
     """
-    # The reshape here is on a numpy array, not a Spox Var. This is safe for TRT.
+    # ramp shape: (1, 1, 1, blend_extent) for horizontal blending
     ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
     ramp = to_const(ramp_np.reshape(1, 1, 1, blend_extent))
 
-    # Slice the regions to be blended
+    # Slice the regions to be blended from both tiles
     left_blend_region = op.slice(left_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
     right_blend_region = op.slice(right_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([3])))
 
-    # The formula is: blended = left * (1 - ramp) + right * ramp
-    # This matches the diffusers logic: the new tile (right) fades IN.
+    # The blending formula: blended = left * (1 - ramp) + right * ramp
+    # This fades in the new (right) tile.
     one_const = to_const(np.array(1.0, dtype=target_dtype))
     blended_region = op.add(
         op.mul(left_blend_region, op.sub(one_const, ramp)),
         op.mul(right_blend_region, ramp)
     )
 
-    # Get the remaining part of the right tile that is not blended
+    # Get the remaining part of the right tile that is not part of the blend
     right_remaining = op.slice(right_tile, starts=to_const(np.array([blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
     
-    # Concatenate the blended region with the rest of the tile
+    # Concatenate the blended region with the rest of the tile to form a full-sized tile
     return op.concat([blended_region, right_remaining], axis=3)
 
 
-# --- Main Build Function (Corrected Two-Stage Logic) ---
 @with_error_context("Tiled Decoder Model")
 def build_tiled_decoder_onnx_model_with_loop(
     state_dict: Dict[str, np.ndarray],
@@ -512,8 +511,10 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a fully TensorRT-compatible VAE Tiled Decoder ONNX model.
-    This version refactors the blending logic into a separate, sequential loop
-    to resolve internal TensorRT builder errors.
+    This version uses a two-stage process:
+    1. A "map" stage that decodes all tiles in parallel and saves them to a cache.
+    2. A "fold" stage that sequentially blends the tiles from the cache.
+    This architecture is much more robust for TensorRT's static analysis.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
@@ -523,7 +524,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     tile_latent_min_size = int(tile_sample_min_size / (2 ** (len(config["block_out_channels"]) - 1)))
     tile_overlap_factor = 0.25
     downsample_factor = 2**(len(config["block_out_channels"]) - 1)
-    overlap_size = int(tile_latent_min_size * (1 - tile_overlap_factor))
+    # Correct calculation for overlap size and blend extent
+    overlap_size = int(tile_latent_min_size * tile_overlap_factor)
     blend_extent = int(tile_sample_min_size * tile_overlap_factor)
     row_limit = tile_sample_min_size - blend_extent
     
@@ -561,6 +563,7 @@ def build_tiled_decoder_onnx_model_with_loop(
         post_quant_tile = spox_conv_2d(latent_tile, spox_params["post_quant_conv"]["weight"], spox_params["post_quant_conv"]["bias"], padding=0)
         decoded_tile = spox_decoder(post_quant_tile, spox_params["decoder"], config, target_dtype)
         
+        # Pad decoded tile to a uniform size before caching
         decoded_shape = op.shape(decoded_tile)
         decoded_height = op.gather(decoded_shape, to_const(np.array([2], dtype=np.int64)))
         decoded_width = op.gather(decoded_shape, to_const(np.array([3], dtype=np.int64)))
@@ -569,6 +572,7 @@ def build_tiled_decoder_onnx_model_with_loop(
         padding_amounts = op.concat([to_const(np.array([0, 0, 0, 0, 0, 0], dtype=np.int64)), pad_h_end, pad_w_end], axis=0)
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
+        # Use reshape to create a scalar index for ScatterND
         scalar_iter = op.reshape(iteration_num, empty_shape_const, allowzero=1)
         scatter_indices = op.unsqueeze(op.unsqueeze(scalar_iter, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
@@ -578,7 +582,7 @@ def build_tiled_decoder_onnx_model_with_loop(
 
     (final_tile_cache,) = op.loop(trip_count, v_initial=[initial_tile_cache], body=tile_decoding_body)
 
-    # --- STAGE 2: Blend all tiles and store them in a new blended_cache tensor ---
+    # --- STAGE 2: Blend all tiles from the cache and store in a new blended_cache ---
     initial_blended_cache = op.constant_of_shape(cache_shape, value=fill_value)
 
     @with_error_context("Stage 2: Blending Loop")
@@ -588,35 +592,34 @@ def build_tiled_decoder_onnx_model_with_loop(
         
         scalar_iter = op.reshape(iteration_num, empty_shape_const, allowzero=1)
         
-        # --- FIX: Refactored Blending Logic ---
-        # Get the current *unblended* tile from the first cache.
+        # Always get the current tile from the initial, unblended cache.
         current_tile = op.gather(final_tile_cache, scalar_iter, axis=0)
 
-        # -- Vertical Blend branch --
-        # This branch is always computed, but only selected via `op.where` if not the first row.
+        # -- Vertical Blend Stage --
+        # This branch is always computed, but its result is selected via `op.where`.
         scalar_idx_above = op.reshape(op.sub(iteration_num, num_cols), empty_shape_const, allowzero=1)
-        tile_above = op.gather(final_tile_cache, scalar_idx_above, axis=0)
+        tile_above = op.gather(final_tile_cache, scalar_idx_above, axis=0) # Read from unblended cache
         v_blended_result = spox_blend_v(tile_above, current_tile, blend_extent, tile_sample_min_size, target_dtype)
         
-        # Select either the original tile or the vertically blended result.
+        # Select either the original tile (for the first row) or the vertically blended result.
         is_first_row_mask = op.equal(row_idx, to_const(np.array([0], dtype=np.int64)))
-        v_blended_or_original = op.where(is_first_row_mask, current_tile, v_blended_result)
+        tile_after_v_blend = op.where(is_first_row_mask, current_tile, v_blended_result)
         
-        # -- Horizontal Blend branch --
-        # This branch is always computed, but only selected if not the first column.
+        # -- Horizontal Blend Stage --
+        # This branch is also always computed and selected via `op.where`.
         scalar_idx_left = op.reshape(op.sub(iteration_num, to_const(np.array([1], dtype=np.int64))), empty_shape_const, allowzero=1)
-        # CRUCIAL FIX: Get the tile to the left from the *current* blending loop's cache to get the
-        # already-blended version.
+        # CRUCIAL: Read the tile to the left from the *current* blending loop's cache to get the
+        # already-blended version from the previous iteration. This creates the necessary recurrence.
         tile_left = op.gather(current_blended_cache, scalar_idx_left, axis=0)
-        h_blended_result = spox_blend_h(tile_left, v_blended_or_original, blend_extent, tile_sample_min_size, target_dtype)
+        h_blended_result = spox_blend_h(tile_left, tile_after_v_blend, blend_extent, tile_sample_min_size, target_dtype)
         
-        # Select either the result from the vertical blend stage or the horizontally blended result.
+        # Select either the result from the vertical blend stage (for the first column) or the horizontally blended result.
         is_first_col_mask = op.equal(col_idx, to_const(np.array([0], dtype=np.int64)))
-        final_blended = op.where(is_first_col_mask, v_blended_or_original, h_blended_result)
+        final_blended_tile = op.where(is_first_col_mask, tile_after_v_blend, h_blended_result)
 
         # Scatter the final blended result into the new cache
         scatter_indices = op.unsqueeze(op.unsqueeze(scalar_iter, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        scatter_updates = op.unsqueeze(final_blended, axes=to_const(np.array([0])))
+        scatter_updates = op.unsqueeze(final_blended_tile, axes=to_const(np.array([0])))
         updated_blended_cache = op.scatter_nd(current_blended_cache, scatter_indices, scatter_updates)
         
         return op.const(True), updated_blended_cache
@@ -624,7 +627,9 @@ def build_tiled_decoder_onnx_model_with_loop(
     (final_blended_cache,) = op.loop(trip_count, v_initial=[initial_blended_cache], body=blending_loop_body)
 
     # --- STAGE 3: Final Assembly from Blended Cache (No Loops) ---
+    # This stage uses simple, static-friendly operations to assemble the final image.
     
+    # Crop each tile in the blended cache to remove the padded/blended-away areas
     cropped_blended_cache = op.slice(final_blended_cache,
         starts=to_const(np.array([0, 0, 0, 0, 0], dtype=np.int64)),
         ends=op.concat([
@@ -635,26 +640,29 @@ def build_tiled_decoder_onnx_model_with_loop(
         axes=to_const(np.array([0, 1, 2, 3, 4], dtype=np.int64))
     )
     
+    # Reshape to group tiles by row
     grouped_by_row_shape = op.concat([num_rows, num_cols, batch_size, to_const(np.array([config['out_channels'], row_limit, row_limit], dtype=np.int64))], axis=0)
     grouped_by_row = op.reshape(cropped_blended_cache, grouped_by_row_shape, allowzero=1)
     
+    # Transpose and reshape to concatenate tiles horizontally into rows
     transposed_for_rows = op.transpose(grouped_by_row, perm=[0, 2, 3, 4, 1, 5])
-    
     final_row_width = op.mul(num_cols, to_const(np.array(row_limit, dtype=np.int64)))
     rows_concatenated_shape = op.concat([num_rows, batch_size, to_const(np.array([config['out_channels'], row_limit], dtype=np.int64)), final_row_width], axis=0)
     rows_concatenated = op.reshape(transposed_for_rows, rows_concatenated_shape, allowzero=1)
     
+    # Transpose and reshape to concatenate rows vertically into the final canvas
     transposed_for_canvas = op.transpose(rows_concatenated, perm=[1, 2, 0, 3, 4])
-    
     final_canvas_shape = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), op.mul(num_rows, to_const(np.array(row_limit, dtype=np.int64))), final_row_width], axis=0)
     final_canvas = op.reshape(transposed_for_canvas, final_canvas_shape, allowzero=1)
     
-    # --- Final Cropping and Reshaping for Output ---
+    # --- Final Cropping to match exact output dimensions ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))
     final_out_width = op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
     target_output_shape_var = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), final_out_height, final_out_width], axis=0)
     
     final_image_cropped = op.slice(final_canvas, starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)), ends=target_output_shape_var, axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64)))
+    
+    # Final reshape provides a strong hint to the builder about the final output shape.
     final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape_var, allowzero=1)
     
     # --- Build Model ---

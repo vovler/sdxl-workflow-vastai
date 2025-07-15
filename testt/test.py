@@ -61,6 +61,7 @@ if __name__ == "__main__":
     vae = AutoEncoderKL(diffusers_vae.config)
     vae.load_state_dict(diffusers_vae.state_dict())
     vae.to("cuda")
+    vae.half() # Ensure all parameters are float16
     vae.eval()
     print("✅ Custom VAE initialized and weights loaded.")
 

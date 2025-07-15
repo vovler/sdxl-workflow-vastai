@@ -26,19 +26,20 @@ def test_export(vae: AutoEncoderKL):
 
     print("Testing TorchScript version for ONNX export:")
     try:
-        torch.onnx.export(
-            scripted_vae_decoder,
-            (latent_sample,),
-            "onnx/vae_decoder.onnx",
-            input_names=['latent_sample'],
-            output_names=['sample'],
-            dynamic_axes={
-                'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
-                'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
-            },
-            opset_version=17
-        )
-        print("✅ VAE Decoder exported successfully to onnx/vae_decoder.onnx")
+        with torch.no_grad():
+            torch.onnx.export(
+                scripted_vae_decoder,
+                (latent_sample,),
+                "onnx/vae_decoder.onnx",
+                input_names=['latent_sample'],
+                output_names=['sample'],
+                dynamic_axes={
+                    'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
+                    'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
+                },
+                opset_version=17
+            )
+            print("✅ VAE Decoder exported successfully to onnx/vae_decoder.onnx")
     except Exception as e:
         print(f"❌ VAE Decoder export failed: {e}")
         traceback.print_exc()
@@ -46,23 +47,24 @@ def test_export(vae: AutoEncoderKL):
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)
     
-    print("Loading original VAE model from HuggingFace...")
-    # Use diffusers to load pretrained weights
-    diffusers_vae = DiffusersAutoencoderKL.from_pretrained(
-        "madebyollin/sdxl-vae-fp16-fix", 
-        torch_dtype=torch.float16
-    )
-    diffusers_vae.to("cuda")
-    print("✅ Original VAE model loaded.")
+    with torch.no_grad():
+        print("Loading original VAE model from HuggingFace...")
+        # Use diffusers to load pretrained weights
+        diffusers_vae = DiffusersAutoencoderKL.from_pretrained(
+            "madebyollin/sdxl-vae-fp16-fix", 
+            torch_dtype=torch.float16
+        )
+        diffusers_vae.to("cuda")
+        print("✅ Original VAE model loaded.")
 
-    print("Initializing custom VAE and loading weights...")
-    # Initialize our VAE and load weights
-    # The config from diffusers is compatible with our vae.py AutoEncoderKL
-    vae = AutoEncoderKL(diffusers_vae.config)
-    vae.load_state_dict(diffusers_vae.state_dict())
-    vae.to("cuda")
-    vae.half() # Ensure all parameters are float16
-    vae.eval()
-    print("✅ Custom VAE initialized and weights loaded.")
+        print("Initializing custom VAE and loading weights...")
+        # Initialize our VAE and load weights
+        # The config from diffusers is compatible with our vae.py AutoEncoderKL
+        vae = AutoEncoderKL(diffusers_vae.config)
+        vae.load_state_dict(diffusers_vae.state_dict())
+        vae.to("cuda")
+        vae.half() # Ensure all parameters are float16
+        vae.eval()
+        print("✅ Custom VAE initialized and weights loaded.")
 
-    test_export(vae)
+        test_export(vae)

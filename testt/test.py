@@ -9,10 +9,12 @@ import traceback
 @torch.jit.script
 def _onnx_friendly_min(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
-    Calculates min(a, b) using a mathematical formula that is more stable for
-    ONNX export than torch.min or Python's min() when dealing with dynamic shapes.
+    Calculates min(a, b) using torch.where, which is more stable for ONNX export.
     """
-    return (0.5 * (a + b - torch.abs(a - b))).to(torch.long)
+    # --- FIX ---
+    # Replaced the mathematical formula with torch.where, which is directly
+    # supported and more stable for ONNX conversion.
+    return torch.where(a < b, a, b)
 
 @torch.jit.script
 def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:

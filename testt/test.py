@@ -19,7 +19,7 @@ class VaeDecoder(nn.Module):
 # Test export
 def test_export(vae: AutoEncoderKL):
     # VAE wrapper
-    vae_decoder = VaeDecoder(vae)
+    vae_decoder = torch.jit.script(VaeDecoder(vae))
 
     # Sample input
     latent_sample = torch.randn(1, 4, 128, 128, device="cuda", dtype=torch.float16)

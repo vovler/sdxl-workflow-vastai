@@ -22,16 +22,9 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
 
 # VAE Decoder Wrapper for ONNX export
 class VaeDecoder(nn.Module):
-    def __init__(self, vae: AutoencoderKL):
+    def __init__(self, traced_vae_decoder):
         super().__init__()
-        # Wrap the non-scriptable VAE in a list to prevent the JIT
-        # from trying to compile it as a submodule.
-        self.vae_container: List[AutoencoderKL] = [vae]
-
-    @torch.jit.ignore
-    def _ignored_decode(self, latent_tile: torch.Tensor) -> torch.Tensor:
-        # Access the VAE from the list.
-        return self.vae_container[0].decode(latent_tile).sample
+        self.vae_decoder = traced_vae_decoder
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
         r"""
@@ -55,7 +48,7 @@ class VaeDecoder(nn.Module):
             decoded_row_tiles: List[torch.Tensor] = []
             for j in w_steps:
                 tile_latent = latent[:, :, i : i + tile_latent_min_size, j : j + tile_latent_min_size]
-                decoded_tile = self._ignored_decode(tile_latent)
+                decoded_tile = self.vae_decoder(tile_latent)
                 decoded_row_tiles.append(decoded_tile)
             
             if len(prev_row_tiles) > 0:
@@ -86,8 +79,22 @@ class VaeDecoder(nn.Module):
 
 # Test export
 def test_export(vae: AutoencoderKL):
-    # VAE wrapper
-    vae_decoder = torch.jit.script(VaeDecoder(vae))
+    # Wrapper for tracing the VAE decode method
+    class VaeDecodeWrapper(nn.Module):
+        def __init__(self, vae_model):
+            super().__init__()
+            self.vae = vae_model
+        def forward(self, latents):
+            return self.vae.decode(latents).sample
+
+    # Trace the VAE decoder part to get a scriptable graph
+    tile_latent_min_size = 64
+    dummy_latent_tile = torch.randn(1, 4, tile_latent_min_size, tile_latent_min_size, device="cuda", dtype=torch.float16)
+    with torch.no_grad():
+        traced_vae_decoder = torch.jit.trace(VaeDecodeWrapper(vae), dummy_latent_tile)
+
+    # Script the VAE tiling wrapper with the traced decoder
+    vae_decoder = torch.jit.script(VaeDecoder(traced_vae_decoder))
 
     # Sample input
     latent_sample = torch.randn(1, 4, 128, 128, device="cuda", dtype=torch.float16)

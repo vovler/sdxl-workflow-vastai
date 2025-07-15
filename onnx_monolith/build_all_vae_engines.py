@@ -95,7 +95,9 @@ def build_engine(
     builder = trt.Builder(logger)
     builder.max_threads = torch.get_num_threads()
     config = builder.create_builder_config()
-    config.set_flag(trt.BuilderFlag.STRICT_TYPES)
+
+    
+
     # --- Apply Builder Config ---
     config.set_flag(trt.BuilderFlag.FP16) # Ensure FP16 is enabled by default
     config.builder_optimization_level = 4

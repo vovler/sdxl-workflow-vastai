@@ -82,8 +82,8 @@ def build_engine(
 ):
     """Builds a TensorRT engine from an ONNX model, following a standardized configuration."""
     
-    logger = trt.Logger(trt.Logger.INFO)
-    logger.min_severity = trt.Logger.Severity.INFO
+    logger = trt.Logger(trt.Logger.VERBOSE)
+    logger.min_severity = trt.Logger.Severity.VERBOSE
 
     print("="*50)
     print(f"Exporting ONNX to TensorRT Engine")

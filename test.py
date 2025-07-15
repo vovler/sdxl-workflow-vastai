@@ -82,8 +82,6 @@ def build_tensorrt_engine(onnx_file, engine_file):
     
     # Build engine
     config = builder.create_builder_config()
-    config.max_workspace_size = 1 << 30  # 1GB
-    
     # Create optimization profile for dynamic shapes
     profile = builder.create_optimization_profile()
     profile.set_shape("x", (1, 10), (1, 10), (1, 10))

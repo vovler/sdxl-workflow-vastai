@@ -320,13 +320,13 @@ class AutoEncoderKL(nn.Module):
         z = self.post_quant_conv(z)
         return self.decoder(z)
 
-    def tiled_decode(self, latent):
+    def tiled_decode(self, latent, tile_latent_min_size, tile_sample_min_size, tile_overlap_factor):
         r"""
         Decode a batch of images using a tiled decoder.
         """
-        overlap_size = int(self.tile_latent_min_size * (1.0 - self.tile_overlap_factor))
-        blend_extent = int(self.tile_sample_min_size * self.tile_overlap_factor)
-        row_limit = self.tile_sample_min_size - blend_extent
+        overlap_size = int(tile_latent_min_size * (1.0 - tile_overlap_factor))
+        blend_extent = int(tile_sample_min_size * tile_overlap_factor)
+        row_limit = tile_sample_min_size - blend_extent
 
         h_steps = list(range(0, latent.shape[2], overlap_size))
         w_steps = list(range(0, latent.shape[3], overlap_size))
@@ -337,7 +337,7 @@ class AutoEncoderKL(nn.Module):
         for i in h_steps:
             decoded_row_tiles = []
             for j in w_steps:
-                tile_latent = latent[:, :, i : i + self.tile_latent_min_size, j : j + self.tile_latent_min_size]
+                tile_latent = latent[:, :, i : i + tile_latent_min_size, j : j + tile_latent_min_size]
                 decoded_tile = self.decoder(self.post_quant_conv(tile_latent))
                 decoded_row_tiles.append(decoded_tile)
             

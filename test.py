@@ -139,3 +139,4 @@ def test_tensorrt_engines():
 
 if __name__ == "__main__":
     test_exports()
+    test_tensorrt_engines()

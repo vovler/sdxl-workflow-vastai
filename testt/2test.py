@@ -1,22 +1,9 @@
 import torch
-import torch.nn as nn
-import onnx
 import tensorrt as trt
-import numpy as np
 import os
-import json
 from tqdm import tqdm
 from collections import OrderedDict
-from diffusers import AutoencoderKL
-
-# VAE Decoder Wrapper for ONNX export
-class VaeDecoder(nn.Module):
-    def __init__(self, vae: AutoencoderKL):
-        super().__init__()
-        self.vae = vae
-
-    def forward(self, latent_sample: torch.Tensor) -> torch.Tensor:
-        return self.vae.decode(latent_sample, return_dict=False)[0]
+import json
 
 # Progress bar for TensorRT engine building
 class TQDMProgressMonitor(trt.IProgressMonitor):
@@ -85,51 +72,6 @@ class TQDMProgressMonitor(trt.IProgressMonitor):
             return self._step_result
         except KeyboardInterrupt:
             return False
-
-# Test both versions
-def test_exports(vae: AutoencoderKL):
-    # VAE wrapper for scripting
-    scripted_vae_decoder = torch.jit.script(VaeDecoder(vae))
-    regular_vae_decoder = VaeDecoder(vae) # Use wrapper for consistency
-
-    # Sample input
-    latent_sample = torch.randn(1, 4, 128, 128, device="cuda", dtype=torch.float16)
-
-    print("Testing TorchScript version:")
-    try:
-        torch.onnx.export(
-            scripted_vae_decoder,
-            (latent_sample,),
-            "onnx/scripted_vae.onnx",
-            input_names=['latent_sample'],
-            output_names=['sample'],
-            dynamic_axes={
-                'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
-                'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
-            },
-            opset_version=17
-        )
-        print("✅ Scripted VAE exported successfully")
-    except Exception as e:
-        print(f"❌ Scripted VAE failed: {e}")
-
-    print("\nTesting regular model:")
-    try:
-        torch.onnx.export(
-            regular_vae_decoder,
-            (latent_sample,),
-            "onnx/regular_vae.onnx", 
-            input_names=['latent_sample'],
-            output_names=['sample'],
-            dynamic_axes={
-                'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
-                'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
-            },
-            opset_version=17
-        )
-        print("✅ Regular VAE exported successfully")
-    except Exception as e:
-        print(f"❌ Regular VAE failed: {e}")
 
 def build_tensorrt_engine(
     onnx_file: str,
@@ -215,7 +157,7 @@ def build_tensorrt_engine(
     # Return path to engine file
     return engine_file
 
-def test_tensorrt_engines():
+def main():
     """Test TensorRT engines"""
     print("\n" + "="*50)
     print("TENSORRT ENGINE BUILDING")
@@ -230,90 +172,44 @@ def test_tensorrt_engines():
         }),
     ])
     
-    scripted_engine_path = None
-    regular_engine_path = None
+    engine_path = None
 
     # Build engines
     try:
-        scripted_engine_path = build_tensorrt_engine(
-            "onnx/scripted_vae.onnx", 
-            "scripted_vae.trt",
+        engine_path = build_tensorrt_engine(
+            "onnx/vae_decoder.onnx", 
+            "vae_decoder.trt",
             input_profiles=input_profiles,
-            timing_cache_path="scripted_vae.cache"
+            timing_cache_path="vae_decoder.cache"
         )
     except Exception as e:
-        print(f"❌ Scripted TensorRT engine build failed: {e}")
-
-    try:
-        regular_engine_path = build_tensorrt_engine(
-            "onnx/regular_vae.onnx", 
-            "regular_vae.trt",
-            input_profiles=input_profiles,
-            timing_cache_path="regular_vae.cache"
-        )
-    except Exception as e:
-        print(f"❌ Regular TensorRT engine build failed: {e}")
+        print(f"❌ TensorRT engine build failed: {e}")
 
     # Analyze engine details
     logger = trt.Logger(trt.Logger.WARNING)
     runtime = trt.Runtime(logger)
 
-    if scripted_engine_path and os.path.exists(scripted_engine_path):
+    if engine_path and os.path.exists(engine_path):
         print("\n--- Analysis of Scripted Engine ---")
-        with open(scripted_engine_path, 'rb') as f:
-            scripted_engine = runtime.deserialize_cuda_engine(f.read())
+        with open(engine_path, 'rb') as f:
+            engine = runtime.deserialize_cuda_engine(f.read())
         
-        if scripted_engine:
-            print("✅ Scripted TensorRT engine loaded successfully")
-            print(f"   Engine size: {os.path.getsize(scripted_engine_path)} bytes")
+        if engine:
+            print("✅ TensorRT engine loaded successfully")
+            print(f"   Engine size: {os.path.getsize(engine_path)} bytes")
             
-            inspector = scripted_engine.create_engine_inspector()
+            inspector = engine.create_engine_inspector()
             engine_info_str = inspector.get_engine_information(trt.LayerInformationFormat.JSON)
             engine_info = json.loads(engine_info_str)
             
             print(f"   Engine layers: {len(engine_info.get('Layers', []))}")
-            print("   Layer info (JSON):")
-            print(json.dumps(engine_info, indent=2))
             
-            with open("scripted_engine_info.json", 'w') as f:
+            with open("engine_info.json", 'w') as f:
                 json.dump(engine_info, f, indent=2)
-            print("   ✅ Engine info saved to scripted_engine_info.json")
+            print("   ✅ Engine info saved to engine_info.json")
     else:
-        print("\n❌ Scripted TensorRT engine not found or failed to build.")
-    
-    if regular_engine_path and os.path.exists(regular_engine_path):
-        print("\n--- Analysis of Regular Engine ---")
-        with open(regular_engine_path, 'rb') as f:
-            regular_engine = runtime.deserialize_cuda_engine(f.read())
-
-        if regular_engine:
-            print("✅ Regular TensorRT engine loaded successfully")
-            print(f"   Engine size: {os.path.getsize(regular_engine_path)} bytes")
-            
-            inspector = regular_engine.create_engine_inspector()
-            engine_info_str = inspector.get_engine_information(trt.LayerInformationFormat.JSON)
-            engine_info = json.loads(engine_info_str)
-
-            print(f"   Regular engine layers: {len(engine_info.get('Layers', []))}")
-            print("   Layer info (JSON):")
-            print(json.dumps(engine_info, indent=2))
-            
-            with open("regular_engine_info.json", 'w') as f:
-                json.dump(engine_info, f, indent=2)
-            print("   ✅ Engine info saved to regular_engine_info.json")
-    else:
-        print("\n❌ Regular TensorRT engine not found or failed to build.")
+        print("\n❌ TensorRT engine not found or failed to build.")
 
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)
-    
-    print("Loading VAE model...")
-    vae = AutoencoderKL.from_pretrained(
-        "madebyollin/sdxl-vae-fp16-fix", 
-        torch_dtype=torch.float16
-    )
-    vae.to("cuda")
-    print("✅ VAE model loaded.")
-
-    test_exports(vae)
-    test_tensorrt_engines()
+    main() 

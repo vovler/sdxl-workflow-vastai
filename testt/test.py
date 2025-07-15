@@ -7,14 +7,18 @@ from diffusers import AutoencoderKL
 import traceback
 
 @torch.jit.script
-def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
-    blend_extent = min(a.shape[2], b.shape[2], blend_extent)
+def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:
+    # Use torch.min on a tensor to be more ONNX-friendly than Python's min()
+    # for handling symbolic shapes during export.
+    inputs_for_min = torch.tensor([a.shape[2], b.shape[2], blend_extent_in], device=a.device)
+    blend_extent = torch.min(inputs_for_min)
+
     if blend_extent == 0:
         return b
 
     # Create a blending weight tensor, requires broadcasting on batch and width dimensions
-    y = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, blend_extent, 1)
-    weight = y / blend_extent
+    y = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, -1, 1)
+    weight = y / blend_extent.to(a.dtype)
 
     # Blend the overlapping regions using positive slicing to be ONNX-friendly
     start_index = a.shape[2] - blend_extent
@@ -26,14 +30,17 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
     return result
 
 @torch.jit.script
-def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
-    blend_extent = min(a.shape[3], b.shape[3], blend_extent)
+def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:
+    # Use torch.min on a tensor to be more ONNX-friendly than Python's min()
+    inputs_for_min = torch.tensor([a.shape[3], b.shape[3], blend_extent_in], device=a.device)
+    blend_extent = torch.min(inputs_for_min)
+
     if blend_extent == 0:
         return b
 
     # Create a blending weight tensor, requires broadcasting on batch and height dimensions
-    x = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, 1, blend_extent)
-    weight = x / blend_extent
+    x = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, 1, -1)
+    weight = x / blend_extent.to(a.dtype)
 
     # Blend the overlapping regions using positive slicing to be ONNX-friendly
     start_index = a.shape[3] - blend_extent

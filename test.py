@@ -7,36 +7,16 @@ import os
 import json
 from tqdm import tqdm
 from collections import OrderedDict
+from diffusers import AutoencoderKL
 
-# More complex model with a loop and conditional
-class ComplexLoop(nn.Module):
-    def __init__(self):
+# VAE Decoder Wrapper for ONNX export
+class VaeDecoder(nn.Module):
+    def __init__(self, vae: AutoencoderKL):
         super().__init__()
-        self.linear_add = nn.Linear(10, 10)
-        self.linear_sub = nn.Linear(10, 10)
-        
-    def forward(self, x: torch.Tensor, num_steps: int, use_add: torch.Tensor) -> torch.Tensor:
-        for i in range(num_steps):
-            if use_add:
-                x = self.linear_add(x) + 1.0
-            else:
-                x = self.linear_sub(x) - 1.0
-        return x
+        self.vae = vae
 
-# Regular model with loop and conditional (non-scripted)
-class RegularComplexLoop(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.linear_add = nn.Linear(10, 10)
-        self.linear_sub = nn.Linear(10, 10)
-        
-    def forward(self, x, num_steps, use_add):
-        for i in range(num_steps):
-            if use_add:
-                x = self.linear_add(x) + 1.0
-            else:
-                x = self.linear_sub(x) - 1.0
-        return x
+    def forward(self, latent_sample: torch.Tensor) -> torch.Tensor:
+        return self.vae.decode(latent_sample, return_dict=False)[0]
 
 # Progress bar for TensorRT engine building
 class TQDMProgressMonitor(trt.IProgressMonitor):
@@ -107,46 +87,50 @@ class TQDMProgressMonitor(trt.IProgressMonitor):
             return False
 
 # Test both versions
-def test_exports():
-    # Create models
-    regular_model = RegularComplexLoop()
-    scripted_model = torch.jit.script(ComplexLoop())
-    
+def test_exports(vae: AutoencoderKL):
+    # VAE wrapper for scripting
+    scripted_vae_decoder = torch.jit.script(VaeDecoder(vae))
+    regular_vae_decoder = VaeDecoder(vae) # Use wrapper for consistency
+
     # Sample input
-    x = torch.randn(1, 10)
-    num_steps = 5
-    use_add = torch.tensor(True, dtype=torch.bool)
-    
+    latent_sample = torch.randn(1, 4, 128, 128, device="cuda", dtype=torch.float16)
+
     print("Testing TorchScript version:")
     try:
         torch.onnx.export(
-            scripted_model,
-            (x, num_steps, use_add),
-            "scripted_loop.onnx",
-            input_names=['x', 'num_steps', 'use_add'],
-            output_names=['output'],
-            dynamic_axes={'x': {0: 'batch_size'}},
-            opset_version=11
+            scripted_vae_decoder,
+            (latent_sample,),
+            "onnx/scripted_vae.onnx",
+            input_names=['latent_sample'],
+            output_names=['sample'],
+            dynamic_axes={
+                'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
+                'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
+            },
+            opset_version=17
         )
-        print("✅ Scripted model exported successfully")
+        print("✅ Scripted VAE exported successfully")
     except Exception as e:
-        print(f"❌ Scripted model failed: {e}")
-    
+        print(f"❌ Scripted VAE failed: {e}")
+
     print("\nTesting regular model:")
     try:
         torch.onnx.export(
-            regular_model,
-            (x, num_steps, use_add),
-            "regular_loop.onnx", 
-            input_names=['x', 'num_steps', 'use_add'],
-            output_names=['output'],
-            dynamic_axes={'x': {0: 'batch_size'}},
-            opset_version=11
+            regular_vae_decoder,
+            (latent_sample,),
+            "onnx/regular_vae.onnx", 
+            input_names=['latent_sample'],
+            output_names=['sample'],
+            dynamic_axes={
+                'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
+                'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
+            },
+            opset_version=17
         )
-        print("✅ Regular model exported successfully")
+        print("✅ Regular VAE exported successfully")
     except Exception as e:
-        print(f"❌ Regular model failed: {e}")
-    
+        print(f"❌ Regular VAE failed: {e}")
+
 def build_tensorrt_engine(
     onnx_file: str,
     engine_file: str,
@@ -237,41 +221,12 @@ def test_tensorrt_engines():
     print("TENSORRT ENGINE BUILDING")
     print("="*50)
 
-    # For scripted model where num_steps is a scalar
-    scripted_input_profiles = OrderedDict([
-        ("x", {
-            "min": (1, 10),
-            "opt": (4, 10),
-            "max": (16, 10),
-        }),
-        ("num_steps", {
-            "min": (),
-            "opt": (),
-            "max": (),
-        }),
-        ("use_add", {
-            "min": (),
-            "opt": (),
-            "max": (),
-        }),
-    ])
-
-    # For regular model where num_steps is a 1D tensor
-    regular_input_profiles = OrderedDict([
-        ("x", {
-            "min": (1, 10),
-            "opt": (4, 10),
-            "max": (16, 10),
-        }),
-        ("num_steps", {
-            "min": (1,),
-            "opt": (1,),
-            "max": (1,),
-        }),
-        ("use_add", {
-            "min": (),
-            "opt": (),
-            "max": (),
+    # Profile for VAE Decoder
+    input_profiles = OrderedDict([
+        ("latent_sample", {
+            "min": (1, 4, 64, 64),
+            "opt": (1, 4, 128, 128),
+            "max": (2, 4, 128, 128),
         }),
     ])
     
@@ -281,20 +236,20 @@ def test_tensorrt_engines():
     # Build engines
     try:
         scripted_engine_path = build_tensorrt_engine(
-            "scripted_loop.onnx", 
-            "scripted_loop.trt",
-            input_profiles=scripted_input_profiles,
-            timing_cache_path="scripted.cache"
+            "onnx/scripted_vae.onnx", 
+            "scripted_vae.trt",
+            input_profiles=input_profiles,
+            timing_cache_path="scripted_vae.cache"
         )
     except Exception as e:
         print(f"❌ Scripted TensorRT engine build failed: {e}")
 
     try:
         regular_engine_path = build_tensorrt_engine(
-            "regular_loop.onnx", 
-            "regular_loop.trt",
-            input_profiles=regular_input_profiles,
-            timing_cache_path="regular.cache"
+            "onnx/regular_vae.onnx", 
+            "regular_vae.trt",
+            input_profiles=input_profiles,
+            timing_cache_path="regular_vae.cache"
         )
     except Exception as e:
         print(f"❌ Regular TensorRT engine build failed: {e}")
@@ -351,5 +306,14 @@ def test_tensorrt_engines():
 
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)
-    test_exports()
+    
+    print("Loading VAE model...")
+    vae = AutoencoderKL.from_pretrained(
+        "madebyollin/sdxl-vae-fp16-fix", 
+        torch_dtype=torch.float16
+    )
+    vae.to("cuda")
+    print("✅ VAE model loaded.")
+
+    test_exports(vae)
     test_tensorrt_engines()

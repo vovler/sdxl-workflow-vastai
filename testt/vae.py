@@ -112,7 +112,6 @@ class Downsample(nn.Module):
             self.conv = nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(self, hidden_states):
-        assert hidden_states.shape[2] % 2 == 0 and hidden_states.shape[3] % 2 == 0
         if isinstance(self.conv, nn.Conv2d):
             hidden_states = self.conv(hidden_states)
         else:
@@ -127,7 +126,6 @@ class Upsample(nn.Module):
             self.conv = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
 
     def forward(self, hidden_states, output_size=None):
-        assert hidden_states.shape[2] % 2 == 0 and hidden_states.shape[3] % 2 == 0
         if output_size is None:
             hidden_states = F.interpolate(hidden_states, scale_factor=2.0, mode="nearest")
         else:

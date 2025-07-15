@@ -18,17 +18,17 @@ class VaeDecoder(nn.Module):
 
 # Test export
 def test_export(vae: AutoEncoderKL):
-    # VAE wrapper for scripting
-    scripted_vae_decoder = torch.jit.script(VaeDecoder(vae))
+    # VAE wrapper
+    vae_decoder = VaeDecoder(vae)
 
     # Sample input
     latent_sample = torch.randn(1, 4, 128, 128, device="cuda", dtype=torch.float16)
 
-    print("Testing TorchScript version for ONNX export:")
+    print("Testing ONNX export:")
     try:
         with torch.no_grad():
             torch.onnx.export(
-                scripted_vae_decoder,
+                vae_decoder,
                 (latent_sample,),
                 "onnx/vae_decoder.onnx",
                 input_names=['latent_sample'],

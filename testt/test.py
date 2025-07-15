@@ -4,6 +4,7 @@ import onnx
 import os
 from diffusers import AutoencoderKL as DiffusersAutoencoderKL
 from vae import AutoEncoderKL
+import traceback
 
 # VAE Decoder Wrapper for ONNX export
 class VaeDecoder(nn.Module):
@@ -40,6 +41,7 @@ def test_export(vae: AutoEncoderKL):
         print("✅ VAE Decoder exported successfully to onnx/vae_decoder.onnx")
     except Exception as e:
         print(f"❌ VAE Decoder export failed: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)

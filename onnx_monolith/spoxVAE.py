@@ -280,12 +280,52 @@ def spox_encoder(
 def spox_decoder(
     z: spox.Var, params: Dict[str, Any], config: Dict, target_dtype: np.dtype
 ) -> spox.Var:
+    """
+    The VAE decoder backbone.
+    FIX: The logic from the spox_vae_mid_block has been inlined here to remove
+    nested control flow, which is a common cause of TensorRT builder errors.
+    """
     try:
+        # Initial convolution
         z = spox_conv_2d(z, params["conv_in"]["weight"], params["conv_in"]["bias"], padding=1)
 
+        # --- INLINED VAE MID BLOCK ---
         if config.get("mid_block_add_attention", True):
-            z = spox_vae_mid_block(z, config["block_out_channels"][-1], params["mid_block"], config["norm_num_groups"], "decoder.mid_block", target_dtype)
+            mid_params = params["mid_block"]
+            in_channel_mid = config["block_out_channels"][-1]
+            
+            # First ResNet block of the mid-section
+            z = spox_resnet_block_2d(
+                z, 
+                in_channels=in_channel_mid, 
+                out_channels=in_channel_mid, 
+                params=mid_params["resnets"]["0"], 
+                norm_num_groups=config["norm_num_groups"], 
+                param_path="decoder.mid_block.resnets.0"
+            )
+            
+            # Attention block of the mid-section
+            z = spox_attention_block(
+                z, 
+                channels=in_channel_mid, 
+                params=mid_params["attentions"]["0"], 
+                norm_num_groups=config["norm_num_groups"], 
+                param_path="decoder.mid_block.attentions.0", 
+                target_dtype=target_dtype
+            )
 
+            # Second ResNet block of the mid-section
+            z = spox_resnet_block_2d(
+                z, 
+                in_channels=in_channel_mid, 
+                out_channels=in_channel_mid, 
+                params=mid_params["resnets"]["1"], 
+                norm_num_groups=config["norm_num_groups"], 
+                param_path="decoder.mid_block.resnets.1"
+            )
+        # --- END OF INLINED MID BLOCK ---
+
+        # Upsampling blocks
         reversed_block_out_channels = list(reversed(config["block_out_channels"]))
         in_channel = reversed_block_out_channels[0]
         for i, _ in enumerate(config["up_block_types"]):
@@ -304,12 +344,14 @@ def spox_decoder(
             )
             in_channel = out_channel
 
+        # Final output convolutions
         z = spox_group_norm(z, params["conv_norm_out"]["weight"], params["conv_norm_out"]["bias"], config["norm_num_groups"])
         z = spox_silu(z)
         z = spox_conv_2d(z, params["conv_out"]["weight"], params["conv_out"]["bias"], padding=1)
         return z
     except KeyError as e:
         raise KeyError(f"Missing parameter in Decoder. Required key: {e}") from e
+
 
 def spox_diagonal_gaussian_distribution_sample(parameters: spox.Var, target_dtype: np.dtype) -> spox.Var:
     mean, logvar = op.split(parameters, num_outputs=2, axis=1)

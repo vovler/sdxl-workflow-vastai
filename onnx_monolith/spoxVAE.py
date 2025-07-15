@@ -403,7 +403,7 @@ def spox_blend_v(
     """
     Blends the bottom rows of top_tile with the top rows of bottom_tile.
     """
-    # --- FIX: The ramp must go from 0.0 to 1.0 to match diffusers fade-in logic ---
+    # The reshape here is on a numpy array, not a Spox Var. This is safe for TRT.
     ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
     ramp = to_const(ramp_np.reshape(1, 1, blend_extent, 1))
 
@@ -411,7 +411,7 @@ def spox_blend_v(
     top_blend_region = op.slice(top_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([2])))
     bottom_blend_region = op.slice(bottom_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([2])))
 
-    # The formula is now: blended = top * (1 - ramp) + bottom * ramp
+    # The formula is: blended = top * (1 - ramp) + bottom * ramp
     # This matches the diffusers logic: the new tile (bottom) fades IN.
     one_const = to_const(np.array(1.0, dtype=target_dtype))
     blended_region = op.add(
@@ -435,7 +435,7 @@ def spox_blend_h(
     """
     Blends the right columns of left_tile with the left columns of right_tile.
     """
-    # --- FIX: The ramp must go from 0.0 to 1.0 to match diffusers fade-in logic ---
+    # The reshape here is on a numpy array, not a Spox Var. This is safe for TRT.
     ramp_np = np.linspace(0.0, 1.0, blend_extent, dtype=target_dtype)
     ramp = to_const(ramp_np.reshape(1, 1, 1, blend_extent))
 
@@ -443,7 +443,7 @@ def spox_blend_h(
     left_blend_region = op.slice(left_tile, starts=to_const(np.array([tile_size - blend_extent])), ends=to_const(np.array([tile_size])), axes=to_const(np.array([3])))
     right_blend_region = op.slice(right_tile, starts=to_const(np.array([0])), ends=to_const(np.array([blend_extent])), axes=to_const(np.array([3])))
 
-    # The formula is now: blended = left * (1 - ramp) + right * ramp
+    # The formula is: blended = left * (1 - ramp) + right * ramp
     # This matches the diffusers logic: the new tile (right) fades IN.
     one_const = to_const(np.array(1.0, dtype=target_dtype))
     blended_region = op.add(
@@ -576,7 +576,7 @@ def build_tiled_decoder_onnx_model_with_loop(
         # Blend horizontally if not the first column
         def blend_h_fn():
             scalar_idx_left = op.reshape(op.sub(iteration_num, to_const(np.array(1, dtype=np.int64))), empty_shape_const, allowzero=1)
-            tile_left = op.gather(final_tile_cache, scalar_idx_left, axis=0)
+            tile_left = op.gather(final_blended_cache, scalar_idx_left, axis=0)
             return [spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)]
         final_blended = op.if_(op.equal(col_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_h_fn, then_branch=lambda: [v_blended])[0]
         
@@ -605,7 +605,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     
     # Reshape to group by row: shape=(num_rows, num_cols, batch, C, row_limit, row_limit)
     grouped_by_row_shape = op.concat([num_rows, num_cols, batch_size, to_const(np.array([config['out_channels'], row_limit, row_limit], dtype=np.int64))], axis=0)
-    grouped_by_row = op.reshape(cropped_blended_cache, grouped_by_row_shape)
+    # FIX: Add allowzero=1 to provide an unambiguous hint to the TensorRT builder.
+    grouped_by_row = op.reshape(cropped_blended_cache, grouped_by_row_shape, allowzero=1)
     
     # Transpose to bring columns next to each other for concatenation: shape=(num_rows, batch, C, row_limit, num_cols, row_limit)
     transposed_for_rows = op.transpose(grouped_by_row, perm=[0, 2, 3, 4, 1, 5])
@@ -616,7 +617,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     # rows_concatenated_shape: shape=(5,), value=[num_rows, batch, C, row_limit, final_row_width]
     rows_concatenated_shape = op.concat([num_rows, batch_size, to_const(np.array([config['out_channels'], row_limit], dtype=np.int64)), final_row_width], axis=0)
     # rows_concatenated: shape=(num_rows, batch, C, row_limit, final_row_width)
-    rows_concatenated = op.reshape(transposed_for_rows, rows_concatenated_shape)
+    # FIX: Add allowzero=1.
+    rows_concatenated = op.reshape(transposed_for_rows, rows_concatenated_shape, allowzero=1)
     
     # Transpose to bring rows next to each other for concatenation: shape=(batch, C, num_rows, row_limit, final_row_width)
     transposed_for_canvas = op.transpose(rows_concatenated, perm=[1, 2, 0, 3, 4])
@@ -625,7 +627,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     # final_canvas_shape: shape=(4,), value=[batch, C, num_rows * row_limit, final_row_width]
     final_canvas_shape = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), op.mul(num_rows, to_const(np.array(row_limit, dtype=np.int64))), final_row_width], axis=0)
     # final_canvas: shape=(batch, C, num_rows * row_limit, final_row_width)
-    final_canvas = op.reshape(transposed_for_canvas, final_canvas_shape)
+    # FIX: Add allowzero=1.
+    final_canvas = op.reshape(transposed_for_canvas, final_canvas_shape, allowzero=1)
     
     # --- Final Cropping and Reshaping for Output ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))
@@ -633,7 +636,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     target_output_shape_var = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), final_out_height, final_out_width], axis=0)
     
     final_image_cropped = op.slice(final_canvas, starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)), ends=target_output_shape_var, axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64)))
-    final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape_var)
+    # FIX: Add allowzero=1. Also acts as a final shape hint.
+    final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape_var, allowzero=1)
     
     # --- Build Model ---
     decoder_model = spox.build(

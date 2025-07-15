@@ -283,8 +283,6 @@ class Decoder(nn.Module):
 class AutoEncoderKL(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.config = config
-        self.tile_decode = False
         self.encoder = Encoder(
             in_channels=config["in_channels"],
             down_block_types=config["down_block_types"],
@@ -321,9 +319,6 @@ class AutoEncoderKL(nn.Module):
 
     
     def decode(self, z):
-        if self.tile_decode:
-            return self.tiled_decode(z)
-
         z = self.post_quant_conv(z)
         return self.decoder(z)
 

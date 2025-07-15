@@ -466,8 +466,6 @@ def build_tiled_decoder_onnx_model_with_loop(
 ) -> onnx.ModelProto:
     """
     Builds a fully TensorRT-compatible VAE Tiled Decoder ONNX model.
-    This version uses a multi-stage tensor caching strategy with no shape-variant
-    loop state variables and robust scalar extraction to ensure compatibility.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
@@ -498,17 +496,11 @@ def build_tiled_decoder_onnx_model_with_loop(
     # latent_width: shape=(1,), value=[latent_width]
     latent_width = op.gather(latent_shape, to_const(np.array([3], dtype=np.int64)))
     
-    # overlap_size_const: shape=(), value=48
     overlap_size_const = to_const(np.array(overlap_size, dtype=np.int64))
-    # num_rows: shape=(1,), value=[num_rows_val]
     num_rows = op.div(op.add(latent_height, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
-    # num_cols: shape=(1,), value=[num_cols_val]
     num_cols = op.div(op.add(latent_width, op.sub(overlap_size_const, to_const(np.array(1, dtype=np.int64)))), overlap_size_const)
-    # trip_count: shape=(1,), value=[num_tiles]
     trip_count = op.mul(num_rows, num_cols)
-    # fill_value: a NumPy array [0.0]
     fill_value = np.array([0.0], dtype=target_dtype)
-    # A constant representing an empty shape, for reshaping to a scalar
     empty_shape_const = to_const(np.array([], dtype=np.int64))
 
     # --- STAGE 1: Decode all tiles and store in a 5D cache tensor ---
@@ -520,7 +512,6 @@ def build_tiled_decoder_onnx_model_with_loop(
     @with_error_context("Stage 1: Tile Decoding Loop")
     def tile_decoding_body(iteration_num, _, current_tile_cache):
         # iteration_num: shape=(1,), value=[i]
-        # current_tile_cache: shape=(num_tiles, batch_size, 3, 512, 512)
         row_idx = op.div(iteration_num, num_cols)
         col_idx = op.mod(iteration_num, num_cols)
         start_h = op.mul(row_idx, overlap_size_const)
@@ -531,9 +522,7 @@ def build_tiled_decoder_onnx_model_with_loop(
         
         # Pad edge tiles
         decoded_shape = op.shape(decoded_tile)
-        # decoded_height: shape=(1,), value=[H]
         decoded_height = op.gather(decoded_shape, to_const(np.array([2], dtype=np.int64)))
-        # decoded_width: shape=(1,), value=[W]
         decoded_width = op.gather(decoded_shape, to_const(np.array([3], dtype=np.int64)))
         pad_h_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_height)
         pad_w_end = op.sub(to_const(np.array(tile_sample_min_size, dtype=np.int64)), decoded_width)
@@ -541,11 +530,8 @@ def build_tiled_decoder_onnx_model_with_loop(
         padded_decoded_tile = op.pad(decoded_tile, pads=padding_amounts, mode='constant', constant_value=to_const(np.array(0.0, dtype=target_dtype)))
         
         # To update data[i], `indices` must be [[i]] (shape [1,1]) and `updates` must be [slice] (shape [1, ...slice_shape]).
-        # scalar_iter: shape=(), value=i
         scalar_iter = op.reshape(iteration_num, empty_shape_const)
-        # scatter_indices: shape=(1, 1), value=[[i]]
         scatter_indices = op.unsqueeze(op.unsqueeze(scalar_iter, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
-        # scatter_updates: shape=(1, batch, C, H, W)
         scatter_updates = op.unsqueeze(padded_decoded_tile, axes=to_const(np.array([0])))
         
         updated_tile_cache = op.scatter_nd(current_tile_cache, scatter_indices, scatter_updates)
@@ -575,18 +561,19 @@ def build_tiled_decoder_onnx_model_with_loop(
             # scalar_flat_idx: shape=(), value=i * num_cols + j
             scalar_flat_idx = op.reshape(flat_idx, empty_shape_const)
             
+            # THE FIX: `gather` with a scalar index correctly slices AND reduces rank. Squeeze is not needed.
             # current_blending_tile: shape=(batch_size, 3, 512, 512)
-            current_blending_tile = op.squeeze(op.gather(final_tile_cache, scalar_flat_idx, axis=0), axes=to_const(np.array([0])))
+            current_blending_tile = op.gather(final_tile_cache, scalar_flat_idx, axis=0)
             
             def blend_v_fn():
                 scalar_idx_above = op.reshape(op.sub(flat_idx, num_cols), empty_shape_const)
-                tile_above = op.squeeze(op.gather(final_tile_cache, scalar_idx_above, axis=0), axes=to_const(np.array([0])))
+                tile_above = op.gather(final_tile_cache, scalar_idx_above, axis=0)
                 return [spox_blend_v(tile_above, current_blending_tile, blend_extent, tile_sample_min_size, target_dtype)]
             v_blended = op.if_(op.equal(row_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_v_fn, then_branch=lambda: [current_blending_tile])[0]
 
             def blend_h_fn():
                 scalar_idx_left = op.reshape(op.sub(flat_idx, to_const(np.array(1, dtype=np.int64))), empty_shape_const)
-                tile_left = op.squeeze(op.gather(final_tile_cache, scalar_idx_left, axis=0), axes=to_const(np.array([0])))
+                tile_left = op.gather(final_tile_cache, scalar_idx_left, axis=0)
                 return [spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)]
             final_blended = op.if_(op.equal(col_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_h_fn, then_branch=lambda: [v_blended])[0]
 
@@ -598,9 +585,11 @@ def build_tiled_decoder_onnx_model_with_loop(
         # full_row: shape=(batch_size, 3, row_limit, final_row_width)
         (full_row,) = op.loop(num_cols, v_initial=[initial_row], body=col_assembly_body)
         
+        # Use reshape to get scalar for the ScatterND index
         scalar_row_idx = op.reshape(row_idx, empty_shape_const)
         scatter_indices_row = op.unsqueeze(op.unsqueeze(scalar_row_idx, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         scatter_updates_row = op.unsqueeze(full_row, axes=to_const(np.array([0])))
+        
         updated_row_cache = op.scatter_nd(current_row_cache, scatter_indices_row, scatter_updates_row)
         return op.const(True), updated_row_cache
 

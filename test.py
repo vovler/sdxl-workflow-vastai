@@ -8,26 +8,34 @@ import json
 from tqdm import tqdm
 from collections import OrderedDict
 
-# Simple model with a loop
-class SimpleLoop(nn.Module):
+# More complex model with a loop and conditional
+class ComplexLoop(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = nn.Linear(10, 10)
+        self.linear_add = nn.Linear(10, 10)
+        self.linear_sub = nn.Linear(10, 10)
         
-    def forward(self, x: torch.Tensor, num_steps: int) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, num_steps: int, use_add: torch.Tensor) -> torch.Tensor:
         for i in range(num_steps):
-            x = self.linear(x) + 1.0
+            if use_add:
+                x = self.linear_add(x) + 1.0
+            else:
+                x = self.linear_sub(x) - 1.0
         return x
 
-# Regular model with loop (non-scripted)
-class RegularLoop(nn.Module):
+# Regular model with loop and conditional (non-scripted)
+class RegularComplexLoop(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = nn.Linear(10, 10)
+        self.linear_add = nn.Linear(10, 10)
+        self.linear_sub = nn.Linear(10, 10)
         
-    def forward(self, x, num_steps):
+    def forward(self, x, num_steps, use_add):
         for i in range(num_steps):
-            x = self.linear(x) + 1.0
+            if use_add:
+                x = self.linear_add(x) + 1.0
+            else:
+                x = self.linear_sub(x) - 1.0
         return x
 
 # Progress bar for TensorRT engine building
@@ -101,20 +109,21 @@ class TQDMProgressMonitor(trt.IProgressMonitor):
 # Test both versions
 def test_exports():
     # Create models
-    regular_model = SimpleLoop()
-    scripted_model = torch.jit.script(regular_model)  # Script the instance
+    regular_model = RegularComplexLoop()
+    scripted_model = torch.jit.script(ComplexLoop())
     
     # Sample input
     x = torch.randn(1, 10)
     num_steps = 5
+    use_add = torch.tensor(True, dtype=torch.bool)
     
     print("Testing TorchScript version:")
     try:
         torch.onnx.export(
             scripted_model,
-            (x, num_steps),
+            (x, num_steps, use_add),
             "scripted_loop.onnx",
-            input_names=['x', 'num_steps'],
+            input_names=['x', 'num_steps', 'use_add'],
             output_names=['output'],
             dynamic_axes={'x': {0: 'batch_size'}},
             opset_version=11
@@ -127,9 +136,9 @@ def test_exports():
     try:
         torch.onnx.export(
             regular_model,
-            (x, num_steps),
+            (x, num_steps, use_add),
             "regular_loop.onnx", 
-            input_names=['x', 'num_steps'],
+            input_names=['x', 'num_steps', 'use_add'],
             output_names=['output'],
             dynamic_axes={'x': {0: 'batch_size'}},
             opset_version=11
@@ -240,6 +249,11 @@ def test_tensorrt_engines():
             "opt": (),
             "max": (),
         }),
+        ("use_add", {
+            "min": (),
+            "opt": (),
+            "max": (),
+        }),
     ])
 
     # For regular model where num_steps is a 1D tensor
@@ -253,6 +267,11 @@ def test_tensorrt_engines():
             "min": (1,),
             "opt": (1,),
             "max": (1,),
+        }),
+        ("use_add", {
+            "min": (),
+            "opt": (),
+            "max": (),
         }),
     ])
     

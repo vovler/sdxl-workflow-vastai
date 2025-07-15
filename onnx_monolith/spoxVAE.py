@@ -511,7 +511,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     """
     Builds a fully TensorRT-compatible VAE Tiled Decoder ONNX model.
     This version refactors the blending loop to use op.Where instead of op.If,
-    making it more amenable to TensorRT's static analysis.
+    making it more amenable to TensorRT's static analysis, and explicitly
+    sets the final output shape for maximum compatibility.
     """
     target_dtype = np.float16
     print(f"Building TensorRT-Compatible TILED DECODER with target data type: {target_dtype.__name__}")
@@ -520,6 +521,8 @@ def build_tiled_decoder_onnx_model_with_loop(
     tile_sample_min_size = config["sample_size"]
     tile_latent_min_size = int(tile_sample_min_size / (2 ** (len(config["block_out_channels"]) - 1)))
     tile_overlap_factor = 0.25
+    # The downsample_factor represents the total upscaling from latent to sample space.
+    # For a standard VAE, this is 8.
     downsample_factor = 2**(len(config["block_out_channels"]) - 1)
     overlap_size = int(tile_latent_min_size * (1 - tile_overlap_factor))
     blend_extent = int(tile_sample_min_size * tile_overlap_factor)
@@ -532,7 +535,7 @@ def build_tiled_decoder_onnx_model_with_loop(
     latent_type = spox.Tensor(target_dtype, ('batch_size', config["latent_channels"], 'latent_height', 'latent_width'))
     latent_z_arg = spox.argument(latent_type)
 
-    # --- 3. Dynamic Shape Calculations ---
+    # --- 3. Dynamic Shape Calculations (inside the graph) ---
     latent_shape = op.shape(latent_z_arg)
     batch_size = op.gather(latent_shape, to_const(np.array([0], dtype=np.int64)))
     latent_height = op.gather(latent_shape, to_const(np.array([2], dtype=np.int64)))
@@ -588,27 +591,22 @@ def build_tiled_decoder_onnx_model_with_loop(
         
         current_tile = op.gather(final_tile_cache, scalar_iter, axis=0)
 
-        # --- FIX: Vertical Blend using op.Where instead of op.If ---
         is_first_row_mask = op.equal(row_idx, to_const(np.array([0], dtype=np.int64)))
         
-        # This branch is computed unconditionally, but only selected if the mask is false.
         scalar_idx_above = op.reshape(op.sub(iteration_num, num_cols), empty_shape_const, allowzero=1)
         tile_above = op.gather(final_tile_cache, scalar_idx_above, axis=0)
         v_blended_result = spox_blend_v(tile_above, current_tile, blend_extent, tile_sample_min_size, target_dtype)
         
         v_blended = op.where(is_first_row_mask, current_tile, v_blended_result)
 
-        # --- FIX: Horizontal Blend using op.Where instead of op.If ---
         is_first_col_mask = op.equal(col_idx, to_const(np.array([0], dtype=np.int64)))
         
-        # This branch is computed unconditionally.
         scalar_idx_left = op.reshape(op.sub(iteration_num, to_const(np.array([1], dtype=np.int64))), empty_shape_const, allowzero=1)
         tile_left = op.gather(current_blended_cache, scalar_idx_left, axis=0)
         h_blended_result = spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)
 
         final_blended = op.where(is_first_col_mask, v_blended, h_blended_result)
         
-        # Scatter the final blended result into the new cache
         scatter_indices = op.unsqueeze(op.unsqueeze(scalar_iter, axes=to_const(np.array([0]))), axes=to_const(np.array([0])))
         scatter_updates = op.unsqueeze(final_blended, axes=to_const(np.array([0])))
         updated_blended_cache = op.scatter_nd(current_blended_cache, scatter_indices, scatter_updates)
@@ -642,19 +640,45 @@ def build_tiled_decoder_onnx_model_with_loop(
     final_canvas_shape = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), op.mul(num_rows, to_const(np.array(row_limit, dtype=np.int64))), final_row_width], axis=0)
     final_canvas = op.reshape(transposed_for_canvas, final_canvas_shape, allowzero=1)
     
-    # --- Final Cropping and Reshaping for Output ---
+    # --- Final Cropping ---
     final_out_height = op.mul(latent_height, to_const(np.array(downsample_factor, dtype=np.int64)))
     final_out_width = op.mul(latent_width, to_const(np.array(downsample_factor, dtype=np.int64)))
     target_output_shape_var = op.concat([batch_size, to_const(np.array([config['out_channels']], dtype=np.int64)), final_out_height, final_out_width], axis=0)
     
     final_image_cropped = op.slice(final_canvas, starts=to_const(np.array([0, 0, 0, 0], dtype=np.int64)), ends=target_output_shape_var, axes=to_const(np.array([0, 1, 2, 3], dtype=np.int64)))
-    final_output_with_shape_hint = op.reshape(final_image_cropped, target_output_shape_var, allowzero=1)
-    
+
     # --- Build Model ---
     decoder_model = spox.build(
         inputs={"latent_sample": latent_z_arg},
-        outputs={"reconstructed_sample": final_output_with_shape_hint}
+        outputs={"reconstructed_sample": final_image_cropped}
     )
-    
-    print("Successfully built TensorRT-Compatible Tiled Decoder ONNX Model.")
+
+    # --- FIX: Post-processing to set specific output shape metadata ---
+    output_name = "reconstructed_sample"
+    for i, o in enumerate(decoder_model.graph.output):
+        if o.name == output_name:
+            # Re-use the symbolic 'batch_size' from the input for consistency.
+            batch_dim_name = decoder_model.graph.input[0].type.tensor_type.shape.dim[0].dim_param
+            
+            # For a VAE decoder, the output channel count is fixed (e.g., 3 for RGB).
+            output_channels = 3
+
+            # Define new symbolic names for the output height and width.
+            # While we know it's latent_height * 8, ONNX symbolic dimensions can't represent expressions.
+            # Using new, clear names is the standard practice.
+            output_h_name = "reconstructed_height"
+            output_w_name = "reconstructed_width"
+
+            # Create a new ValueInfoProto with the specific symbolic and concrete shapes.
+            new_output_vi = onnx.helper.make_tensor_value_info(
+                o.name,
+                o.type.tensor_type.elem_type,
+                [batch_dim_name, output_channels, output_h_name, output_w_name]
+            )
+            # Replace the old, incomplete ValueInfoProto with the new, more specific one.
+            decoder_model.graph.output.pop(i)
+            decoder_model.graph.output.insert(i, new_output_vi)
+            break
+            
+    print("Successfully built and post-processed TensorRT-Compatible Tiled Decoder ONNX Model.")
     return decoder_model

@@ -4,6 +4,7 @@ import onnx
 import tensorrt as trt
 import numpy as np
 import os
+import json
 from tqdm import tqdm
 from collections import OrderedDict
 
@@ -291,11 +292,18 @@ def test_tensorrt_engines():
         if scripted_engine:
             print("✅ Scripted TensorRT engine loaded successfully")
             print(f"   Engine size: {os.path.getsize(scripted_engine_path)} bytes")
-            print(f"   Engine layers: {scripted_engine.num_layers}")
-            print("   Layer info:")
-            for i in range(scripted_engine.num_layers):
-                layer = scripted_engine.get_layer(i)
-                print(f"     Layer {i}: {layer.name} | Type: {layer.type}")
+            
+            inspector = scripted_engine.create_engine_inspector()
+            engine_info_str = inspector.get_engine_information(trt.LayerInformationFormat.JSON)
+            engine_info = json.loads(engine_info_str)
+            
+            print(f"   Engine layers: {len(engine_info.get('Layers', []))}")
+            print("   Layer info (JSON):")
+            print(json.dumps(engine_info, indent=2))
+            
+            with open("scripted_engine_info.json", 'w') as f:
+                json.dump(engine_info, f, indent=2)
+            print("   ✅ Engine info saved to scripted_engine_info.json")
     else:
         print("\n❌ Scripted TensorRT engine not found or failed to build.")
     
@@ -307,11 +315,18 @@ def test_tensorrt_engines():
         if regular_engine:
             print("✅ Regular TensorRT engine loaded successfully")
             print(f"   Engine size: {os.path.getsize(regular_engine_path)} bytes")
-            print(f"   Regular engine layers: {regular_engine.num_layers}")
-            print("   Layer info:")
-            for i in range(regular_engine.num_layers):
-                layer = regular_engine.get_layer(i)
-                print(f"     Layer {i}: {layer.name} | Type: {layer.type}")
+            
+            inspector = regular_engine.create_engine_inspector()
+            engine_info_str = inspector.get_engine_information(trt.LayerInformationFormat.JSON)
+            engine_info = json.loads(engine_info_str)
+
+            print(f"   Regular engine layers: {len(engine_info.get('Layers', []))}")
+            print("   Layer info (JSON):")
+            print(json.dumps(engine_info, indent=2))
+            
+            with open("regular_engine_info.json", 'w') as f:
+                json.dump(engine_info, f, indent=2)
+            print("   ✅ Engine info saved to regular_engine_info.json")
     else:
         print("\n❌ Regular TensorRT engine not found or failed to build.")
 

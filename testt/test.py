@@ -22,14 +22,17 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
         return b
 
     # Create a blending weight tensor, requires broadcasting on batch and width dimensions
-    # arange can take a 0-dim tensor as input in a JIT context.
     y = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, -1, 1)
     weight = y / blend_extent.to(a.dtype)
 
-    # Blend the overlapping regions using positive slicing to be ONNX-friendly
-    # Now this subtraction is between two 0-dim tensors.
-    start_index = shape_a_dim - blend_extent
-    blended_slice = a[:, :, start_index:, :] * (1 - weight) + b[:, :, :blend_extent, :] * weight
+    # --- ONNX EXPORT FIX: The "Flip Trick" ---
+    # Instead of calculating a dynamic start_index, which causes exporter errors,
+    # we flip the tensor, slice from the beginning, and flip it back.
+    a_flipped = torch.flip(a, [2])
+    a_sliced = a_flipped[:, :, :blend_extent, :]
+    a_restored = torch.flip(a_sliced, [2])
+
+    blended_slice = a_restored * (1 - weight) + b[:, :, :blend_extent, :] * weight
 
     # Create a new tensor for the result to avoid in-place operations
     result = b.clone()
@@ -39,7 +42,6 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
 @torch.jit.script
 def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:
     # Explicitly convert all Python numbers and shape values to 0-dim tensors
-    # to avoid ONNX exporter type confusion with dynamic axes.
     shape_a_dim = torch.tensor(a.shape[3], device=a.device, dtype=torch.long)
     shape_b_dim = torch.tensor(b.shape[3], device=a.device, dtype=torch.long)
     blend_extent_in_tensor = torch.tensor(blend_extent_in, device=a.device, dtype=torch.long)
@@ -52,14 +54,15 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
         return b
 
     # Create a blending weight tensor, requires broadcasting on batch and height dimensions
-    # arange can take a 0-dim tensor as input in a JIT context.
     x = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, 1, -1)
     weight = x / blend_extent.to(a.dtype)
 
-    # Blend the overlapping regions using positive slicing to be ONNX-friendly
-    # Now this subtraction is between two 0-dim tensors.
-    start_index = shape_a_dim - blend_extent
-    blended_slice = a[:, :, :, start_index:] * (1 - weight) + b[:, :, :, :blend_extent] * weight
+    # --- ONNX EXPORT FIX: The "Flip Trick" ---
+    a_flipped = torch.flip(a, [3])
+    a_sliced = a_flipped[:, :, :, :blend_extent]
+    a_restored = torch.flip(a_sliced, [3])
+
+    blended_slice = a_restored * (1 - weight) + b[:, :, :, :blend_extent] * weight
     
     # Create a new tensor for the result to avoid in-place operations
     result = b.clone()

@@ -14,17 +14,15 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
     static slicing method ("Flip Trick") for ONNX compatibility.
     """
     blend_extent_tensor = torch.tensor(blend_extent, device=a.device, dtype=torch.long)
-
-    # Create a blending weight tensor (this is fine as blend_extent is a constant)
     y = torch.arange(blend_extent_tensor, device=a.device, dtype=a.dtype).view(1, 1, -1, 1)
     weight = y / blend_extent_tensor.to(a.dtype)
 
-    # --- FIX: Use the "Flip Trick" to avoid dynamic start_index calculation ---
+    # Use the "Flip Trick" to get the bottom slice of 'a'
     a_flipped = torch.flip(a, [2])
     a_sliced_flipped = a_flipped[:, :, :blend_extent, :]
     a_slice = torch.flip(a_sliced_flipped, [2])
 
-    b_slice = b[:, :, :blend_extent, :] # This slice is already static
+    b_slice = b[:, :, :blend_extent, :]
 
     blended_slice = a_slice * (1 - weight) + b_slice * weight
 
@@ -39,16 +37,15 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
     static slicing method ("Flip Trick") for ONNX compatibility.
     """
     blend_extent_tensor = torch.tensor(blend_extent, device=a.device, dtype=torch.long)
-    
     x = torch.arange(blend_extent_tensor, device=a.device, dtype=a.dtype).view(1, 1, 1, -1)
     weight = x / blend_extent_tensor.to(a.dtype)
 
-    # --- FIX: Use the "Flip Trick" to avoid dynamic start_index calculation ---
+    # Use the "Flip Trick" to get the right slice of 'a'
     a_flipped = torch.flip(a, [3])
     a_sliced_flipped = a_flipped[:, :, :, :blend_extent]
     a_slice = torch.flip(a_sliced_flipped, [3])
 
-    b_slice = b[:, :, :, :blend_extent] # This slice is already static
+    b_slice = b[:, :, :, :blend_extent]
 
     blended_slice = a_slice * (1 - weight) + b_slice * weight
     
@@ -56,87 +53,95 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
     result[:, :, :, :blend_extent] = blended_slice
     return result
 
-# VAE Decoder Wrapper for ONNX export
 class VaeDecoder(nn.Module):
     def __init__(self, traced_vae_decoder):
         super().__init__()
         self.vae_decoder = traced_vae_decoder
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
-        tile_latent_min_size = 64
-        # Assuming VAE scale factor is 8 (standard for Stable Diffusion models)
+        tile_latent_size = 64
         vae_scale_factor = 8 
-        tile_sample_min_size = tile_latent_min_size * vae_scale_factor
+        tile_sample_size = tile_latent_size * vae_scale_factor
         tile_overlap_factor = 0.25
 
-        # These values are now constants, which is critical for ONNX export
-        overlap_size = int(tile_latent_min_size * (1.0 - tile_overlap_factor))
-        blend_extent = int(tile_sample_min_size * tile_overlap_factor)
+        overlap_size = int(tile_latent_size * (1.0 - tile_overlap_factor))
+        blend_extent = int(tile_sample_size * tile_overlap_factor)
         
-        # --- Padding Strategy ---
         latent_height, latent_width = latent.shape[2], latent.shape[3]
         
-        # Calculate padding needed so that the padded dimensions are a multiple of overlap_size
-        pad_h = (overlap_size - (latent_height - tile_latent_min_size) % overlap_size) % overlap_size
-        pad_w = (overlap_size - (latent_width - tile_latent_min_size) % overlap_size) % overlap_size
+        pad_h = (overlap_size - (latent_height - tile_latent_size) % overlap_size) % overlap_size
+        pad_w = (overlap_size - (latent_width - tile_latent_size) % overlap_size) % overlap_size
 
-        # Use F.pad which is ONNX-friendly
         padded_latent = F.pad(latent, (0, pad_w, 0, pad_h), mode='replicate')
         
         padded_h, padded_w = padded_latent.shape[2], padded_latent.shape[3]
 
-        # All loops and slicing logic from here now operate on static shapes and constants
-        h_steps = range(0, padded_h - tile_latent_min_size + 1, overlap_size)
-        w_steps = range(0, padded_w - tile_latent_min_size + 1, overlap_size)
+        # --- FIX: Convert range objects to lists for JIT compatibility ---
+        h_steps = list(range(0, padded_h - tile_latent_size + 1, overlap_size))
+        w_steps = list(range(0, padded_w - tile_latent_size + 1, overlap_size))
 
-        output_rows = []
-        # Initializing prev_row_tiles for the first iteration
-        prev_row_tiles = [torch.zeros(1, 3, tile_sample_min_size, tile_sample_min_size, dtype=latent.dtype, device=latent.device) for _ in w_steps]
+        output_rows: List[torch.Tensor] = []
+        prev_row_tiles: List[torch.Tensor] = []
 
-        for i, h_step in enumerate(h_steps):
-            decoded_row_tiles = []
+        for h_step in h_steps:
+            decoded_row_tiles: List[torch.Tensor] = []
             for w_step in w_steps:
-                tile_latent = padded_latent[:, :, h_step:h_step + tile_latent_min_size, w_step:w_step + tile_latent_min_size]
+                tile_latent = padded_latent[:, :, h_step:h_step + tile_latent_size, w_step:w_step + tile_latent_size]
                 decoded_tile = self.vae_decoder(tile_latent)
                 decoded_row_tiles.append(decoded_tile)
             
-            if i > 0:
-                for j in range(len(w_steps)):
-                    decoded_row_tiles[j] = blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
+            # --- FIX: Use a new list for blending to make logic clearer for JIT ---
+            if len(prev_row_tiles) > 0:
+                v_blended_tiles: List[torch.Tensor] = []
+                for i in range(len(w_steps)):
+                    blended = blend_v(prev_row_tiles[i], decoded_row_tiles[i], blend_extent)
+                    v_blended_tiles.append(blended)
+                # Re-assign the list after processing
+                decoded_row_tiles = v_blended_tiles
 
-            row_cat_list = []
+            # --- FIX: Cleaned-up horizontal blending logic for JIT ---
             if len(decoded_row_tiles) > 1:
-                # Handle all but the last tile in a separate loop for TorchScript compatibility
-                for j in range(len(decoded_row_tiles) - 1):
-                    tile = decoded_row_tiles[j]
-                    if j > 0:
-                        tile = blend_h(decoded_row_tiles[j-1], tile, blend_extent)
-                    row_cat_list.append(tile[..., :-blend_extent]) # Use negative index for static slicing
+                h_blended_tiles: List[torch.Tensor] = []
+                # First tile is not blended on the left.
+                h_blended_tiles.append(decoded_row_tiles[0]) 
+                # Blend subsequent tiles with their left neighbors.
+                for i in range(1, len(decoded_row_tiles)):
+                    blended = blend_h(decoded_row_tiles[i-1], decoded_row_tiles[i], blend_extent)
+                    h_blended_tiles.append(blended)
+
+                # Slice and concatenate the horizontally blended tiles.
+                row_parts: List[torch.Tensor] = []
+                for i in range(len(h_blended_tiles) - 1):
+                    # For all but the last tile, slice off the right-hand blend area.
+                    row_parts.append(h_blended_tiles[i][..., :-blend_extent])
+                # Keep the entire last tile.
+                row_parts.append(h_blended_tiles[-1])
                 
-                # Handle the last tile
-                last_tile = blend_h(decoded_row_tiles[-2], decoded_row_tiles[-1], blend_extent)
-                row_cat_list.append(last_tile)
-            else:
-                 row_cat_list.append(decoded_row_tiles[0])
+                stitched_row = torch.cat(row_parts, dim=-1)
+            else: # Only one tile in the row, no horizontal blending needed.
+                stitched_row = decoded_row_tiles[0]
             
-            output_rows.append(torch.cat(row_cat_list, dim=-1))
+            output_rows.append(stitched_row)
             prev_row_tiles = decoded_row_tiles
 
-        # Stitch the rows together
+        # Stitch all rows vertically.
         if len(output_rows) > 1:
-            stitched_image = torch.cat(output_rows, dim=-2)
+            # We already blended vertically, so we just need to slice and concatenate.
+            final_parts: List[torch.Tensor] = []
+            for i in range(len(output_rows) - 1):
+                final_parts.append(output_rows[i][..., :-blend_extent, :])
+            final_parts.append(output_rows[-1])
+            stitched_image = torch.cat(final_parts, dim=-2)
         else:
             stitched_image = output_rows[0]
 
-        # Crop the padded final image back to the original desired output size
+        # Crop the padded final image back to the original desired output size.
         original_height_out = latent_height * vae_scale_factor
         original_width_out = latent_width * vae_scale_factor
         
         final_image = stitched_image[:, :, :original_height_out, :original_width_out]
-
         return final_image
 
-# Test export
 def test_export(vae: AutoencoderKL):
     class VaeDecodeWrapper(nn.Module):
         def __init__(self, vae_model):
@@ -145,8 +150,8 @@ def test_export(vae: AutoencoderKL):
         def forward(self, latents):
             return self.vae.decode(latents).sample
 
-    tile_latent_min_size = 64
-    dummy_latent_tile = torch.randn(1, 4, tile_latent_min_size, tile_latent_min_size, device="cuda", dtype=torch.float16)
+    tile_latent_size = 64
+    dummy_latent_tile = torch.randn(1, 4, tile_latent_size, tile_latent_size, device="cuda", dtype=torch.float16)
     with torch.no_grad():
         traced_vae_decoder = torch.jit.trace(VaeDecodeWrapper(vae), dummy_latent_tile)
 
@@ -175,7 +180,6 @@ def test_export(vae: AutoencoderKL):
 
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)
-    
     with torch.no_grad():
         print("Loading original VAE model from HuggingFace...")
         diffusers_vae = AutoencoderKL.from_pretrained(
@@ -185,5 +189,4 @@ if __name__ == "__main__":
         diffusers_vae.to("cuda")
         diffusers_vae.eval()
         print("✅ Original VAE model loaded.")
-
         test_export(diffusers_vae)

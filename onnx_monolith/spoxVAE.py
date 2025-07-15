@@ -74,9 +74,9 @@ def spox_group_norm(
     # Perform the group normalization
     normalized_x = op.group_normalization(x, weight, bias, num_groups=num_groups, epsilon=epsilon)
 
-    # Explicitly reshape the output to match the original input shape.
-    # This is a no-op at runtime but provides the necessary shape info to the builder.
-    return op.reshape(normalized_x, original_shape)
+    # FIX: Add allowzero=1 to provide an unambiguous hint to the TensorRT builder,
+    # especially since this function is called from within a loop body.
+    return op.reshape(normalized_x, original_shape, allowzero=1)
 
 
 
@@ -136,7 +136,8 @@ def spox_attention_block(
         norm_out = spox_group_norm(hidden_states, params["group_norm"]["weight"], params["group_norm"]["bias"], norm_num_groups)
 
         hw = op.mul(height, width)
-        reshaped_norm = op.reshape(norm_out, op.concat([batch, to_const(np.array([channels], dtype=np.int64)), hw], axis=0))
+        # FIX: Add allowzero=1 to all reshape operations
+        reshaped_norm = op.reshape(norm_out, op.concat([batch, to_const(np.array([channels], dtype=np.int64)), hw], axis=0), allowzero=1)
         transposed_norm = op.transpose(reshaped_norm, perm=[0, 2, 1])
 
         q = spox_linear(transposed_norm, params["to_q"]["weight"], params["to_q"]["bias"])
@@ -145,9 +146,10 @@ def spox_attention_block(
         
         scale = to_const(np.array(channels**-0.5, dtype=target_dtype))
         
-        q = op.reshape(q, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0))
-        k = op.reshape(k, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0))
-        v = op.reshape(v, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0))
+        # FIX: Add allowzero=1
+        q = op.reshape(q, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0), allowzero=1)
+        k = op.reshape(k, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0), allowzero=1)
+        v = op.reshape(v, op.concat([batch, hw, to_const(np.array([1, channels], dtype=np.int64))], axis=0), allowzero=1)
 
         q, k, v = [op.transpose(t, perm=[0, 2, 1, 3]) for t in (q, k, v)]
         
@@ -157,12 +159,14 @@ def spox_attention_block(
         
         hidden_states_attn = op.matmul(attention_probs, v)
         hidden_states_attn = op.transpose(hidden_states_attn, perm=[0, 2, 1, 3])
-        hidden_states_attn = op.reshape(hidden_states_attn, op.concat([batch, hw, to_const(np.array([channels], dtype=np.int64))], axis=0))
+        # FIX: Add allowzero=1
+        hidden_states_attn = op.reshape(hidden_states_attn, op.concat([batch, hw, to_const(np.array([channels], dtype=np.int64))], axis=0), allowzero=1)
         
         hidden_states_out_proj = spox_linear(hidden_states_attn, params["to_out"]["0"]["weight"], params["to_out"]["0"]["bias"])
 
         transposed_out = op.transpose(hidden_states_out_proj, perm=[0, 2, 1])
-        reshaped_out = op.reshape(transposed_out, op.concat([batch, to_const(np.array([channels], dtype=np.int64)), height, width], axis=0))
+        # FIX: Add allowzero=1
+        reshaped_out = op.reshape(transposed_out, op.concat([batch, to_const(np.array([channels], dtype=np.int64)), height, width], axis=0), allowzero=1)
 
         return op.add(reshaped_out, residual)
     except KeyError as e:

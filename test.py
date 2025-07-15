@@ -142,7 +142,7 @@ def build_tensorrt_engine(
     engine_file: str,
     input_profiles: dict,
     fp16: bool = True,
-    timing_cache_path: str = None
+    timing_cache_path: str | None = None
 ):
     """Builds a TensorRT engine from an ONNX model, following a standardized configuration."""
     
@@ -227,7 +227,22 @@ def test_tensorrt_engines():
     print("TENSORRT ENGINE BUILDING")
     print("="*50)
 
-    input_profiles = OrderedDict([
+    # For scripted model where num_steps is a scalar
+    scripted_input_profiles = OrderedDict([
+        ("x", {
+            "min": (1, 10),
+            "opt": (4, 10),
+            "max": (16, 10),
+        }),
+        ("num_steps", {
+            "min": (),
+            "opt": (),
+            "max": (),
+        }),
+    ])
+
+    # For regular model where num_steps is a 1D tensor
+    regular_input_profiles = OrderedDict([
         ("x", {
             "min": (1, 10),
             "opt": (4, 10),
@@ -248,7 +263,7 @@ def test_tensorrt_engines():
         scripted_engine_path = build_tensorrt_engine(
             "scripted_loop.onnx", 
             "scripted_loop.trt",
-            input_profiles=input_profiles,
+            input_profiles=scripted_input_profiles,
             timing_cache_path="scripted.cache"
         )
     except Exception as e:
@@ -258,7 +273,7 @@ def test_tensorrt_engines():
         regular_engine_path = build_tensorrt_engine(
             "regular_loop.onnx", 
             "regular_loop.trt",
-            input_profiles=input_profiles,
+            input_profiles=regular_input_profiles,
             timing_cache_path="regular.cache"
         )
     except Exception as e:

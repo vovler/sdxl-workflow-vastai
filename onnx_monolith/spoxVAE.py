@@ -576,7 +576,8 @@ def build_tiled_decoder_onnx_model_with_loop(
         # Blend horizontally if not the first column
         def blend_h_fn():
             scalar_idx_left = op.reshape(op.sub(iteration_num, to_const(np.array(1, dtype=np.int64))), empty_shape_const, allowzero=1)
-            tile_left = op.gather(final_blended_cache, scalar_idx_left, axis=0)
+            # FIX: Gather from the loop-carried dependency `current_blended_cache`, not the final loop output.
+            tile_left = op.gather(current_blended_cache, scalar_idx_left, axis=0)
             return [spox_blend_h(tile_left, v_blended, blend_extent, tile_sample_min_size, target_dtype)]
         final_blended = op.if_(op.equal(col_idx, to_const(np.array(0, dtype=np.int64))), else_branch=blend_h_fn, then_branch=lambda: [v_blended])[0]
         

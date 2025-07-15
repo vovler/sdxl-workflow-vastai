@@ -8,20 +8,27 @@ import traceback
 
 @torch.jit.script
 def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:
-    # Use torch.min on a tensor to be more ONNX-friendly than Python's min()
-    # for handling symbolic shapes during export.
-    inputs_for_min = torch.tensor([a.shape[2], b.shape[2], blend_extent_in], device=a.device)
+    # Explicitly convert all Python numbers and shape values to 0-dim tensors
+    # to avoid ONNX exporter type confusion with dynamic axes.
+    shape_a_dim = torch.tensor(a.shape[2], device=a.device, dtype=torch.long)
+    shape_b_dim = torch.tensor(b.shape[2], device=a.device, dtype=torch.long)
+    blend_extent_in_tensor = torch.tensor(blend_extent_in, device=a.device, dtype=torch.long)
+
+    # Use torch.min on a stacked tensor to get the blend_extent as a 0-dim tensor.
+    inputs_for_min = torch.stack([shape_a_dim, shape_b_dim, blend_extent_in_tensor])
     blend_extent = torch.min(inputs_for_min)
 
     if blend_extent == 0:
         return b
 
     # Create a blending weight tensor, requires broadcasting on batch and width dimensions
+    # arange can take a 0-dim tensor as input in a JIT context.
     y = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, -1, 1)
     weight = y / blend_extent.to(a.dtype)
 
     # Blend the overlapping regions using positive slicing to be ONNX-friendly
-    start_index = a.shape[2] - blend_extent
+    # Now this subtraction is between two 0-dim tensors.
+    start_index = shape_a_dim - blend_extent
     blended_slice = a[:, :, start_index:, :] * (1 - weight) + b[:, :, :blend_extent, :] * weight
 
     # Create a new tensor for the result to avoid in-place operations
@@ -31,19 +38,27 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
 
 @torch.jit.script
 def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:
-    # Use torch.min on a tensor to be more ONNX-friendly than Python's min()
-    inputs_for_min = torch.tensor([a.shape[3], b.shape[3], blend_extent_in], device=a.device)
+    # Explicitly convert all Python numbers and shape values to 0-dim tensors
+    # to avoid ONNX exporter type confusion with dynamic axes.
+    shape_a_dim = torch.tensor(a.shape[3], device=a.device, dtype=torch.long)
+    shape_b_dim = torch.tensor(b.shape[3], device=a.device, dtype=torch.long)
+    blend_extent_in_tensor = torch.tensor(blend_extent_in, device=a.device, dtype=torch.long)
+
+    # Use torch.min on a stacked tensor to get the blend_extent as a 0-dim tensor.
+    inputs_for_min = torch.stack([shape_a_dim, shape_b_dim, blend_extent_in_tensor])
     blend_extent = torch.min(inputs_for_min)
 
     if blend_extent == 0:
         return b
 
     # Create a blending weight tensor, requires broadcasting on batch and height dimensions
+    # arange can take a 0-dim tensor as input in a JIT context.
     x = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, 1, -1)
     weight = x / blend_extent.to(a.dtype)
 
     # Blend the overlapping regions using positive slicing to be ONNX-friendly
-    start_index = a.shape[3] - blend_extent
+    # Now this subtraction is between two 0-dim tensors.
+    start_index = shape_a_dim - blend_extent
     blended_slice = a[:, :, :, start_index:] * (1 - weight) + b[:, :, :, :blend_extent] * weight
     
     # Create a new tensor for the result to avoid in-place operations

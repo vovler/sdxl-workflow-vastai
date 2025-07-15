@@ -134,7 +134,7 @@ def test_export(vae: AutoencoderKL):
                     'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
                     'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
                 },
-                opset_version=21
+                opset_version=20
             )
             print("✅ VAE Decoder exported successfully to onnx/vae_decoder.onnx")
     except Exception as e:

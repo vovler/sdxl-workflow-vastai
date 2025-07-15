@@ -2,22 +2,91 @@ import torch
 import torch.nn as nn
 import onnx
 import os
+from typing import List
 from diffusers import AutoencoderKL as DiffusersAutoencoderKL
-from vae import AutoEncoderKL
 import traceback
+
+@torch.jit.script
+def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
+    blend_extent = min(a.shape[2], b.shape[2], blend_extent)
+    for y in range(blend_extent):
+        b[:, :, y, :] = a[:, :, -blend_extent + y, :] * (1 - y / blend_extent) + b[:, :, y, :] * (y / blend_extent)
+    return b
+
+@torch.jit.script
+def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor:
+    blend_extent = min(a.shape[3], b.shape[3], blend_extent)
+    for x in range(blend_extent):
+        b[:, :, :, x] = a[:, :, :, -blend_extent + x] * (1 - x / blend_extent) + b[:, :, :, x] * (x / blend_extent)
+    return b
+
+@torch.jit.ignore()
+def _vae_decode(vae: DiffusersAutoencoderKL, latent_tile: torch.Tensor) -> torch.Tensor:
+    return vae.decode(latent_tile).sample
+
+def _tiled_decode(vae: DiffusersAutoencoderKL, latent: torch.Tensor, tile_latent_min_size: int, tile_sample_min_size: int, tile_overlap_factor: float) -> torch.Tensor:
+    r"""
+    Decode a batch of images using a tiled decoder.
+    """
+    overlap_size = int(tile_latent_min_size * (1.0 - tile_overlap_factor))
+    blend_extent = int(tile_sample_min_size * tile_overlap_factor)
+    row_limit = tile_sample_min_size - blend_extent
+
+    #_h_steps = torch.arange(0, latent.shape[2], overlap_size)
+    #_w_steps = torch.arange(0, latent.shape[3], overlap_size)
+
+    h_steps = list(range(0, latent.shape[2], overlap_size))
+    w_steps = list(range(0, latent.shape[3], overlap_size))
+
+    output_rows: List[torch.Tensor] = []
+    prev_row_tiles: List[torch.Tensor] = []
+
+    for i in h_steps:
+        decoded_row_tiles: List[torch.Tensor] = []
+        for j in w_steps:
+            tile_latent = latent[:, :, i : i + tile_latent_min_size, j : j + tile_latent_min_size]
+            decoded_tile = _vae_decode(vae, tile_latent)
+            decoded_row_tiles.append(decoded_tile)
+        
+        if len(prev_row_tiles) > 0:
+            for j in range(len(w_steps)):
+                decoded_row_tiles[j] = blend_v(prev_row_tiles[j], decoded_row_tiles[j], blend_extent)
+
+        stitched_row_tiles: List[torch.Tensor] = []
+        for j in range(len(w_steps)):
+            tile = decoded_row_tiles[j]
+            if j > 0:
+                tile = blend_h(decoded_row_tiles[j - 1], tile, blend_extent)
+            
+            is_last_col = (j == len(w_steps) - 1)
+            slice_width = tile.shape[-1] if is_last_col else row_limit
+            stitched_row_tiles.append(tile[..., :slice_width])
+        
+        output_rows.append(torch.cat(stitched_row_tiles, dim=-1))
+        prev_row_tiles = decoded_row_tiles
+
+    final_image_cat: List[torch.Tensor] = []
+    for i in range(len(h_steps)):
+        row = output_rows[i]
+        is_last_row = (i == len(h_steps) - 1)
+        slice_height = row.shape[-2] if is_last_row else row_limit
+        final_image_cat.append(row[..., :slice_height, :])
+
+    return torch.cat(final_image_cat, dim=-2)
+
+tiled_decode = torch.jit.script(_tiled_decode)
 
 # VAE Decoder Wrapper for ONNX export
 class VaeDecoder(nn.Module):
-    def __init__(self, vae: AutoEncoderKL):
+    def __init__(self, vae: DiffusersAutoencoderKL):
         super().__init__()
         self.vae = vae
 
     def forward(self, latent_sample: torch.Tensor) -> torch.Tensor:
-        # vae.py's decode returns a tensor directly
-        return self.vae.tiled_decode(latent_sample, 64, 64, 0.25)
+        return tiled_decode(self.vae, latent_sample, 64, 64, 0.25)
 
 # Test export
-def test_export(vae: AutoEncoderKL):
+def test_export(vae: DiffusersAutoencoderKL):
     # VAE wrapper
     vae_decoder = torch.jit.script(VaeDecoder(vae))
 
@@ -55,16 +124,7 @@ if __name__ == "__main__":
             torch_dtype=torch.float16
         )
         diffusers_vae.to("cuda")
+        diffusers_vae.eval()
         print("✅ Original VAE model loaded.")
 
-        print("Initializing custom VAE and loading weights...")
-        # Initialize our VAE and load weights
-        # The config from diffusers is compatible with our vae.py AutoEncoderKL
-        vae = AutoEncoderKL(diffusers_vae.config)
-        vae.load_state_dict(diffusers_vae.state_dict())
-        vae.to("cuda")
-        vae.half() # Ensure all parameters are float16
-        vae.eval()
-        print("✅ Custom VAE initialized and weights loaded.")
-
-        test_export(vae)
+        test_export(diffusers_vae)

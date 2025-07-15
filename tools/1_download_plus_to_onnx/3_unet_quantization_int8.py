@@ -146,7 +146,7 @@ def main():
 
     # Quantization parameters from user command
     batch_size = 1
-    calib_size = 32
+    calib_size = 64
     collect_method = "min-mean"
     percentile = 1.0
     alpha = 0.8

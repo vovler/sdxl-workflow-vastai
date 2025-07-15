@@ -14,7 +14,7 @@ class VaeDecoder(nn.Module):
 
     def forward(self, latent_sample: torch.Tensor) -> torch.Tensor:
         # vae.py's decode returns a tensor directly
-        return self.vae.decode(latent_sample)
+        return self.vae.tiled_decode(latent_sample)
 
 # Test export
 def test_export(vae: AutoEncoderKL):

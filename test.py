@@ -1,9 +1,9 @@
+
 import torch
 import torch.nn as nn
 import onnx
 
 # Simple model with a loop
-@torch.jit.script
 class SimpleLoop(nn.Module):
     def __init__(self):
         super().__init__()
@@ -28,8 +28,8 @@ class RegularLoop(nn.Module):
 # Test both versions
 def test_exports():
     # Create models
-    scripted_model = SimpleLoop()
-    regular_model = RegularLoop()
+    regular_model = SimpleLoop()
+    scripted_model = torch.jit.script(regular_model)  # Script the instance
     
     # Sample input
     x = torch.randn(1, 10)

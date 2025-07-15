@@ -7,27 +7,32 @@ from diffusers import AutoencoderKL
 import traceback
 
 @torch.jit.script
+def _onnx_friendly_min(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    Calculates min(a, b) using a mathematical formula that is more stable for
+    ONNX export than torch.min or Python's min() when dealing with dynamic shapes.
+    """
+    return (0.5 * (a + b - torch.abs(a - b))).to(torch.long)
+
+@torch.jit.script
 def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Tensor:
     # Explicitly convert all Python numbers and shape values to 0-dim tensors
-    # to avoid ONNX exporter type confusion with dynamic axes.
     shape_a_dim = torch.tensor(a.shape[2], device=a.device, dtype=torch.long)
     shape_b_dim = torch.tensor(b.shape[2], device=a.device, dtype=torch.long)
     blend_extent_in_tensor = torch.tensor(blend_extent_in, device=a.device, dtype=torch.long)
 
-    # Use torch.min on a stacked tensor to get the blend_extent as a 0-dim tensor.
-    inputs_for_min = torch.stack([shape_a_dim, shape_b_dim, blend_extent_in_tensor])
-    blend_extent = torch.min(inputs_for_min)
+    # --- ONNX EXPORT FIX: Replace torch.min with a math-based equivalent ---
+    min_of_shapes = _onnx_friendly_min(shape_a_dim, shape_b_dim)
+    blend_extent = _onnx_friendly_min(min_of_shapes, blend_extent_in_tensor)
 
-    if blend_extent == 0:
+    if torch.equal(blend_extent, torch.tensor(0, device=a.device, dtype=torch.long)):
         return b
 
-    # Create a blending weight tensor, requires broadcasting on batch and width dimensions
+    # Create a blending weight tensor
     y = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, -1, 1)
     weight = y / blend_extent.to(a.dtype)
 
-    # --- ONNX EXPORT FIX: The "Flip Trick" ---
-    # Instead of calculating a dynamic start_index, which causes exporter errors,
-    # we flip the tensor, slice from the beginning, and flip it back.
+    # Use the "Flip Trick" to avoid dynamic start_index calculation
     a_flipped = torch.flip(a, [2])
     a_sliced = a_flipped[:, :, :blend_extent, :]
     a_restored = torch.flip(a_sliced, [2])
@@ -46,18 +51,18 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
     shape_b_dim = torch.tensor(b.shape[3], device=a.device, dtype=torch.long)
     blend_extent_in_tensor = torch.tensor(blend_extent_in, device=a.device, dtype=torch.long)
 
-    # Use torch.min on a stacked tensor to get the blend_extent as a 0-dim tensor.
-    inputs_for_min = torch.stack([shape_a_dim, shape_b_dim, blend_extent_in_tensor])
-    blend_extent = torch.min(inputs_for_min)
+    # --- ONNX EXPORT FIX: Replace torch.min with a math-based equivalent ---
+    min_of_shapes = _onnx_friendly_min(shape_a_dim, shape_b_dim)
+    blend_extent = _onnx_friendly_min(min_of_shapes, blend_extent_in_tensor)
 
-    if blend_extent == 0:
+    if torch.equal(blend_extent, torch.tensor(0, device=a.device, dtype=torch.long)):
         return b
 
-    # Create a blending weight tensor, requires broadcasting on batch and height dimensions
+    # Create a blending weight tensor
     x = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, 1, -1)
     weight = x / blend_extent.to(a.dtype)
 
-    # --- ONNX EXPORT FIX: The "Flip Trick" ---
+    # Use the "Flip Trick" to avoid dynamic start_index calculation
     a_flipped = torch.flip(a, [3])
     a_sliced = a_flipped[:, :, :, :blend_extent]
     a_restored = torch.flip(a_sliced, [3])

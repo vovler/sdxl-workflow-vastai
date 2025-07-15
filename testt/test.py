@@ -25,7 +25,7 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
     min_of_shapes = _onnx_friendly_min(shape_a_dim, shape_b_dim)
     blend_extent = _onnx_friendly_min(min_of_shapes, blend_extent_in_tensor)
 
-    if torch.equal(blend_extent, torch.tensor(0, device=a.device, dtype=torch.long)):
+    if blend_extent == 0:
         return b
 
     # Create a blending weight tensor
@@ -55,7 +55,7 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent_in: int) -> torch.Ten
     min_of_shapes = _onnx_friendly_min(shape_a_dim, shape_b_dim)
     blend_extent = _onnx_friendly_min(min_of_shapes, blend_extent_in_tensor)
 
-    if torch.equal(blend_extent, torch.tensor(0, device=a.device, dtype=torch.long)):
+    if blend_extent == 0:
         return b
 
     # Create a blending weight tensor

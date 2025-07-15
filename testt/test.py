@@ -16,8 +16,9 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
     y = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, blend_extent, 1)
     weight = y / blend_extent
 
-    # Blend the overlapping regions
-    blended_slice = a[:, :, -blend_extent:, :] * (1 - weight) + b[:, :, :blend_extent, :] * weight
+    # Blend the overlapping regions using positive slicing to be ONNX-friendly
+    start_index = a.shape[2] - blend_extent
+    blended_slice = a[:, :, start_index:, :] * (1 - weight) + b[:, :, :blend_extent, :] * weight
 
     # Create a new tensor for the result to avoid in-place operations
     result = b.clone()
@@ -34,8 +35,9 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int) -> torch.Tensor
     x = torch.arange(blend_extent, device=a.device, dtype=a.dtype).view(1, 1, 1, blend_extent)
     weight = x / blend_extent
 
-    # Blend the overlapping regions
-    blended_slice = a[:, :, :, -blend_extent:] * (1 - weight) + b[:, :, :, :blend_extent] * weight
+    # Blend the overlapping regions using positive slicing to be ONNX-friendly
+    start_index = a.shape[3] - blend_extent
+    blended_slice = a[:, :, :, start_index:] * (1 - weight) + b[:, :, :, :blend_extent] * weight
     
     # Create a new tensor for the result to avoid in-place operations
     result = b.clone()

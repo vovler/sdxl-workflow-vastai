@@ -17,7 +17,7 @@ class SimpleVaeDecoder(nn.Module):
 
         # --- Iterate over the batch dimension ---
         # Note: We use range(latent.shape[0]) to make it traceable by ONNX
-        for i in range(latent.shape[0]):
+        for i in range(int(latent.shape[0])):
             # --- Decode each latent individually ---
             # We add a batch dimension of 1 since the traced vae_decoder expects it
             decoded_sample = self.vae_decoder(latent[i:i+1])

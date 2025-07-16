@@ -235,5 +235,3 @@ if __name__ == "__main__":
     save_decoded_images(reconstructed_batch, "output")
     
     print("\n--- Test Complete! ---")
-Use code with caution.
-Python

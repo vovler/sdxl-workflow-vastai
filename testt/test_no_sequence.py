@@ -16,7 +16,7 @@ class ComplexLoop(nn.Module):
         self.linear_sub = nn.Linear(10, 10)
         
     def forward(self, x: torch.Tensor, num_steps: list[int], use_add: torch.Tensor) -> torch.Tensor:
-        for i in range(num_steps):
+        for i in num_steps:
             if use_add:
                 x = self.linear_add(x) + i
             else:

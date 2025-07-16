@@ -28,21 +28,25 @@ class SimpleVaeDecoder(nn.Module):
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
         batch_size = latent.shape[0]
-        #output_tensor = torch.zeros(
-        #    (batch_size, self.out_channels, self.out_height, self.out_width),
-        #    dtype=latent.dtype,
-        #    device=latent.device
-        #)
+        # Pre-allocate the output tensor
+        output_tensor = torch.zeros(
+            (batch_size, self.out_channels, self.out_height, self.out_width),
+            dtype=latent.dtype,
+            device=latent.device
+        )
 
-        decoded_slice = torch.zeros(batch_size, self.out_channels, self.out_height, self.out_width, dtype=latent.dtype, device=latent.device)
+        # Use enumerate to get both the index and the tensor slice
+        for i, latent_slice in enumerate(latent):
+            # Add a batch dimension of 1 for the VAE decoder
+            latent_slice_batched = latent_slice.unsqueeze(0)
+            
+            # Decode the single slice
+            decoded_slice = self.vae_decoder(latent_slice_batched)
+            
+            # Place the result into the pre-allocated output tensor
+            output_tensor[i:i+1] = decoded_slice
 
-        for i in range(batch_size):
-            latent_slice = latent[i:i+1]
-            decoded_slice_2 = self.vae_decoder(latent_slice)
-            decoded_slice[i:i+1] = decoded_slice_2
-            #output_tensor[i:i+1] = decoded_slice
-
-        return decoded_slice
+        return output_tensor
 
 
 def export_onnx_model(vae: AutoencoderKL, onnx_path: str):

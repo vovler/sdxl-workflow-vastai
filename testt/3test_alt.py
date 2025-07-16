@@ -188,8 +188,8 @@ def build_tensorrt_engine(
     config = builder.create_builder_config()
     
 
-    if fp16:
-        config.set_flag(trt.BuilderFlag.FP16)
+    #if fp16:
+    #    config.set_flag(trt.BuilderFlag.FP16)
 
     # --- Timing Cache ---
     if timing_cache_path:

@@ -32,7 +32,8 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, weight: torch.Tensor) -> torch.Ten
     result[:, :, :, :blend_extent] = blended_slice
     return result
 
-# --- FIX: Removed the @torch.jit.script decorator from the class definition ---
+# --- The Main VAE Decoder ---
+# We will JIT script an INSTANCE of this class.
 class VaeDecoder(nn.Module):
     def __init__(self, traced_vae_decoder):
         super().__init__()
@@ -67,29 +68,37 @@ class VaeDecoder(nn.Module):
         canvas = torch.zeros(latent.shape[0], 3, padded_sample_h, padded_sample_w, dtype=latent.dtype, device=latent.device)
 
         # --- Tiling and Blending Loop ---
-        # These loops are what the analysis will show are causing the ONNX Loop/Sequence ops
         h_steps = list(range(0, padded_latent.shape[2] - tile_latent_size + 1, overlap_size))
         w_steps = list(range(0, padded_latent.shape[3] - tile_latent_size + 1, overlap_size))
 
         for h_step in h_steps:
             for w_step in w_steps:
                 h_start_sample = h_step * vae_scale_factor
-                h_end_sample = h_start_sample + tile_sample_size
                 w_start_sample = w_step * vae_scale_factor
-                w_end_sample = w_start_sample + tile_sample_size
                 
                 tile_latent = padded_latent[:, :, h_step:h_step + tile_latent_size, w_step:w_step + tile_latent_size]
                 decoded_tile = self.vae_decoder(tile_latent)
 
                 if h_step > 0:
-                    existing_slice_v = canvas[:, :, h_start_sample:h_end_sample, w_start_sample:w_end_sample]
+                    existing_slice_v = canvas[:, :, h_start_sample:h_start_sample + tile_sample_size, w_start_sample:w_start_sample + tile_sample_size]
                     decoded_tile = blend_v(existing_slice_v, decoded_tile, weight_v)
                 
                 if w_step > 0:
-                    existing_slice_h = canvas[:, :, h_start_sample:h_end_sample, w_start_sample:w_end_sample]
+                    existing_slice_h = canvas[:, :, h_start_sample:h_start_sample + tile_sample_size, w_start_sample:w_start_sample + tile_sample_size]
                     decoded_tile = blend_h(existing_slice_h, decoded_tile, weight_h)
 
-                canvas[:, :, h_start_sample:h_end_sample, w_start_sample:w_end_sample] = decoded_tile
+                # --- FIX: Replace in-place assignment with `torch.where` ---
+                # 1. Pad the small tile to the full canvas size
+                padding = (w_start_sample, padded_sample_w - w_start_sample - tile_sample_size,
+                           h_start_sample, padded_sample_h - h_start_sample - tile_sample_size)
+                padded_tile = F.pad(decoded_tile, padding)
+                
+                # 2. Create a mask of the same size
+                mask = torch.zeros_like(canvas, dtype=torch.bool)
+                mask[:, :, h_start_sample:h_start_sample + tile_sample_size, w_start_sample:w_start_sample + tile_sample_size] = True
+                
+                # 3. Perform a full tensor reassignment
+                canvas = torch.where(mask, padded_tile, canvas)
 
         # --- Cropping ---
         original_height_out = latent_height * vae_scale_factor
@@ -111,14 +120,15 @@ def test_export(vae: AutoencoderKL):
     with torch.no_grad():
         traced_vae_decoder = torch.jit.trace(VaeDecodeWrapper(vae), dummy_latent_tile)
 
-    # --- FIX: Create an instance first, THEN script it. ---
+    # Create an instance of the VaeDecoder...
     vae_decoder_instance = VaeDecoder(traced_vae_decoder)
+    # ...and then JIT script the instance.
     vae_decoder = torch.jit.script(vae_decoder_instance)
-
+    
     latent_sample = torch.randn(1, 4, 128, 128, device="cuda", dtype=torch.float16)
 
-    onnx_path = "onnx/vae_decoder_with_loops.onnx"
-    print("Exporting ONNX model (this version is expected to have loops)...")
+    onnx_path = "onnx/vae_decoder_dynamic_loop.onnx"
+    print("Exporting ONNX model with Sequence-Free loops...")
     try:
         with torch.no_grad():
             torch.onnx.export(
@@ -131,57 +141,13 @@ def test_export(vae: AutoencoderKL):
                     'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
                     'sample': {0: 'batch_size', 2: 'height_out', 3: 'width_out'}
                 },
-                opset_version=20
+                opset_version=20 # opset 11+ is fine
             )
             print(f"✅ VAE Decoder exported successfully to {onnx_path}")
+            print("INFO: Please inspect this model. It should contain Loop and If operators, but NO Sequence operators.")
     except Exception as e:
         print(f"❌ VAE Decoder export failed: {e}")
         traceback.print_exc()
-        return
-
-    # --- Analysis of the exported ONNX model ---
-    print("\n" + "="*50)
-    print(f"Analyzing {onnx_path} for Sequence operators...")
-    print("="*50)
-    try:
-        model = onnx.load(onnx_path)
-        sequence_ops_found = []
-        loop_nodes = []
-
-        for node in model.graph.node:
-            if node.op_type == "Loop":
-                loop_nodes.append(node)
-            if node.op_type.startswith("Sequence"):
-                sequence_ops_found.append(node)
-
-        if not loop_nodes and not sequence_ops_found:
-            print("✅ No Loop or Sequence operators found. The graph is flat and ready for TensorRT.")
-        else:
-            print(f"❌ Analysis complete: Found {len(loop_nodes)} Loop operator(s) and {len(sequence_ops_found)} Sequence operator(s).")
-            print("\n--- Loop Analysis ---")
-            if not loop_nodes:
-                print("No Loop operators found.")
-            else:
-                for i, loop_node in enumerate(loop_nodes):
-                    print(f"\nLoop Node #{i+1}: Name='{loop_node.name}'")
-                    print(f"  - Inputs: {loop_node.input}")
-                    print(f"  - Outputs: {loop_node.output}")
-                    print("  - Probable Cause: This ONNX Loop was generated from a `for` loop in the TorchScript'd VaeDecoder.forward method.")
-                    print("  - TensorRT Issue: TensorRT has limited support for this operator.")
-
-            print("\n--- Sequence Op Analysis ---")
-            for i, seq_node in enumerate(sequence_ops_found):
-                print(f"\nSequence Node #{i+1}: Name='{seq_node.name}', Type='{seq_node.op_type}'")
-                print(f"  - Inputs: {seq_node.input}")
-                print(f"  - Outputs: {seq_node.output}")
-                print("  - Probable Cause: This operator is being used to manage the 'canvas' tensor as it is modified across iterations of an ONNX Loop.")
-                print("  - TensorRT Issue: TensorRT does not support these operators.")
-        
-        print("\n" + "="*50)
-
-    except Exception as e:
-        print(f"\n❌ Failed to analyze the ONNX model: {e}")
-
 
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)

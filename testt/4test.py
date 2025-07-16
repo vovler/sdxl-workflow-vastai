@@ -7,6 +7,7 @@ import os
 from diffusers import AutoencoderKL
 from typing import Dict, List
 import time
+
 # Only import tensorrt if it's available and needed
 try:
     import tensorrt as trt
@@ -65,77 +66,81 @@ class TensorRTRunner:
         err, self.stream = cudart.cudaStreamCreate()
         check_cudart_err(err)
         
+        # --- Create CUDA Events for timing ---
+        err, self.start_event = cudart.cudaEventCreate()
+        check_cudart_err(err)
+        err, self.end_event = cudart.cudaEventCreate()
+        check_cudart_err(err)
+
         # Allocate memory buffers for inputs and outputs
         self.device_buffers = {}
         self.output_tensors = {}
-        self.output_info = {} # To store shape and dtype info for outputs
 
         print("--- Allocating Buffers for Engine Bindings ---")
         for i in range(self.engine.num_io_tensors):
             binding_name = self.engine.get_tensor_name(i)
-            # Use profile 0, as we only defined one. Get the MAX shape.
-            shape = self.engine.get_profile_shape(0, i)[2] 
+            
+            # --- FIX IS HERE ---
+            # Get the MAX shape from profile 0
+            shape = self.engine.get_tensor_profile_shape(binding_name, 0)[2] 
+            # -----------------
+            
             dtype = trt_dtype_to_torch(self.engine.get_tensor_dtype(binding_name))
             
             # Allocate memory on the GPU with PyTorch
             tensor = torch.empty(tuple(shape), dtype=dtype, device="cuda")
             self.device_buffers[binding_name] = tensor
             
-            # Identify outputs and store them for easy access later
             if self.engine.get_tensor_mode(binding_name) == trt.TensorIOMode.OUTPUT:
                 self.output_tensors[binding_name] = tensor
-                self.output_info[binding_name] = {"shape": shape, "dtype": dtype}
         
         print(f"✓ Buffers allocated for {len(self.device_buffers)} bindings.")
 
 
     def run(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """
-        Run inference on the TensorRT engine.
+        """Run inference and measure GPU execution time accurately."""
         
-        Args:
-            inputs: A dictionary mapping input names to their corresponding torch tensors.
-        
-        Returns:
-            A dictionary mapping output names to their resulting torch tensors.
-        """
-        # Copy input tensors from CPU/GPU to their designated pinned device buffers
-        time_start = time.time()
+        # --- Data Transfer: Inputs HtoD (Host to Device) ---
         for name, tensor in inputs.items():
             if name not in self.device_buffers:
                 raise ValueError(f"Input tensor '{name}' not found in engine bindings.")
             
             buffer = self.device_buffers[name]
-            # Set the actual input shape for this run, which is crucial for dynamic shapes.
             self.context.set_input_shape(name, tensor.shape)
-            # Copy data. Slicing the buffer ensures we don't write past the tensor's size.
             buffer[:tensor.shape[0],...] = tensor.to("cuda")
 
         # Set binding addresses for all I/O tensors
         for name, buffer in self.device_buffers.items():
             self.context.set_tensor_address(name, buffer.data_ptr())
             
-        # Execute the model
+        # --- GPU Execution with Accurate Timing ---
+        check_cudart_err(cudart.cudaEventRecord(self.start_event, self.stream))
         self.context.execute_async_v3(self.stream)
+        check_cudart_err(cudart.cudaEventRecord(self.end_event, self.stream))
         
         # Synchronize the stream to wait for the computation to complete
-        check_cudart_err(cudart.cudaStreamSynchronize(self.stream))
+        check_cudart_err(cudart.cudaEventSynchronize(self.end_event))
         
-        # --- Prepare and return outputs ---
+        # Calculate the elapsed time in milliseconds
+        err, ms = cudart.cudaEventElapsedTime(self.start_event, self.end_event)
+        check_cudart_err(err)
+        print(f"Time taken by GPU execution: {ms:.4f} ms")
+        # -------------------------------------------
+
+        # --- Data Transfer: Outputs DtoH (Device to Host, via clone) ---
         results = {}
         for name, tensor in self.output_tensors.items():
-            # Get the actual output shape from the context after execution
             actual_output_shape = self.context.get_tensor_shape(name)
-            # Slice the buffer to the actual output size and clone it
             results[name] = tensor[:actual_output_shape[0],...].clone()
-
-        time_end = time.time()
-        print(f"Time taken by tensorrt run: {time_end - time_start} seconds")
         
         return results
 
     def __del__(self):
-        # Clean up CUDA stream on object deletion
+        # Clean up CUDA resources on object deletion
+        if hasattr(self, 'start_event'):
+            check_cudart_err(cudart.cudaEventDestroy(self.start_event))
+        if hasattr(self, 'end_event'):
+            check_cudart_err(cudart.cudaEventDestroy(self.end_event))
         if hasattr(self, 'stream'):
             check_cudart_err(cudart.cudaStreamDestroy(self.stream))
 
@@ -149,28 +154,17 @@ def preprocess_images(image_paths: List[str]) -> torch.Tensor:
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found at {image_path}")
         img = Image.open(image_path).convert("RGB").resize((512, 512))
-        
-        # Convert to numpy array and normalize to [-1, 1]
         arr = np.array(img).astype(np.float32)
         arr = (arr / 127.5) - 1.0
-        
-        # Convert to tensor and permute to (C, H, W)
         tensor = torch.from_numpy(arr).permute(2, 0, 1)
         preprocessed_tensors.append(tensor)
-    
-    # Stack individual tensors into a single batch
     return torch.stack(preprocessed_tensors)
 
 
 def save_decoded_images(image_tensor: torch.Tensor, output_prefix: str):
     """Denormalizes and saves a batch of images."""
-    # Denormalize from [-1, 1] to [0, 1]
     image_tensor = (image_tensor / 2 + 0.5).clamp(0, 1)
-    
-    # Permute from (B, C, H, W) to (B, H, W, C) for saving
     image_tensor = image_tensor.cpu().permute(0, 2, 3, 1)
-    
-    # Convert to numpy array and scale to [0, 255]
     image_np = (image_tensor.float().numpy() * 255).round().astype("uint8")
 
     for i, img_arr in enumerate(image_np):
@@ -220,22 +214,27 @@ if __name__ == "__main__":
         print("Please make sure 'example1.png', 'example2.png', 'example3.png', and 'example4.png' exist in the current directory.")
         exit(1)
 
-    print("\n--- 3. Encoding with Diffusers VAE ---")
+    # --- WARMUP RUN ---
+    # It's good practice to do a warmup run to compile kernels, etc.
+    print("\n--- 3. Performing a Warmup Run ---")
+    with torch.no_grad():
+        warmup_latents = torch.randn((1, 4, 64, 64), device=DEVICE, dtype=DTYPE)
+        _ = decoder_runner.run({"latent_sample": warmup_latents})
+    print("✓ Warmup complete.")
+
+    print("\n--- 4. Encoding with Diffusers VAE ---")
     with torch.no_grad():
         latent_dist = vae.encode(image_batch).latent_dist
-        # Use the deterministic mode, not a random sample
-        latents = latent_dist.mode() 
-        # Apply the scaling factor, which is crucial for VAEs
-        latents = latents * vae.config.scaling_factor
+        latents = latent_dist.mode() * vae.config.scaling_factor
     print(f"✓ Encoded images into a latent tensor of shape: {latents.shape}")
 
-    print("\n--- 4. Decoding with TensorRT Engine ---")
+    print("\n--- 5. Decoding with TensorRT Engine (Timed) ---")
     trt_inputs = {"latent_sample": latents}
     trt_outputs = decoder_runner.run(trt_inputs)
     reconstructed_batch = trt_outputs['sample']
     print(f"✓ Decoded latents into an image tensor of shape: {reconstructed_batch.shape}")
 
-    print("\n--- 5. Saving Output Images ---")
+    print("\n--- 6. Saving Output Images ---")
     save_decoded_images(reconstructed_batch, "output")
     
     print("\n--- Test Complete! ---")

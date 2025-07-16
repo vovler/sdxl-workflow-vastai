@@ -17,6 +17,99 @@ try:
 except ImportError:
     trt = None
 
+
+class SimpleVaeDecoder(nn.Module):
+    def __init__(self, traced_vae_decoder, out_channels: int, out_height: int, out_width: int):
+        super().__init__()
+        self.vae_decoder = traced_vae_decoder
+        self.out_channels = out_channels
+        self.out_height = out_height
+        self.out_width = out_width
+
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
+        batch_size = latent.shape[0]
+        output_tensor = torch.zeros(
+            (batch_size, self.out_channels, self.out_height, self.out_width),
+            dtype=latent.dtype,
+            device=latent.device
+        )
+
+        if batch_size == 1:
+            decoded_slice = self.vae_decoder(latent)
+            output_tensor = decoded_slice
+        else:
+            decoded_slice = self.vae_decoder(latent)
+            output_tensor = decoded_slice
+            
+        #for i in range(batch_size):
+        #    decoded_slice = self.vae_decoder(latent[i:i+1])
+        #    output_tensor[i:i+1] = decoded_slice
+        return output_tensor
+
+
+def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
+    class VaeDecodeWrapper(nn.Module):
+        def __init__(self, vae_model):
+            super().__init__()
+            self.vae = vae_model
+        def forward(self, latents):
+            return self.vae.decode(latents).sample
+
+    dummy_latent_tile = torch.randn(1, 4, 64, 64, device="cuda", dtype=torch.float16)
+
+    with torch.no_grad():
+        temp_decoder = VaeDecodeWrapper(vae)
+        dummy_output = temp_decoder(dummy_latent_tile)
+        _, out_channels, out_height, out_width = dummy_output.shape
+        print(f"Detected VAE output shape for a single sample: ({out_channels}, {out_height}, {out_width})")
+
+    with torch.no_grad():
+        traced_vae_decoder = torch.jit.trace(VaeDecodeWrapper(vae), dummy_latent_tile)
+
+    simple_vae_decoder_instance = SimpleVaeDecoder(
+        traced_vae_decoder, out_channels, out_height, out_width
+    )
+    scripted_decoder = torch.jit.script(simple_vae_decoder_instance)
+
+    latent_sample = torch.randn(2, 4, 64, 64, device="cuda", dtype=torch.float16)
+
+    print("Exporting ONNX model with a pre-allocated output tensor...")
+    try:
+        with torch.no_grad():
+            torch.onnx.export(
+                scripted_decoder,
+                (latent_sample,),
+                onnx_path,
+                input_names=['latent_sample'],
+                output_names=['sample'],
+                dynamic_axes={
+                    'latent_sample': {0: 'batch_size'},
+                    'sample': {0: 'batch_size'}
+                },
+                opset_version=16
+            )
+            print(f"✅ Simplified VAE Decoder exported successfully to {onnx_path}")
+            return True
+    except Exception as e:
+        print(f"❌ Simplified VAE Decoder export failed: {e}")
+        traceback.print_exc()
+        return False
+
+def inspect_onnx(onnx_path: str):
+    """Inspects an ONNX model using onnxslim."""
+    print(f"--- Inspecting {onnx_path} ---")
+    try:
+        result = subprocess.run(["onnxslim", onnx_path, onnx_path], capture_output=True, text=True, check=True)
+        print(result.stdout)
+    except FileNotFoundError:
+        print("❌ Error: 'onnxslim' command not found. Please ensure onnx-slim is installed (`pip install onnx-slim`).")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error during inspection:")
+        print(e.stderr)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+
 # --- TensorRT Engine Building Utilities ---
 
 class TQDMProgressMonitor(trt.IProgressMonitor if trt else object):
@@ -152,93 +245,6 @@ def build_tensorrt_engine(
     return engine_file
 
 # --- VAE Decoder Definition and Export Logic ---
-
-class SimpleVaeDecoder(nn.Module):
-    def __init__(self, traced_vae_decoder, out_channels: int, out_height: int, out_width: int):
-        super().__init__()
-        self.vae_decoder = traced_vae_decoder
-        self.out_channels = out_channels
-        self.out_height = out_height
-        self.out_width = out_width
-
-    def forward(self, latent: torch.Tensor) -> torch.Tensor:
-        batch_size = latent.shape[0]
-        output_tensor = torch.zeros(
-            (batch_size, self.out_channels, self.out_height, self.out_width),
-            dtype=latent.dtype,
-            device=latent.device
-        )
-
-        decoded_slice = self.vae_decoder(latent)
-        output_tensor = decoded_slice
-        #for i in range(batch_size):
-        #    decoded_slice = self.vae_decoder(latent[i:i+1])
-        #    output_tensor[i:i+1] = decoded_slice
-        return output_tensor
-
-def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
-    class VaeDecodeWrapper(nn.Module):
-        def __init__(self, vae_model):
-            super().__init__()
-            self.vae = vae_model
-        def forward(self, latents):
-            return self.vae.decode(latents).sample
-
-    dummy_latent_tile = torch.randn(1, 4, 64, 64, device="cuda", dtype=torch.float16)
-
-    with torch.no_grad():
-        temp_decoder = VaeDecodeWrapper(vae)
-        dummy_output = temp_decoder(dummy_latent_tile)
-        _, out_channels, out_height, out_width = dummy_output.shape
-        print(f"Detected VAE output shape for a single sample: ({out_channels}, {out_height}, {out_width})")
-
-    with torch.no_grad():
-        traced_vae_decoder = torch.jit.trace(VaeDecodeWrapper(vae), dummy_latent_tile)
-
-    simple_vae_decoder_instance = SimpleVaeDecoder(
-        traced_vae_decoder, out_channels, out_height, out_width
-    )
-    scripted_decoder = torch.jit.script(simple_vae_decoder_instance)
-
-    latent_sample = torch.randn(2, 4, 64, 64, device="cuda", dtype=torch.float16)
-
-    print("Exporting ONNX model with a pre-allocated output tensor...")
-    try:
-        with torch.no_grad():
-            torch.onnx.export(
-                scripted_decoder,
-                (latent_sample,),
-                onnx_path,
-                input_names=['latent_sample'],
-                output_names=['sample'],
-                dynamic_axes={
-                    'latent_sample': {0: 'batch_size'},
-                    'sample': {0: 'batch_size'}
-                },
-                opset_version=16
-            )
-            print(f"✅ Simplified VAE Decoder exported successfully to {onnx_path}")
-            return True
-    except Exception as e:
-        print(f"❌ Simplified VAE Decoder export failed: {e}")
-        traceback.print_exc()
-        return False
-
-def inspect_onnx(onnx_path: str):
-    """Inspects an ONNX model using onnxslim."""
-    print(f"--- Inspecting {onnx_path} ---")
-    try:
-        result = subprocess.run(["onnxslim", onnx_path, onnx_path], capture_output=True, text=True, check=True)
-        print(result.stdout)
-    except FileNotFoundError:
-        print("❌ Error: 'onnxslim' command not found. Please ensure onnx-slim is installed (`pip install onnx-slim`).")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error during inspection:")
-        print(e.stderr)
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-
-
 # --- Main Execution ---
 
 if __name__ == "__main__":

@@ -34,16 +34,10 @@ class SimpleVaeDecoder(nn.Module):
             device=latent.device
         )
 
-        if batch_size == 1:
-            decoded_slice = self.vae_decoder(latent)
-            output_tensor = decoded_slice
-        else:
+        for i in range(batch_size):
             decoded_slice = self.vae_decoder(latent)
             output_tensor = decoded_slice
 
-        #for i in range(batch_size):
-        #    decoded_slice = self.vae_decoder(latent[i:i+1])
-        #    output_tensor[i:i+1] = decoded_slice
         return output_tensor
 
 

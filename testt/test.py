@@ -32,8 +32,7 @@ def blend_h(a: torch.Tensor, b: torch.Tensor, weight: torch.Tensor) -> torch.Ten
     result[:, :, :, :blend_extent] = blended_slice
     return result
 
-# This is the version that still uses jit.script on the main class
-@torch.jit.script
+# --- FIX: Removed the @torch.jit.script decorator from the class definition ---
 class VaeDecoder(nn.Module):
     def __init__(self, traced_vae_decoder):
         super().__init__()
@@ -68,6 +67,7 @@ class VaeDecoder(nn.Module):
         canvas = torch.zeros(latent.shape[0], 3, padded_sample_h, padded_sample_w, dtype=latent.dtype, device=latent.device)
 
         # --- Tiling and Blending Loop ---
+        # These loops are what the analysis will show are causing the ONNX Loop/Sequence ops
         h_steps = list(range(0, padded_latent.shape[2] - tile_latent_size + 1, overlap_size))
         w_steps = list(range(0, padded_latent.shape[3] - tile_latent_size + 1, overlap_size))
 
@@ -111,11 +111,14 @@ def test_export(vae: AutoencoderKL):
     with torch.no_grad():
         traced_vae_decoder = torch.jit.trace(VaeDecodeWrapper(vae), dummy_latent_tile)
 
-    vae_decoder = torch.jit.script(VaeDecoder(traced_vae_decoder))
+    # --- FIX: Create an instance first, THEN script it. ---
+    vae_decoder_instance = VaeDecoder(traced_vae_decoder)
+    vae_decoder = torch.jit.script(vae_decoder_instance)
+
     latent_sample = torch.randn(1, 4, 128, 128, device="cuda", dtype=torch.float16)
 
-    onnx_path = "onnx/vae_decoder_trt.onnx"
-    print("Testing ONNX export for TensorRT compatibility:")
+    onnx_path = "onnx/vae_decoder_with_loops.onnx"
+    print("Exporting ONNX model (this version is expected to have loops)...")
     try:
         with torch.no_grad():
             torch.onnx.export(
@@ -134,18 +137,17 @@ def test_export(vae: AutoencoderKL):
     except Exception as e:
         print(f"❌ VAE Decoder export failed: {e}")
         traceback.print_exc()
-        return # Exit if export fails
+        return
 
-    # --- START: Added analysis of the exported ONNX model ---
+    # --- Analysis of the exported ONNX model ---
     print("\n" + "="*50)
-    print("Analyzing exported ONNX model for Sequence operators...")
+    print(f"Analyzing {onnx_path} for Sequence operators...")
     print("="*50)
     try:
         model = onnx.load(onnx_path)
         sequence_ops_found = []
         loop_nodes = []
 
-        # Find all Loop nodes and Sequence nodes
         for node in model.graph.node:
             if node.op_type == "Loop":
                 loop_nodes.append(node)
@@ -155,32 +157,30 @@ def test_export(vae: AutoencoderKL):
         if not loop_nodes and not sequence_ops_found:
             print("✅ No Loop or Sequence operators found. The graph is flat and ready for TensorRT.")
         else:
-            print(f"❌ Found {len(loop_nodes)} Loop operator(s) and {len(sequence_ops_found)} Sequence operator(s).")
+            print(f"❌ Analysis complete: Found {len(loop_nodes)} Loop operator(s) and {len(sequence_ops_found)} Sequence operator(s).")
             print("\n--- Loop Analysis ---")
             if not loop_nodes:
                 print("No Loop operators found.")
             else:
                 for i, loop_node in enumerate(loop_nodes):
-                    print(f"\nLoop Node #{i+1}:")
-                    print(f"  - Name: {loop_node.name}")
+                    print(f"\nLoop Node #{i+1}: Name='{loop_node.name}'")
                     print(f"  - Inputs: {loop_node.input}")
                     print(f"  - Outputs: {loop_node.output}")
-                    print("  - Probable Cause: This loop was likely generated from a `for` loop in the TorchScript'd VaeDecoder.forward method.")
+                    print("  - Probable Cause: This ONNX Loop was generated from a `for` loop in the TorchScript'd VaeDecoder.forward method.")
+                    print("  - TensorRT Issue: TensorRT has limited support for this operator.")
 
             print("\n--- Sequence Op Analysis ---")
             for i, seq_node in enumerate(sequence_ops_found):
-                print(f"\nSequence Node #{i+1}:")
-                print(f"  - Name: {seq_node.name}")
-                print(f"  - Type: {seq_node.op_type}")
+                print(f"\nSequence Node #{i+1}: Name='{seq_node.name}', Type='{seq_node.op_type}'")
                 print(f"  - Inputs: {seq_node.input}")
                 print(f"  - Outputs: {seq_node.output}")
-                print("  - Probable Cause: This operator is likely being used to manage a 'loop-carried dependency' (like the 'canvas' tensor) for one of the Loop operators listed above.")
+                print("  - Probable Cause: This operator is being used to manage the 'canvas' tensor as it is modified across iterations of an ONNX Loop.")
+                print("  - TensorRT Issue: TensorRT does not support these operators.")
         
         print("\n" + "="*50)
 
     except Exception as e:
         print(f"\n❌ Failed to analyze the ONNX model: {e}")
-    # --- END: Analysis ---
 
 
 if __name__ == "__main__":

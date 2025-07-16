@@ -44,7 +44,8 @@ class SimpleVaeDecoder(nn.Module):
             decoded_slice = self.vae_decoder(latent_slice_batched)
             
             # Place the result into the pre-allocated output tensor
-            output_tensor[i:i+1].copy_(decoded_slice)
+            idx = torch.full_like(decoded_slice, i, dtype=torch.long)
+            output_tensor.scatter_(dim=0, index=idx, src=decoded_slice)
 
         return output_tensor
 

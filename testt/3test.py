@@ -37,11 +37,6 @@ class SimpleVaeDecoder(nn.Module):
         if batch_size == 1:
             decoded_slice = self.vae_decoder(latent)
             output_tensor = decoded_slice
-        elif batch_size == 2:
-            decoded_slice = self.vae_decoder(latent[0:1])
-            output_tensor[0:1] = decoded_slice
-            decoded_slice = self.vae_decoder(latent[1:2])
-            output_tensor[1:2] = decoded_slice
         else:
             decoded_slice = self.vae_decoder(latent)
             output_tensor = decoded_slice

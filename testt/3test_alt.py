@@ -6,11 +6,11 @@ import argparse
 import subprocess
 import traceback
 import json
-from typing import List
+from typing import List, Dict, Any
 from diffusers import AutoencoderKL
 from tqdm import tqdm
 from collections import OrderedDict
-import numpy as np # Import numpy
+import numpy as np
 
 # Only import tensorrt if it's available and needed
 try:
@@ -101,24 +101,20 @@ def inspect_onnx(onnx_path: str):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
-# --- UPDATED: More Robust Custom JSON Encoder ---
+# --- JSON Export Logic with Deep Dive ---
+
 class OnnxNodeEncoder(json.JSONEncoder):
     """
     Custom JSON encoder to handle ONNX and NumPy data types that are not
-    natively serializable. This version handles TensorProto, GraphProto,
-    and various NumPy types.
+    natively serializable by the standard json library.
     """
     def default(self, o):
-        # Handle all NumPy integer types
         if isinstance(o, np.integer):
             return int(o)
-        # Handle all NumPy floating point types (avoids deprecated np.float)
         if isinstance(o, np.floating):
             return float(o)
-        # Handle NumPy arrays
         if isinstance(o, np.ndarray):
             return o.tolist()
-        # Handle ONNX TensorProto (for constant values in attributes)
         if isinstance(o, onnx.TensorProto):
             return {
                 "__type__": "TensorProto",
@@ -126,60 +122,67 @@ class OnnxNodeEncoder(json.JSONEncoder):
                 "dims": list(o.dims),
                 "data_type": onnx.TensorProto.DataType.Name(o.data_type),
             }
-        # NEW: Handle ONNX GraphProto (for subgraphs in nodes like If/Loop)
-        if isinstance(o, onnx.GraphProto):
-            return {
-                "__type__": "GraphProto",
-                "name": o.name,
-                "inputs": [i.name for i in o.input],
-                "outputs": [o.name for o in o.output],
-                "nodes_count": len(o.node),
-            }
-        # Handle raw bytes, common in some attributes
         if isinstance(o, bytes):
-            # Try to decode as a string, otherwise provide a placeholder
             try:
                 return o.decode('utf-8')
             except UnicodeDecodeError:
                 return f"<bytes length: {len(o)}>"
-        # Let the base class default method raise the TypeError for other types
         return super().default(o)
+
+def _graph_to_dict(graph: onnx.GraphProto) -> Dict[str, Any]:
+    """
+    Recursively converts a GraphProto and its nodes into a dictionary,
+    diving deep into subgraphs.
+    """
+    graph_dict = {
+        "name": graph.name,
+        "inputs": [i.name for i in graph.input],
+        "outputs": [o.name for o in graph.output],
+        "nodes": []
+    }
+    for node in graph.node:
+        attributes = {}
+        for attr in node.attribute:
+            value = onnx.helper.get_attribute_value(attr)
+            # --- RECURSIVE STEP ---
+            # If an attribute is a subgraph, process it recursively
+            if isinstance(value, onnx.GraphProto):
+                attributes[attr.name] = _graph_to_dict(value)
+            else:
+                attributes[attr.name] = value
+
+        node_info = {
+            "name": node.name,
+            "op_type": node.op_type,
+            "inputs": list(node.input),
+            "outputs": list(node.output),
+            "attributes": attributes
+        }
+        graph_dict["nodes"].append(node_info)
+    return graph_dict
 
 def export_nodes_to_json(onnx_path: str, json_path: str):
     """
-    Inspects an ONNX model and exports all node information to a JSON file,
-    excluding the weights by using a custom JSON encoder.
+    Inspects an ONNX model and exports its entire graph structure, including
+    subgraphs, to a JSON file.
     """
-    print(f"Inspecting ONNX model at {onnx_path} to extract node info...")
+    print(f"Recursively exporting ONNX graph from {onnx_path}...")
     try:
         model = onnx.load(onnx_path)
-        nodes_info = []
-
-        for node in model.graph.node:
-            # Use a comprehensive way to get attribute values that can be complex
-            attributes = {}
-            for attr in node.attribute:
-                attributes[attr.name] = onnx.helper.get_attribute_value(attr)
-
-            node_info = {
-                "name": node.name,
-                "op_type": node.op_type,
-                "inputs": list(node.input),
-                "outputs": list(node.output),
-                "attributes": attributes
-            }
-            nodes_info.append(node_info)
+        # Convert the entire graph to a dictionary, starting from the main graph
+        graph_as_dict = _graph_to_dict(model.graph)
 
         with open(json_path, 'w') as f:
-            # Use the robust custom encoder
-            json.dump(nodes_info, f, indent=4, cls=OnnxNodeEncoder)
+            # Use the custom encoder to handle non-serializable leaf nodes
+            json.dump(graph_as_dict, f, indent=4, cls=OnnxNodeEncoder)
             
-        print(f"✅ Node information successfully exported to {json_path}")
+        print(f"✅ Deep graph information successfully exported to {json_path}")
         return True
     except Exception as e:
-        print(f"❌ Failed to export node information: {e}")
+        print(f"❌ Failed to export graph information: {e}")
         traceback.print_exc()
         return False
+
 
 # --- TensorRT Engine Building Utilities ---
 

@@ -10,6 +10,7 @@ from typing import List
 from diffusers import AutoencoderKL
 from tqdm import tqdm
 from collections import OrderedDict
+import numpy as np # Import numpy
 
 # Only import tensorrt if it's available and needed
 try:
@@ -100,10 +101,36 @@ def inspect_onnx(onnx_path: str):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
+# --- NEW: Custom JSON Encoder ---
+class OnnxNodeEncoder(json.JSONEncoder):
+    """
+    Custom JSON encoder to handle ONNX and NumPy data types that are not
+    natively serializable.
+    """
+    def default(self, o):
+        if isinstance(o, onnx.TensorProto):
+            # Extract metadata from TensorProto, avoiding the raw data
+            return {
+                "__type__": "TensorProto",
+                "dims": list(o.dims),
+                "data_type": onnx.TensorProto.DataType.Name(o.data_type),
+            }
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, (np.int64, np.int32, np.int_)):
+            return int(o)
+        if isinstance(o, (np.float32, np.float64, np.float_)):
+            return float(o)
+        if isinstance(o, bytes):
+            # Represent bytes as a string placeholder
+            return f"<bytes length: {len(o)}>"
+        # Let the base class default method raise the TypeError for other types
+        return super().default(o)
+
 def export_nodes_to_json(onnx_path: str, json_path: str):
     """
     Inspects an ONNX model and exports all node information to a JSON file,
-    excluding the weights.
+    excluding the weights by using a custom JSON encoder.
     """
     print(f"Inspecting ONNX model at {onnx_path} to extract node info...")
     try:
@@ -121,7 +148,8 @@ def export_nodes_to_json(onnx_path: str, json_path: str):
             nodes_info.append(node_info)
 
         with open(json_path, 'w') as f:
-            json.dump(nodes_info, f, indent=4)
+            # --- MODIFIED: Use the custom encoder ---
+            json.dump(nodes_info, f, indent=4, cls=OnnxNodeEncoder)
             
         print(f"✅ Node information successfully exported to {json_path}")
         return True
@@ -266,7 +294,6 @@ def build_tensorrt_engine(
     print("="*50)
     return engine_file
 
-# --- VAE Decoder Definition and Export Logic ---
 # --- Main Execution ---
 
 if __name__ == "__main__":

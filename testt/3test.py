@@ -168,9 +168,12 @@ class SimpleVaeDecoder(nn.Module):
             dtype=latent.dtype,
             device=latent.device
         )
-        for i in range(batch_size):
-            decoded_slice = self.vae_decoder(latent[i:i+1])
-            output_tensor[i:i+1] = decoded_slice
+
+        decoded_slice = self.vae_decoder(latent)
+        output_tensor = decoded_slice
+        #for i in range(batch_size):
+        #    decoded_slice = self.vae_decoder(latent[i:i+1])
+        #    output_tensor[i:i+1] = decoded_slice
         return output_tensor
 
 def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
@@ -197,7 +200,7 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
     )
     scripted_decoder = torch.jit.script(simple_vae_decoder_instance)
 
-    latent_sample = torch.randn(3, 4, 64, 64, device="cuda", dtype=torch.float16)
+    latent_sample = torch.randn(2, 4, 64, 64, device="cuda", dtype=torch.float16)
 
     print("Exporting ONNX model with a pre-allocated output tensor...")
     try:

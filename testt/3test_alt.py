@@ -119,7 +119,7 @@ class OnnxNodeEncoder(json.JSONEncoder):
             return o.tolist()
         if isinstance(o, (np.int64, np.int32, np.int_)):
             return int(o)
-        if isinstance(o, (np.float32, np.float64, np.float_)):
+        if isinstance(o, (np.float32, np.float64)):
             return float(o)
         if isinstance(o, bytes):
             # Represent bytes as a string placeholder

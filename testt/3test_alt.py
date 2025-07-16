@@ -87,19 +87,32 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
         traceback.print_exc()
         return False
 
-def inspect_onnx(onnx_path: str):
-    """Inspects an ONNX model using onnxslim."""
-    print(f"--- Inspecting {onnx_path} ---")
+# --- NEW: Optimizer Function ---
+def optimize_onnx_model(input_path: str, output_path: str) -> bool:
+    """Optimizes an ONNX model using onnx-slim."""
+    print(f"--- Optimizing {input_path} -> {output_path} ---")
     try:
-        result = subprocess.run(["onnxslim", onnx_path, onnx_path], capture_output=True, text=True, check=True)
+        # The command is `onnxslim <input_model> <output_model>`
+        result = subprocess.run(
+            ["onnxslim", input_path, output_path],
+            capture_output=True, text=True, check=True
+        )
+        print("--- onnx-slim Output ---")
         print(result.stdout)
+        print("------------------------")
+        if not os.path.exists(output_path):
+             raise RuntimeError("onnx-slim ran without error, but the output file was not created.")
+        return True
     except FileNotFoundError:
         print("❌ Error: 'onnxslim' command not found. Please ensure onnx-slim is installed (`pip install onnx-slim`).")
+        return False
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error during inspection:")
+        print(f"❌ Error during optimization:")
         print(e.stderr)
+        return False
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"An unexpected error occurred during optimization: {e}")
+        return False
 
 # --- JSON Export Logic with Deep Dive ---
 
@@ -144,8 +157,6 @@ def _graph_to_dict(graph: onnx.GraphProto) -> Dict[str, Any]:
         attributes = {}
         for attr in node.attribute:
             value = onnx.helper.get_attribute_value(attr)
-            # --- RECURSIVE STEP ---
-            # If an attribute is a subgraph, process it recursively
             if isinstance(value, onnx.GraphProto):
                 attributes[attr.name] = _graph_to_dict(value)
             else:
@@ -169,13 +180,9 @@ def export_nodes_to_json(onnx_path: str, json_path: str):
     print(f"Recursively exporting ONNX graph from {onnx_path}...")
     try:
         model = onnx.load(onnx_path)
-        # Convert the entire graph to a dictionary, starting from the main graph
         graph_as_dict = _graph_to_dict(model.graph)
-
         with open(json_path, 'w') as f:
-            # Use the custom encoder to handle non-serializable leaf nodes
             json.dump(graph_as_dict, f, indent=4, cls=OnnxNodeEncoder)
-            
         print(f"✅ Deep graph information successfully exported to {json_path}")
         return True
     except Exception as e:
@@ -187,99 +194,46 @@ def export_nodes_to_json(onnx_path: str, json_path: str):
 # --- TensorRT Engine Building Utilities ---
 
 class TQDMProgressMonitor(trt.IProgressMonitor if trt else object):
-    """A TensorRT progress monitor that uses TQDM to display build progress."""
     def __init__(self):
-        if trt:
-            trt.IProgressMonitor.__init__(self)
-        self._active_phases = {}
-        self._step_result = True
-        self.max_indent = 5
-
+        if trt: trt.IProgressMonitor.__init__(self)
+        self._active_phases, self._step_result, self.max_indent = {}, True, 5
     def phase_start(self, phase_name, parent_phase, num_steps):
         leave = False
         try:
             if parent_phase is not None:
-                nbIndents = (
-                    self._active_phases.get(parent_phase, {}).get(
-                        "nbIndents", self.max_indent
-                    )
-                    + 1
-                )
-                if nbIndents >= self.max_indent:
-                    return
-            else:
-                nbIndents = 0
-                leave = True
-            self._active_phases[phase_name] = {
-                "tq": tqdm(
-                    total=num_steps, desc=phase_name, leave=leave, position=nbIndents
-                ),
-                "nbIndents": nbIndents,
-                "parent_phase": parent_phase,
-            }
-        except KeyboardInterrupt:
-            self._step_result = False
-
+                nbIndents = (self._active_phases.get(parent_phase, {}).get("nbIndents", self.max_indent) + 1)
+                if nbIndents >= self.max_indent: return
+            else: nbIndents, leave = 0, True
+            self._active_phases[phase_name] = {"tq": tqdm(total=num_steps, desc=phase_name, leave=leave, position=nbIndents), "nbIndents": nbIndents, "parent_phase": parent_phase}
+        except KeyboardInterrupt: self._step_result = False
     def phase_finish(self, phase_name):
         try:
             if phase_name in self._active_phases.keys():
                 self._active_phases[phase_name]["tq"].close()
                 del self._active_phases[phase_name]
-        except KeyboardInterrupt:
-            self._step_result = False
-
+        except KeyboardInterrupt: self._step_result = False
     def step_complete(self, phase_name, step):
         try:
-            if phase_name in self._active_phases.keys():
-                self._active_phases[phase_name]["tq"].update(
-                    step - self._active_phases[phase_name]["tq"].n
-                )
+            if phase_name in self._active_phases.keys(): self._active_phases[phase_name]["tq"].update(step - self._active_phases[phase_name]["tq"].n)
             return self._step_result
-        except KeyboardInterrupt:
-            return False
+        except KeyboardInterrupt: return False
 
-def build_tensorrt_engine(
-    onnx_file: str,
-    engine_file: str,
-    input_profiles: dict,
-    fp16: bool = True,
-    timing_cache_path: str | None = None
-):
-    """Builds a TensorRT engine from an ONNX model."""
-    if not trt:
-        raise ImportError("TensorRT library is not installed. Please install it to build engines.")
-
+def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict, fp16: bool = True, timing_cache_path: str | None = None):
+    if not trt: raise ImportError("TensorRT library is not installed.")
     logger = trt.Logger(trt.Logger.VERBOSE)
-    logger.min_severity = trt.Logger.Severity.VERBOSE
-
-    print("="*50)
-    print(f"Exporting ONNX to TensorRT Engine")
-    print(f"  ONNX Path: {onnx_file}")
-    print(f"  Engine Path: {engine_file}")
-    print(f"  FP16: {fp16}")
-    print("="*50)
-
+    print(f"{'='*50}\nExporting ONNX to TensorRT Engine\n  ONNX Path: {onnx_file}\n  Engine Path: {engine_file}\n  FP16: {fp16}\n{'='*50}")
     builder = trt.Builder(logger)
     builder.max_threads = torch.get_num_threads()
     config = builder.create_builder_config()
-    
-
-    #if fp16:
-    #    config.set_flag(trt.BuilderFlag.FP16)
-
-    # --- Timing Cache ---
     if timing_cache_path:
         if os.path.exists(timing_cache_path):
             print(f"Loading timing cache from: {timing_cache_path}")
-            with open(timing_cache_path, "rb") as f:
-                cache_data = f.read()
+            with open(timing_cache_path, "rb") as f: cache_data = f.read()
             timing_cache = config.create_timing_cache(cache_data)
         else:
             print("Creating a new timing cache.")
             timing_cache = config.create_timing_cache(b"")
         config.set_timing_cache(timing_cache, ignore_mismatch=False)
-
-    # --- Create Profile ---
     profile = builder.create_optimization_profile()
     for name, dims in input_profiles.items():
         min_shape, opt_shape, max_shape = dims['min'], dims['opt'], dims['max']
@@ -287,63 +241,50 @@ def build_tensorrt_engine(
         profile.set_shape(name, min=min_shape, opt=opt_shape, max=max_shape)
     config.add_optimization_profile(profile)
     config.progress_monitor = TQDMProgressMonitor()
-
-    # --- Create Network & Parse ONNX ---
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
     parser = trt.OnnxParser(network, logger)
     parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
-
     if not parser.parse_from_file(onnx_file):
-        for error in range(parser.num_errors):
-            print(parser.get_error(error))
+        for error in range(parser.num_errors): print(parser.get_error(error))
         raise ValueError(f"Failed to parse ONNX file: {onnx_file}")
-
-    # --- Build and Save Engine ---
     print("Building TensorRT engine. This may take a while...")
     plan = builder.build_serialized_network(network, config)
-    if not plan:
-        raise RuntimeError("Failed to build TensorRT engine.")
-
-    # Save the timing cache
+    if not plan: raise RuntimeError("Failed to build TensorRT engine.")
     if timing_cache_path and config.get_timing_cache():
         new_timing_cache = config.get_timing_cache()
         if new_timing_cache:
-            with open(timing_cache_path, "wb") as f:
-                f.write(new_timing_cache.serialize())
+            with open(timing_cache_path, "wb") as f: f.write(new_timing_cache.serialize())
             print(f"Timing cache saved to: {timing_cache_path}")
-
-    print(f"Writing TensorRT engine to: {engine_file}")
-    with open(engine_file, "wb") as f:
-        f.write(plan)
-
-    print("✅ TensorRT engine exported successfully.")
+    with open(engine_file, "wb") as f: f.write(plan)
+    print(f"✅ TensorRT engine exported successfully to: {engine_file}")
     print("="*50)
     return engine_file
 
 # --- Main Execution ---
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export and build VAE models.")
-    parser.add_argument("--onnx", action='store_true', help="Export the model to ONNX format. (Default)")
-    parser.add_argument("--tensorrt", action='store_true', help="Build a TensorRT engine from the ONNX model.")
-    parser.add_argument("--optimize", action='store_true', help="Optimize an existing ONNX model.")
-    parser.add_argument("--json", action='store_true', help="Export ONNX node info to a JSON file.")
-    parser.add_argument("--onnx_path", type=str, default="onnx/simple_vae_decoder.onnx", help="Path for the ONNX file.")
+    parser = argparse.ArgumentParser(
+        description="Export, optimize, and inspect VAE models.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument("--onnx", action='store_true', help="Export the base model to ONNX format.")
+    parser.add_argument("--optimize", action='store_true', help="Optimize the ONNX model using onnx-slim.\nRuns after --onnx if present.")
+    parser.add_argument("--json", action='store_true', help="Export ONNX graph info to a JSON file.\nRuns after any export or optimization step.")
+    parser.add_argument("--tensorrt", action='store_true', help="Build a TensorRT engine from the final ONNX model.")
+    parser.add_argument("--onnx_path", type=str, default="onnx/simple_vae_decoder.onnx", help="Path for the base ONNX file.")
     
     args = parser.parse_args()
-    
-    # Default to ONNX export if no other action is specified
-    if not args.tensorrt and not args.optimize and not args.json:
+
+    # If no specific action is chosen, default to exporting the base ONNX model.
+    if not any([args.onnx, args.optimize, args.json, args.tensorrt]):
         args.onnx = True
 
     os.makedirs("onnx", exist_ok=True)
-
-    if args.optimize:
-        if os.path.exists(args.onnx_path):
-            inspect_onnx(args.onnx_path)
-        else:
-            print(f"❌ ONNX file not found at {args.onnx_path}. Please export it first.")
     
+    # This variable will track the most recent version of the ONNX file.
+    current_onnx_path = args.onnx_path
+    
+    # --- Step 1: Export base ONNX model ---
     if args.onnx:
         with torch.no_grad():
             print("Loading original VAE model from HuggingFace...")
@@ -353,38 +294,51 @@ if __name__ == "__main__":
             ).to("cuda").eval()
             print("✅ Original VAE model loaded.")
             
-            onnx_export_success = export_onnx_model(diffusers_vae, args.onnx_path)
+            export_onnx_model(diffusers_vae, current_onnx_path)
 
-            if onnx_export_success:
-                print("Successfully exported ONNX model.")
-                if args.json:
-                    json_path = args.onnx_path.replace(".onnx", "_nodes.json")
-                    export_nodes_to_json(args.onnx_path, json_path)
-
-    if args.tensorrt:
-        if not os.path.exists(args.onnx_path):
-            print(f"❌ ONNX file not found at {args.onnx_path}. Please export it first with the --onnx flag.")
+    # --- Step 2: Optimize the ONNX model if requested ---
+    if args.optimize:
+        if not os.path.exists(current_onnx_path):
+            print(f"❌ Cannot optimize. ONNX file not found at {current_onnx_path}. Please run with --onnx first.")
         else:
-            engine_path = args.onnx_path.replace(".onnx", ".trt")
-            cache_path = args.onnx_path.replace(".onnx", ".cache")
+            optimized_path = current_onnx_path.replace(".onnx", "_optimized.onnx")
+            if optimize_onnx_model(current_onnx_path, optimized_path):
+                # IMPORTANT: Update the path to point to the new optimized model for subsequent steps
+                current_onnx_path = optimized_path
+            else:
+                print("⚠️ Optimization failed. Subsequent steps will use the unoptimized model.")
 
-            # Define the optimization profile for the VAE decoder
+    # --- Step 3: Export JSON graph if requested ---
+    if args.json:
+        if not os.path.exists(current_onnx_path):
+            print(f"❌ Cannot export JSON. ONNX file not found at {current_onnx_path}.")
+        else:
+            json_path = current_onnx_path.replace(".onnx", "_nodes.json")
+            export_nodes_to_json(current_onnx_path, json_path)
+
+    # --- Step 4: Build TensorRT engine if requested ---
+    if args.tensorrt:
+        if not os.path.exists(current_onnx_path):
+            print(f"❌ Cannot build TensorRT engine. ONNX file not found at {current_onnx_path}.")
+        else:
+            engine_path = current_onnx_path.replace(".onnx", ".trt")
+            cache_path = current_onnx_path.replace(".onnx", ".cache")
+
             input_profiles = OrderedDict([
                 ("latent_sample", {
-                    "min": (1, 4, 64, 64),   # Batch 1, SD 1.5 latent size
-                    "opt": (2, 4, 64, 64),  # Batch 2, SDXL latent size
-                    "max": (4, 4, 64, 64),  # Max batch 4, SDXL latent size
+                    "min": (1, 4, 64, 64),
+                    "opt": (2, 4, 64, 64),
+                    "max": (4, 4, 64, 64),
                 }),
             ])
 
             try:
                 build_tensorrt_engine(
-                    args.onnx_path,
+                    current_onnx_path,
                     engine_path,
                     input_profiles=input_profiles,
                     timing_cache_path=cache_path
                 )
-                print("✅ TensorRT engine built successfully.")
             except Exception as e:
                 print(f"❌ TensorRT engine build failed: {e}")
                 traceback.print_exc()

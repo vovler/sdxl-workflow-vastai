@@ -4,6 +4,7 @@ import os
 from tqdm import tqdm
 from collections import OrderedDict
 import json
+import traceback
 
 # Progress bar for TensorRT engine building
 class TQDMProgressMonitor(trt.IProgressMonitor):
@@ -209,6 +210,7 @@ def main():
             print("   ✅ Engine info saved to engine_info.json")
     else:
         print("\n❌ TensorRT engine not found or failed to build.")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)

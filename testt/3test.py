@@ -37,6 +37,11 @@ class SimpleVaeDecoder(nn.Module):
         if batch_size == 1:
             decoded_slice = self.vae_decoder(latent)
             output_tensor = decoded_slice
+        elif batch_size == 2:
+            decoded_slice = self.vae_decoder(latent[0:1])
+            output_tensor[0:1] = decoded_slice
+            decoded_slice = self.vae_decoder(latent[1:2])
+            output_tensor[1:2] = decoded_slice
         else:
             decoded_slice = self.vae_decoder(latent)
             output_tensor = decoded_slice
@@ -71,7 +76,7 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
     )
     scripted_decoder = torch.jit.script(simple_vae_decoder_instance)
 
-    latent_sample = torch.randn(2, 4, 64, 64, device="cuda", dtype=torch.float16)
+    latent_sample = torch.randn(1, 4, 64, 64, device="cuda", dtype=torch.float16)
 
     print("Exporting ONNX model with a pre-allocated output tensor...")
     try:
@@ -83,8 +88,8 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
                 input_names=['latent_sample'],
                 output_names=['sample'],
                 dynamic_axes={
-                    'latent_sample': {0: 'batch_size'},
-                    'sample': {0: 'batch_size'}
+                    'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
+                    'sample': {0: 'batch_size', 2: 'height', 3: 'width'}
                 },
                 opset_version=16
             )
@@ -289,9 +294,9 @@ if __name__ == "__main__":
         # Define the optimization profile for the VAE decoder
         input_profiles = OrderedDict([
             ("latent_sample", {
-                "min": (2, 4, 64, 64),   # Batch 1, SD 1.5 latent size
+                "min": (1, 4, 64, 64),   # Batch 1, SD 1.5 latent size
                 "opt": (2, 4, 64, 64),  # Batch 2, SDXL latent size
-                "max": (2, 4, 64, 64),  # Max batch 4, SDXL latent size
+                "max": (4, 4, 64, 64),  # Max batch 4, SDXL latent size
             }),
         ])
 

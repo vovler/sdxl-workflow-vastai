@@ -27,25 +27,20 @@ class SimpleVaeDecoder(nn.Module):
         self.out_width = out_width
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
-        batch_size = latent.shape[0]
-        # Pre-allocate the output tensor
-        output_tensor = torch.zeros(
-            (batch_size, self.out_channels, self.out_height, self.out_width),
-            dtype=latent.dtype,
-            device=latent.device
-        )
+        # Start with an empty tensor on the correct device.
+        # The shape is (0, C, H, W) which is valid for torch.cat.
+        output_tensor = torch.empty((0, self.out_channels, self.out_height, self.out_width),
+                                    dtype=latent.dtype,
+                                    device=latent.device)
 
-        # Use enumerate to get both the index and the tensor slice
-        for i, latent_slice in enumerate(latent):
-            # Add a batch dimension of 1 for the VAE decoder
-            latent_slice_batched = latent_slice.unsqueeze(0)
+        for i in range(latent.shape[0]):
+            latent_slice = latent[i:i+1]
+            decoded_slice = self.vae_decoder(latent_slice)
             
-            # Decode the single slice
-            decoded_slice = self.vae_decoder(latent_slice_batched)
-            
-            # Place the result into the pre-allocated output tensor
-            idx = torch.full_like(decoded_slice, i, dtype=torch.long)
-            output_tensor.scatter_(dim=0, index=idx, src=decoded_slice)
+            # --- THE ALTERNATIVE LOGIC ---
+            # Create a NEW tensor by concatenating the previous results with the new slice.
+            # This is NOT an in-place update.
+            output_tensor = torch.cat([output_tensor, decoded_slice], dim=0)
 
         return output_tensor
 
@@ -191,6 +186,7 @@ def build_tensorrt_engine(
     builder = trt.Builder(logger)
     builder.max_threads = torch.get_num_threads()
     config = builder.create_builder_config()
+    
 
     if fp16:
         config.set_flag(trt.BuilderFlag.FP16)

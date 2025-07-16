@@ -68,11 +68,18 @@ class VaeDecoder(nn.Module):
         canvas = torch.zeros(latent.shape[0], 3, padded_sample_h, padded_sample_w, dtype=latent.dtype, device=latent.device)
 
         # --- Tiling and Blending Loop ---
-        h_steps = list(range(0, padded_latent.shape[2] - tile_latent_size + 1, overlap_size))
-        w_steps = list(range(0, padded_latent.shape[3] - tile_latent_size + 1, overlap_size))
+        # --- Tiling and Blending Loop ---
+        # Calculate the number of steps based on overlap
+        num_h_steps = (padded_latent.shape[2] - tile_latent_size) // overlap_size + 1
+        num_w_steps = (padded_latent.shape[3] - tile_latent_size) // overlap_size + 1
 
-        for h_step in h_steps:
-            for w_step in w_steps:
+        for i in range(num_h_steps):
+            h_step = i * overlap_size
+            h_start_sample = h_step * vae_scale_factor
+
+            for j in range(num_w_steps):
+                w_step = j * overlap_size
+                w_start_sample = w_step * vae_scale_factor
                 h_start_sample = h_step * vae_scale_factor
                 w_start_sample = w_step * vae_scale_factor
                 

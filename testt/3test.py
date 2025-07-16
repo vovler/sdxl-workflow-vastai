@@ -283,9 +283,9 @@ if __name__ == "__main__":
         # Define the optimization profile for the VAE decoder
         input_profiles = OrderedDict([
             ("latent_sample", {
-                "min": (1, 4, 64, 64),   # Batch 1, SD 1.5 latent size
+                "min": (2, 4, 64, 64),   # Batch 1, SD 1.5 latent size
                 "opt": (2, 4, 64, 64),  # Batch 2, SDXL latent size
-                "max": (4, 4, 64, 64),  # Max batch 4, SDXL latent size
+                "max": (2, 4, 64, 64),  # Max batch 4, SDXL latent size
             }),
         ])
 

@@ -215,6 +215,7 @@ def build_tensorrt_engine(
     # --- Create Network & Parse ONNX ---
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
     parser = trt.OnnxParser(network, logger)
+    parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
 
     if not parser.parse_from_file(onnx_file):
         for error in range(parser.num_errors):

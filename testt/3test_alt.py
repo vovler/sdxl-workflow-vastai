@@ -101,29 +101,47 @@ def inspect_onnx(onnx_path: str):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
-# --- NEW: Custom JSON Encoder ---
+# --- UPDATED: More Robust Custom JSON Encoder ---
 class OnnxNodeEncoder(json.JSONEncoder):
     """
     Custom JSON encoder to handle ONNX and NumPy data types that are not
-    natively serializable.
+    natively serializable. This version handles TensorProto, GraphProto,
+    and various NumPy types.
     """
     def default(self, o):
+        # Handle all NumPy integer types
+        if isinstance(o, np.integer):
+            return int(o)
+        # Handle all NumPy floating point types (avoids deprecated np.float)
+        if isinstance(o, np.floating):
+            return float(o)
+        # Handle NumPy arrays
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        # Handle ONNX TensorProto (for constant values in attributes)
         if isinstance(o, onnx.TensorProto):
-            # Extract metadata from TensorProto, avoiding the raw data
             return {
                 "__type__": "TensorProto",
+                "name": o.name,
                 "dims": list(o.dims),
                 "data_type": onnx.TensorProto.DataType.Name(o.data_type),
             }
-        if isinstance(o, np.ndarray):
-            return o.tolist()
-        if isinstance(o, (np.int64, np.int32, np.int_)):
-            return int(o)
-        if isinstance(o, (np.float32, np.float64)):
-            return float(o)
+        # NEW: Handle ONNX GraphProto (for subgraphs in nodes like If/Loop)
+        if isinstance(o, onnx.GraphProto):
+            return {
+                "__type__": "GraphProto",
+                "name": o.name,
+                "inputs": [i.name for i in o.input],
+                "outputs": [o.name for o in o.output],
+                "nodes_count": len(o.node),
+            }
+        # Handle raw bytes, common in some attributes
         if isinstance(o, bytes):
-            # Represent bytes as a string placeholder
-            return f"<bytes length: {len(o)}>"
+            # Try to decode as a string, otherwise provide a placeholder
+            try:
+                return o.decode('utf-8')
+            except UnicodeDecodeError:
+                return f"<bytes length: {len(o)}>"
         # Let the base class default method raise the TypeError for other types
         return super().default(o)
 
@@ -138,17 +156,22 @@ def export_nodes_to_json(onnx_path: str, json_path: str):
         nodes_info = []
 
         for node in model.graph.node:
+            # Use a comprehensive way to get attribute values that can be complex
+            attributes = {}
+            for attr in node.attribute:
+                attributes[attr.name] = onnx.helper.get_attribute_value(attr)
+
             node_info = {
                 "name": node.name,
                 "op_type": node.op_type,
                 "inputs": list(node.input),
                 "outputs": list(node.output),
-                "attributes": {attr.name: onnx.helper.get_attribute_value(attr) for attr in node.attribute}
+                "attributes": attributes
             }
             nodes_info.append(node_info)
 
         with open(json_path, 'w') as f:
-            # --- MODIFIED: Use the custom encoder ---
+            # Use the robust custom encoder
             json.dump(nodes_info, f, indent=4, cls=OnnxNodeEncoder)
             
         print(f"✅ Node information successfully exported to {json_path}")

@@ -225,7 +225,7 @@ def inspect_onnx(onnx_path: str):
     """Inspects an ONNX model using onnxslim."""
     print(f"--- Inspecting {onnx_path} ---")
     try:
-        result = subprocess.run(["onnxslim", "--inspect", onnx_path], capture_output=True, text=True, check=True)
+        result = subprocess.run(["onnxslim", onnx_path, onnx_path], capture_output=True, text=True, check=True)
         print(result.stdout)
     except FileNotFoundError:
         print("❌ Error: 'onnxslim' command not found. Please ensure onnx-slim is installed (`pip install onnx-slim`).")
@@ -242,24 +242,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export and build VAE models.")
     parser.add_argument("--onnx", action='store_true', help="Export the model to ONNX format. (Default)")
     parser.add_argument("--tensorrt", action='store_true', help="Build a TensorRT engine from the ONNX model.")
-    parser.add_argument("--inspect", action='store_true', help="Inspect an existing ONNX model.")
+    parser.add_argument("--optimize", action='store_true', help="Optimize an existing ONNX model.")
     parser.add_argument("--onnx_path", type=str, default="onnx/simple_vae_decoder.onnx", help="Path for the ONNX file.")
     
     args = parser.parse_args()
     
     # Default to ONNX export if no other action is specified
-    if not args.tensorrt and not args.inspect:
+    if not args.tensorrt and not args.optimize:
         args.onnx = True
 
     os.makedirs("onnx", exist_ok=True)
 
-    if args.inspect:
+    if args.optimize:
         if os.path.exists(args.onnx_path):
             inspect_onnx(args.onnx_path)
         else:
             print(f"❌ ONNX file not found at {args.onnx_path}. Please export it first.")
     
-    if args.onnx or args.tensorrt:
+    if args.onnx:
         with torch.no_grad():
             print("Loading original VAE model from HuggingFace...")
             diffusers_vae = AutoencoderKL.from_pretrained(
@@ -271,25 +271,29 @@ if __name__ == "__main__":
             onnx_export_success = export_onnx_model(diffusers_vae, args.onnx_path)
 
             if onnx_export_success and args.tensorrt:
-                engine_path = args.onnx_path.replace(".onnx", ".trt")
-                cache_path = args.onnx_path.replace(".onnx", ".cache")
+                print("Successfully exported ONNX model.")
 
-                # Define the optimization profile for the VAE decoder
-                input_profiles = OrderedDict([
-                    ("latent_sample", {
-                        "min": (1, 4, 64, 64),   # Batch 1, SD 1.5 latent size
-                        "opt": (2, 4, 64, 64),  # Batch 2, SDXL latent size
-                        "max": (4, 4, 64, 64),  # Max batch 4, SDXL latent size
-                    }),
-                ])
+    if args.tensorrt:
+        engine_path = args.onnx_path.replace(".onnx", ".trt")
+        cache_path = args.onnx_path.replace(".onnx", ".cache")
 
-                try:
-                    build_tensorrt_engine(
-                        args.onnx_path,
-                        engine_path,
-                        input_profiles=input_profiles,
-                        timing_cache_path=cache_path
-                    )
-                except Exception as e:
-                    print(f"❌ TensorRT engine build failed: {e}")
-                    traceback.print_exc()
+        # Define the optimization profile for the VAE decoder
+        input_profiles = OrderedDict([
+            ("latent_sample", {
+                "min": (1, 4, 64, 64),   # Batch 1, SD 1.5 latent size
+                "opt": (2, 4, 64, 64),  # Batch 2, SDXL latent size
+                "max": (4, 4, 64, 64),  # Max batch 4, SDXL latent size
+            }),
+        ])
+
+        try:
+            build_tensorrt_engine(
+                args.onnx_path,
+                engine_path,
+                input_profiles=input_profiles,
+                timing_cache_path=cache_path
+            )
+            print("✅ TensorRT engine built successfully.")
+        except Exception as e:
+            print(f"❌ TensorRT engine build failed: {e}")
+            traceback.print_exc()

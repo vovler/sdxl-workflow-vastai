@@ -53,7 +53,6 @@ class TensorRTRunner:
         self.logger = trt.Logger(trt.Logger.WARNING)
         self.runtime = trt.Runtime(self.logger)
         
-        # Load and deserialize the engine
         print(f"--- Loading TensorRT Engine from {self.engine_path} ---")
         with open(self.engine_path, "rb") as f:
             engine_data = f.read()
@@ -66,33 +65,40 @@ class TensorRTRunner:
         err, self.stream = cudart.cudaStreamCreate()
         check_cudart_err(err)
         
-        # --- Create CUDA Events for timing ---
         err, self.start_event = cudart.cudaEventCreate()
         check_cudart_err(err)
         err, self.end_event = cudart.cudaEventCreate()
         check_cudart_err(err)
 
-        # Allocate memory buffers for inputs and outputs
+        # --- CORRECTED BUFFER ALLOCATION LOGIC ---
+        print("--- Allocating Buffers for Engine Bindings ---")
         self.device_buffers = {}
         self.output_tensors = {}
-
-        print("--- Allocating Buffers for Engine Bindings ---")
+        
+        # 1. First, set the context's input shapes to the maximum from the profile
         for i in range(self.engine.num_io_tensors):
-            binding_name = self.engine.get_tensor_name(i)
+            name = self.engine.get_tensor_name(i)
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                # Use profile 0, shape index 2 (max)
+                max_shape = self.engine.get_tensor_profile_shape(name, 0)[2]
+                self.context.set_input_shape(name, max_shape)
+
+        # 2. Now, allocate memory for all bindings based on the context's (max) shapes
+        for i in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(i)
+            # Get shape from the context, which is now aware of max dimensions
+            shape = self.context.get_tensor_shape(name)
+            dtype = trt_dtype_to_torch(self.engine.get_tensor_dtype(name))
             
-            # --- FIX IS HERE ---
-            # Get the MAX shape from profile 0
-            shape = self.engine.get_tensor_profile_shape(binding_name, 0)[2] 
-            # -----------------
-            
-            dtype = trt_dtype_to_torch(self.engine.get_tensor_dtype(binding_name))
-            
-            # Allocate memory on the GPU with PyTorch
+            if any(d < 0 for d in shape):
+                 raise ValueError(f"Binding '{name}' has a dynamic dimension that could not be resolved. Shape: {shape}")
+
             tensor = torch.empty(tuple(shape), dtype=dtype, device="cuda")
-            self.device_buffers[binding_name] = tensor
+            self.device_buffers[name] = tensor
             
-            if self.engine.get_tensor_mode(binding_name) == trt.TensorIOMode.OUTPUT:
-                self.output_tensors[binding_name] = tensor
+            if self.engine.get_tensor_mode(name) == trt.TensorIOMode.OUTPUT:
+                self.output_tensors[name] = tensor
+        # -----------------------------------------------
         
         print(f"✓ Buffers allocated for {len(self.device_buffers)} bindings.")
 
@@ -100,34 +106,27 @@ class TensorRTRunner:
     def run(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Run inference and measure GPU execution time accurately."""
         
-        # --- Data Transfer: Inputs HtoD (Host to Device) ---
         for name, tensor in inputs.items():
             if name not in self.device_buffers:
                 raise ValueError(f"Input tensor '{name}' not found in engine bindings.")
             
             buffer = self.device_buffers[name]
             self.context.set_input_shape(name, tensor.shape)
-            buffer[:tensor.shape[0],...] = tensor.to("cuda")
+            buffer.copy_(tensor) # Use copy_ for direct HtoD or DtoD transfer
 
-        # Set binding addresses for all I/O tensors
         for name, buffer in self.device_buffers.items():
             self.context.set_tensor_address(name, buffer.data_ptr())
             
-        # --- GPU Execution with Accurate Timing ---
         check_cudart_err(cudart.cudaEventRecord(self.start_event, self.stream))
         self.context.execute_async_v3(self.stream)
         check_cudart_err(cudart.cudaEventRecord(self.end_event, self.stream))
         
-        # Synchronize the stream to wait for the computation to complete
         check_cudart_err(cudart.cudaEventSynchronize(self.end_event))
         
-        # Calculate the elapsed time in milliseconds
         err, ms = cudart.cudaEventElapsedTime(self.start_event, self.end_event)
         check_cudart_err(err)
         print(f"Time taken by GPU execution: {ms:.4f} ms")
-        # -------------------------------------------
 
-        # --- Data Transfer: Outputs DtoH (Device to Host, via clone) ---
         results = {}
         for name, tensor in self.output_tensors.items():
             actual_output_shape = self.context.get_tensor_shape(name)
@@ -215,7 +214,6 @@ if __name__ == "__main__":
         exit(1)
 
     # --- WARMUP RUN ---
-    # It's good practice to do a warmup run to compile kernels, etc.
     print("\n--- 3. Performing a Warmup Run ---")
     with torch.no_grad():
         warmup_latents = torch.randn((1, 4, 64, 64), device=DEVICE, dtype=DTYPE)

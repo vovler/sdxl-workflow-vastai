@@ -37,8 +37,8 @@ class SimpleVaeDecoder(nn.Module):
         decoded_slice = torch.zeros(batch_size, self.out_channels, self.out_height, self.out_width, dtype=latent.dtype, device=latent.device)
 
         for i in range(batch_size):
-            #latent_slice = latent[i:i+1]
-            decoded_slice_2 = self.vae_decoder(latent)
+            latent_slice = latent[i:i+1]
+            decoded_slice_2 = self.vae_decoder(latent_slice)
             decoded_slice[i:i+1] = decoded_slice_2
             #output_tensor[i:i+1] = decoded_slice
 

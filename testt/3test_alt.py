@@ -26,7 +26,7 @@ class SimpleVaeDecoder(nn.Module):
         self.out_height = out_height
         self.out_width = out_width
 
-    def forward(self, latent: torch.Tensor) -> Tuple[torch.Tensor, ...]:
+    def forward(self, latent: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # Pre-allocate all 8 potential output slots as zero tensors.
         # These are independent and do not interact.
         zero_slice = torch.zeros((1, self.out_channels, self.out_height, self.out_width), dtype=latent.dtype, device=latent.device)

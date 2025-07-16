@@ -44,7 +44,7 @@ class SimpleVaeDecoder(nn.Module):
             decoded_slice = self.vae_decoder(latent_slice_batched)
             
             # Place the result into the pre-allocated output tensor
-            output_tensor[i:i+1] = decoded_slice
+            output_tensor[i:i+1].copy_(decoded_slice)
 
         return output_tensor
 

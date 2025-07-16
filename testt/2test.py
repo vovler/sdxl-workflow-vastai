@@ -177,7 +177,7 @@ def main():
     # Build engines
     try:
         engine_path = build_tensorrt_engine(
-            "onnx/vae_decoder.onnx", 
+            "onnx/vae_decoder_opt.onnx", 
             "vae_decoder.trt",
             input_profiles=input_profiles,
             timing_cache_path="vae_decoder.cache"

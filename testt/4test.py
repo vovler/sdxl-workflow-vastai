@@ -6,7 +6,7 @@ import argparse
 import os
 from diffusers import AutoencoderKL
 from typing import Dict, List
-
+import time
 # Only import tensorrt if it's available and needed
 try:
     import tensorrt as trt
@@ -100,6 +100,7 @@ class TensorRTRunner:
             A dictionary mapping output names to their resulting torch tensors.
         """
         # Copy input tensors from CPU/GPU to their designated pinned device buffers
+        time_start = time.time()
         for name, tensor in inputs.items():
             if name not in self.device_buffers:
                 raise ValueError(f"Input tensor '{name}' not found in engine bindings.")
@@ -127,7 +128,10 @@ class TensorRTRunner:
             actual_output_shape = self.context.get_tensor_shape(name)
             # Slice the buffer to the actual output size and clone it
             results[name] = tensor[:actual_output_shape[0],...].clone()
-            
+
+        time_end = time.time()
+        print(f"Time taken by tensorrt run: {time_end - time_start} seconds")
+        
         return results
 
     def __del__(self):

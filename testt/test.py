@@ -8,15 +8,12 @@ import traceback
 import torch.nn.functional as F
 
 @torch.jit.script
-def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+def blend_v(a: torch.Tensor, b: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
     """
     Blends the bottom of tensor 'a' with the top of tensor 'b' using a
-    static slicing method ("Flip Trick") for ONNX compatibility.
+    pre-computed weight tensor. This is ONNX-safe.
     """
-    # --- FIX: Ensure device and dtype are explicitly used ---
-    blend_extent_tensor = torch.tensor(blend_extent, device=device, dtype=torch.long)
-    y = torch.arange(blend_extent_tensor, device=device, dtype=dtype).view(1, 1, -1, 1)
-    weight = y / blend_extent_tensor.to(dtype)
+    blend_extent = weight.shape[2]
 
     # Use the "Flip Trick" to get the bottom slice of 'a'
     a_flipped = torch.flip(a, [2])
@@ -32,15 +29,12 @@ def blend_v(a: torch.Tensor, b: torch.Tensor, blend_extent: int, device: torch.d
     return result
 
 @torch.jit.script
-def blend_h(a: torch.Tensor, b: torch.Tensor, blend_extent: int, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+def blend_h(a: torch.Tensor, b: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
     """
     Blends the right side of tensor 'a' with the left side of tensor 'b' using a
-    static slicing method ("Flip Trick") for ONNX compatibility.
+    pre-computed weight tensor. This is ONNX-safe.
     """
-    # --- FIX: Ensure device and dtype are explicitly used ---
-    blend_extent_tensor = torch.tensor(blend_extent, device=device, dtype=torch.long)
-    x = torch.arange(blend_extent_tensor, device=device, dtype=dtype).view(1, 1, 1, -1)
-    weight = x / blend_extent_tensor.to(dtype)
+    blend_extent = weight.shape[3]
 
     # Use the "Flip Trick" to get the right slice of 'a'
     a_flipped = torch.flip(a, [3])
@@ -69,13 +63,22 @@ class VaeDecoder(nn.Module):
         overlap_size = int(tile_latent_size * (1.0 - tile_overlap_factor))
         blend_extent = int(tile_sample_size * tile_overlap_factor)
         
-        latent_height, latent_width = latent.shape[2], latent.shape[3]
+        # --- FIX: Create arange with float32 and then cast to the target dtype ---
+        blend_extent_tensor_long = torch.tensor(blend_extent, device=latent.device, dtype=torch.long)
         
+        # Create weight for vertical blending
+        y = torch.arange(blend_extent_tensor_long, device=latent.device, dtype=torch.float32).view(1, 1, -1, 1)
+        weight_v = y.to(latent.dtype) / blend_extent_tensor_long.to(latent.dtype)
+
+        # Create weight for horizontal blending
+        x = torch.arange(blend_extent_tensor_long, device=latent.device, dtype=torch.float32).view(1, 1, 1, -1)
+        weight_h = x.to(latent.dtype) / blend_extent_tensor_long.to(latent.dtype)
+        
+        # --- Padding and Tiling Logic ---
+        latent_height, latent_width = latent.shape[2], latent.shape[3]
         pad_h = (overlap_size - (latent_height - tile_latent_size) % overlap_size) % overlap_size
         pad_w = (overlap_size - (latent_width - tile_latent_size) % overlap_size) % overlap_size
-
         padded_latent = F.pad(latent, (0, pad_w, 0, pad_h), mode='replicate')
-        
         padded_h, padded_w = padded_latent.shape[2], padded_latent.shape[3]
 
         h_steps = list(range(0, padded_h - tile_latent_size + 1, overlap_size))
@@ -94,24 +97,28 @@ class VaeDecoder(nn.Module):
             if len(prev_row_tiles) > 0:
                 v_blended_tiles: List[torch.Tensor] = []
                 for i in range(len(w_steps)):
-                    # --- FIX: Pass device and dtype explicitly ---
-                    blended = blend_v(prev_row_tiles[i], decoded_row_tiles[i], blend_extent, latent.device, latent.dtype)
+                    blended = blend_v(prev_row_tiles[i], decoded_row_tiles[i], weight_v)
                     v_blended_tiles.append(blended)
                 decoded_row_tiles = v_blended_tiles
 
+            # Stitch the current row horizontally
             if len(decoded_row_tiles) > 1:
-                h_blended_tiles: List[torch.Tensor] = []
-                h_blended_tiles.append(decoded_row_tiles[0]) 
-                for i in range(1, len(decoded_row_tiles)):
-                    # --- FIX: Pass device and dtype explicitly ---
-                    blended = blend_h(h_blended_tiles[-1], decoded_row_tiles[i], blend_extent, latent.device, latent.dtype)
-                    h_blended_tiles.append(blended)
-
                 row_parts: List[torch.Tensor] = []
-                for i in range(len(h_blended_tiles) - 1):
-                    row_parts.append(h_blended_tiles[i][..., :-blend_extent])
-                row_parts.append(h_blended_tiles[-1])
+                # First tile is blended with the second, but we only keep the left part
+                first_tile = blend_h(decoded_row_tiles[0], decoded_row_tiles[1], weight_h)
+                row_parts.append(first_tile[..., :-blend_extent])
+
+                # Middle tiles are blended on both sides
+                for i in range(1, len(decoded_row_tiles) - 1):
+                    left_blend = blend_h(decoded_row_tiles[i-1], decoded_row_tiles[i], weight_h)
+                    right_blend = blend_h(decoded_row_tiles[i], decoded_row_tiles[i+1], weight_h)
+                    # We only need the middle part of the current tile after blending
+                    row_parts.append(left_blend[..., blend_extent:-blend_extent])
                 
+                # Last tile is only blended on the left
+                last_tile = blend_h(decoded_row_tiles[-2], decoded_row_tiles[-1], weight_h)
+                row_parts.append(last_tile[..., blend_extent:])
+
                 stitched_row = torch.cat(row_parts, dim=-1)
             else:
                 stitched_row = decoded_row_tiles[0]
@@ -119,6 +126,7 @@ class VaeDecoder(nn.Module):
             output_rows.append(stitched_row)
             prev_row_tiles = decoded_row_tiles
 
+        # Stitch all rows vertically
         if len(output_rows) > 1:
             final_parts: List[torch.Tensor] = []
             for i in range(len(output_rows) - 1):
@@ -128,6 +136,7 @@ class VaeDecoder(nn.Module):
         else:
             stitched_image = output_rows[0]
 
+        # Crop to original size
         original_height_out = latent_height * vae_scale_factor
         original_width_out = latent_width * vae_scale_factor
         

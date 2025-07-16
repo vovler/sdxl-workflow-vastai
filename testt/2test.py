@@ -185,6 +185,7 @@ def main():
         )
     except Exception as e:
         print(f"❌ TensorRT engine build failed: {e}")
+        traceback.print_exc()
 
     # Analyze engine details
     logger = trt.Logger(trt.Logger.WARNING)
@@ -210,7 +211,7 @@ def main():
             print("   ✅ Engine info saved to engine_info.json")
     else:
         print("\n❌ TensorRT engine not found or failed to build.")
-        traceback.print_exc()
+        
 
 if __name__ == "__main__":
     os.makedirs("onnx", exist_ok=True)

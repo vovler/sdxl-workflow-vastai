@@ -40,7 +40,7 @@ class SimpleVaeDecoder(nn.Module):
         else:
             decoded_slice = self.vae_decoder(latent)
             output_tensor = decoded_slice
-            
+
         #for i in range(batch_size):
         #    decoded_slice = self.vae_decoder(latent[i:i+1])
         #    output_tensor[i:i+1] = decoded_slice
@@ -175,8 +175,8 @@ def build_tensorrt_engine(
     if not trt:
         raise ImportError("TensorRT library is not installed. Please install it to build engines.")
 
-    logger = trt.Logger(trt.Logger.VERBOSE)
-    logger.min_severity = trt.Logger.Severity.VERBOSE
+    logger = trt.Logger(trt.Logger.INFO)
+    logger.min_severity = trt.Logger.Severity.INFO
 
     print("="*50)
     print(f"Exporting ONNX to TensorRT Engine")

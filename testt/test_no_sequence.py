@@ -15,7 +15,7 @@ class ComplexLoop(nn.Module):
         self.linear_add = nn.Linear(10, 10)
         self.linear_sub = nn.Linear(10, 10)
         
-    def forward(self, x: torch.Tensor, num_steps: int, use_add: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, num_steps: list[int], use_add: torch.Tensor) -> torch.Tensor:
         for i in range(num_steps):
             if use_add:
                 x = self.linear_add(x) + i
@@ -96,7 +96,7 @@ def test_exports():
     
     # Sample input
     x = torch.randn(1, 10)
-    num_steps = 5
+    num_steps = list(range(0, 5, 1))
     use_add = torch.tensor(True, dtype=torch.bool)
     
     print("Testing TorchScript version:")

@@ -6,7 +6,7 @@ import argparse
 import subprocess
 import traceback
 import json
-from typing import List, Tuple
+from typing import List
 from diffusers import AutoencoderKL
 from tqdm import tqdm
 from collections import OrderedDict
@@ -26,46 +26,24 @@ class SimpleVaeDecoder(nn.Module):
         self.out_height = out_height
         self.out_width = out_width
 
-    def forward(self, latent: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        # Pre-allocate all 8 potential output slots as zero tensors.
-        # These are independent and do not interact.
-        zero_slice = torch.zeros((1, self.out_channels, self.out_height, self.out_width), dtype=latent.dtype, device=latent.device)
-        output_0 = zero_slice.clone()
-        output_1 = zero_slice.clone()
-        output_2 = zero_slice.clone()
-        output_3 = zero_slice.clone()
-        output_4 = zero_slice.clone()
-        output_5 = zero_slice.clone()
-        output_6 = zero_slice.clone()
-        output_7 = zero_slice.clone()
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
+        batch_size = latent.shape[0]
+        output_tensor = torch.zeros(batch_size, self.out_channels, self.out_height, self.out_width, dtype=latent.dtype, device=latent.device)
 
-        # The main loop iterates up to the actual batch size of the input
-        for i in range(latent.shape[0]):
-            latent_slice = latent[i:i+1]
-            decoded_slice = self.vae_decoder(latent_slice)
+        for i, latent_slice in enumerate(latent):
+            latent_slice_batched = latent_slice.unsqueeze(0)
+            decoded_slice = self.vae_decoder(latent_slice_batched)
             
-            # This 'if/elif' chain conditionally overwrites ONE of the output slots.
-            # This is a simple overwrite, not a stateful accumulation.
-            if i == 0:
-                output_0 = decoded_slice
-            elif i == 1:
-                output_1 = decoded_slice
-            elif i == 2:
-                output_2 = decoded_slice
-            elif i == 3:
-                output_3 = decoded_slice
-            elif i == 4:
-                output_4 = decoded_slice
-            elif i == 5:
-                output_5 = decoded_slice
-            elif i == 6:
-                output_6 = decoded_slice
-            elif i == 7:
-                output_7 = decoded_slice
-        
-        # The model MUST return all 8 tensors as a tuple.
-        return (output_0, output_1, output_2, output_3, output_4, output_5, output_6, output_7)
+            # --- ATTEMPTING TO USE CLONE ---
+            # Here, we clone the SOURCE tensor.
+            cloned_decoded_slice = decoded_slice.clone()
+            
+            # But we still have to use direct assignment to PLACE it
+            # into the destination tensor.
+            output_tensor[i:i+1] = cloned_decoded_slice
+            # -----------------------------
 
+        return output_tensor
 
 def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
     class VaeDecodeWrapper(nn.Module):
@@ -93,16 +71,6 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
 
     latent_sample = torch.randn(1, 4, 64, 64, device="cuda", dtype=torch.float16)
 
-    # CRITICAL: Define names for all 8 outputs
-    output_names = [f'output_{i}' for i in range(8)]
-    
-    # CRITICAL: Define dynamic axes for the input and all 8 outputs
-    dynamic_axes = {
-        'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
-    }
-    for name in output_names:
-        dynamic_axes[name] = {0: 'batch_size', 2: 'height', 3: 'width'} # Each output is batch 1, but still dynamic
-
     print("Exporting ONNX model with a pre-allocated output tensor...")
     try:
         with torch.no_grad():
@@ -111,9 +79,12 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
                 (latent_sample,),
                 onnx_path,
                 input_names=['latent_sample'],
-                output_names=output_names,
-                dynamic_axes=dynamic_axes,
-                opset_version=19
+                output_names=['sample'],
+                dynamic_axes={
+                    'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
+                    'sample': {0: 'batch_size', 2: 'height', 3: 'width'}
+                },
+                opset_version=16
             )
             print(f"✅ Simplified VAE Decoder exported successfully to {onnx_path}")
             return True

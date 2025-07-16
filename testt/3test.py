@@ -35,8 +35,9 @@ class SimpleVaeDecoder(nn.Module):
         )
 
         for i in range(batch_size):
-            decoded_slice = self.vae_decoder(latent)
-            output_tensor = decoded_slice
+            latent_slice = latent[i:i+1]
+            decoded_slice = self.vae_decoder(latent_slice)
+            output_tensor[i:i+1] = decoded_slice
 
         return output_tensor
 

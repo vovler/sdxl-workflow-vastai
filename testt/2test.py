@@ -177,10 +177,10 @@ def main():
     # Build engines
     try:
         engine_path = build_tensorrt_engine(
-            "onnx/vae_decoder_opt.onnx", 
-            "vae_decoder.trt",
+            "onnx/vae_decoder_dynamic_loop_opt.onnx", 
+            "vae_decoder_dynamic_loop.trt",
             input_profiles=input_profiles,
-            timing_cache_path="vae_decoder.cache"
+            timing_cache_path="vae_decoder_dynamic_loop.cache"
         )
     except Exception as e:
         print(f"❌ TensorRT engine build failed: {e}")

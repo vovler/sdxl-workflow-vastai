@@ -34,14 +34,7 @@ class SimpleVaeDecoder(nn.Module):
             latent_slice_batched = latent_slice.unsqueeze(0)
             decoded_slice = self.vae_decoder(latent_slice_batched)
             
-            # --- ATTEMPTING TO USE CLONE ---
-            # Here, we clone the SOURCE tensor.
-            cloned_decoded_slice = decoded_slice.clone()
-            
-            # But we still have to use direct assignment to PLACE it
-            # into the destination tensor.
-            output_tensor[i:i+1] = cloned_decoded_slice
-            # -----------------------------
+            output_tensor[i:i+1] = decoded_slice
 
         return output_tensor
 
@@ -107,6 +100,35 @@ def inspect_onnx(onnx_path: str):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
+def export_nodes_to_json(onnx_path: str, json_path: str):
+    """
+    Inspects an ONNX model and exports all node information to a JSON file,
+    excluding the weights.
+    """
+    print(f"Inspecting ONNX model at {onnx_path} to extract node info...")
+    try:
+        model = onnx.load(onnx_path)
+        nodes_info = []
+
+        for node in model.graph.node:
+            node_info = {
+                "name": node.name,
+                "op_type": node.op_type,
+                "inputs": list(node.input),
+                "outputs": list(node.output),
+                "attributes": {attr.name: onnx.helper.get_attribute_value(attr) for attr in node.attribute}
+            }
+            nodes_info.append(node_info)
+
+        with open(json_path, 'w') as f:
+            json.dump(nodes_info, f, indent=4)
+            
+        print(f"✅ Node information successfully exported to {json_path}")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to export node information: {e}")
+        traceback.print_exc()
+        return False
 
 # --- TensorRT Engine Building Utilities ---
 
@@ -252,12 +274,13 @@ if __name__ == "__main__":
     parser.add_argument("--onnx", action='store_true', help="Export the model to ONNX format. (Default)")
     parser.add_argument("--tensorrt", action='store_true', help="Build a TensorRT engine from the ONNX model.")
     parser.add_argument("--optimize", action='store_true', help="Optimize an existing ONNX model.")
+    parser.add_argument("--json", action='store_true', help="Export ONNX node info to a JSON file.")
     parser.add_argument("--onnx_path", type=str, default="onnx/simple_vae_decoder.onnx", help="Path for the ONNX file.")
     
     args = parser.parse_args()
     
     # Default to ONNX export if no other action is specified
-    if not args.tensorrt and not args.optimize:
+    if not args.tensorrt and not args.optimize and not args.json:
         args.onnx = True
 
     os.makedirs("onnx", exist_ok=True)
@@ -279,30 +302,36 @@ if __name__ == "__main__":
             
             onnx_export_success = export_onnx_model(diffusers_vae, args.onnx_path)
 
-            if onnx_export_success and args.tensorrt:
+            if onnx_export_success:
                 print("Successfully exported ONNX model.")
+                if args.json:
+                    json_path = args.onnx_path.replace(".onnx", "_nodes.json")
+                    export_nodes_to_json(args.onnx_path, json_path)
 
     if args.tensorrt:
-        engine_path = args.onnx_path.replace(".onnx", ".trt")
-        cache_path = args.onnx_path.replace(".onnx", ".cache")
+        if not os.path.exists(args.onnx_path):
+            print(f"❌ ONNX file not found at {args.onnx_path}. Please export it first with the --onnx flag.")
+        else:
+            engine_path = args.onnx_path.replace(".onnx", ".trt")
+            cache_path = args.onnx_path.replace(".onnx", ".cache")
 
-        # Define the optimization profile for the VAE decoder
-        input_profiles = OrderedDict([
-            ("latent_sample", {
-                "min": (1, 4, 64, 64),   # Batch 1, SD 1.5 latent size
-                "opt": (2, 4, 64, 64),  # Batch 2, SDXL latent size
-                "max": (4, 4, 64, 64),  # Max batch 4, SDXL latent size
-            }),
-        ])
+            # Define the optimization profile for the VAE decoder
+            input_profiles = OrderedDict([
+                ("latent_sample", {
+                    "min": (1, 4, 64, 64),   # Batch 1, SD 1.5 latent size
+                    "opt": (2, 4, 64, 64),  # Batch 2, SDXL latent size
+                    "max": (4, 4, 64, 64),  # Max batch 4, SDXL latent size
+                }),
+            ])
 
-        try:
-            build_tensorrt_engine(
-                args.onnx_path,
-                engine_path,
-                input_profiles=input_profiles,
-                timing_cache_path=cache_path
-            )
-            print("✅ TensorRT engine built successfully.")
-        except Exception as e:
-            print(f"❌ TensorRT engine build failed: {e}")
-            traceback.print_exc()
+            try:
+                build_tensorrt_engine(
+                    args.onnx_path,
+                    engine_path,
+                    input_profiles=input_profiles,
+                    timing_cache_path=cache_path
+                )
+                print("✅ TensorRT engine built successfully.")
+            except Exception as e:
+                print(f"❌ TensorRT engine build failed: {e}")
+                traceback.print_exc()

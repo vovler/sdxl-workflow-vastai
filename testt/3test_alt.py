@@ -213,7 +213,7 @@ def build_tensorrt_engine(
     config.progress_monitor = TQDMProgressMonitor()
 
     # --- Create Network & Parse ONNX ---
-    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
     parser = trt.OnnxParser(network, logger)
     parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
 

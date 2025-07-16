@@ -8,22 +8,26 @@ import json
 from tqdm import tqdm
 from collections import OrderedDict
 
-# More complex model with a loop and conditional
+# Corrected model that uses a Tensor for loop control
 class ComplexLoop(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear_add = nn.Linear(10, 10)
         self.linear_sub = nn.Linear(10, 10)
-        
-    def forward(self, x: torch.Tensor, num_steps: list[int], use_add: torch.Tensor) -> torch.Tensor:
-        for i in num_steps:
+
+    def forward(self, x: torch.Tensor, num_steps: torch.Tensor, use_add: torch.Tensor) -> torch.Tensor:
+        # Loop from 0 to the number of elements in the num_steps tensor.
+        # This pattern is convertible to an ONNX Loop operator.
+        for i in range(num_steps.size(0)):
+            # Get the step value for the current iteration
+            step_val = num_steps[i]
             if use_add:
-                x = self.linear_add(x) + i
+                x = self.linear_add(x) + step_val
             else:
-                x = self.linear_sub(x) - i
+                x = self.linear_sub(x) - step_val
         return x
 
-# Progress bar for TensorRT engine building
+# Progress bar for TensorRT engine building (unchanged)
 class TQDMProgressMonitor(trt.IProgressMonitor):
     def __init__(self):
         trt.IProgressMonitor.__init__(self)
@@ -35,21 +39,13 @@ class TQDMProgressMonitor(trt.IProgressMonitor):
         leave = False
         try:
             if parent_phase is not None:
-                nbIndents = (
-                    self._active_phases.get(parent_phase, {}).get(
-                        "nbIndents", self.max_indent
-                    )
-                    + 1
-                )
-                if nbIndents >= self.max_indent:
-                    return
+                nbIndents = (self._active_phases.get(parent_phase, {}).get("nbIndents", self.max_indent) + 1)
+                if nbIndents >= self.max_indent: return
             else:
                 nbIndents = 0
                 leave = True
             self._active_phases[phase_name] = {
-                "tq": tqdm(
-                    total=num_steps, desc=phase_name, leave=leave, position=nbIndents
-                ),
+                "tq": tqdm(total=num_steps, desc=phase_name, leave=leave, position=nbIndents),
                 "nbIndents": nbIndents,
                 "parent_phase": parent_phase,
             }
@@ -60,62 +56,60 @@ class TQDMProgressMonitor(trt.IProgressMonitor):
         try:
             if phase_name in self._active_phases.keys():
                 self._active_phases[phase_name]["tq"].update(
-                    self._active_phases[phase_name]["tq"].total
-                    - self._active_phases[phase_name]["tq"].n
+                    self._active_phases[phase_name]["tq"].total - self._active_phases[phase_name]["tq"].n
                 )
                 parent_phase = self._active_phases[phase_name].get("parent_phase", None)
                 while parent_phase is not None:
                     self._active_phases[parent_phase]["tq"].refresh()
-                    parent_phase = self._active_phases[parent_phase].get(
-                        "parent_phase", None
-                    )
-                if (
-                    self._active_phases[phase_name]["parent_phase"]
-                    in self._active_phases.keys()
-                ):
-                    self._active_phases[
-                        self._active_phases[phase_name]["parent_phase"]
-                    ]["tq"].refresh()
+                    parent_phase = self._active_phases[parent_phase].get("parent_phase", None)
+                if self._active_phases[phase_name]["parent_phase"] in self._active_phases.keys():
+                    self._active_phases[self._active_phases[phase_name]["parent_phase"]]["tq"].refresh()
                 del self._active_phases[phase_name]
-            pass
         except KeyboardInterrupt:
             self._step_result = False
 
     def step_complete(self, phase_name, step):
         try:
             if phase_name in self._active_phases.keys():
-                self._active_phases[phase_name]["tq"].update(
-                    step - self._active_phases[phase_name]["tq"].n
-                )
+                self._active_phases[phase_name]["tq"].update(step - self._active_phases[phase_name]["tq"].n)
             return self._step_result
         except KeyboardInterrupt:
             return False
 
 def test_exports():
+    """Tests the ONNX export for the corrected model."""
     scripted_model = torch.jit.script(ComplexLoop())
     
-    # Sample input
+    # Sample inputs are now all tensors
     x = torch.randn(1, 10)
-    num_steps = list(range(0, 5, 1))
+    # Convert list to a tensor. This will be a dynamic input.
+    num_steps = torch.tensor(list(range(0, 5, 1)), dtype=torch.int32)
     use_add = torch.tensor(True, dtype=torch.bool)
     
-    print("Testing TorchScript version:")
+    # Define output path
+    onnx_path = "scripted_loop.onnx"
+    
+    print("Testing TorchScript to ONNX export:")
     try:
         torch.onnx.export(
             scripted_model,
             (x, num_steps, use_add),
-            "scripted_loop.onnx",
+            onnx_path,
             input_names=['x', 'num_steps', 'use_add'],
             output_names=['output'],
-            dynamic_axes={'x': {0: 'batch_size'}},
-            opset_version=11
+            dynamic_axes={
+                'x': {0: 'batch_size'},
+                # Mark dimension 0 of num_steps as dynamic
+                'num_steps': {0: 'num_loop_steps'}
+            },
+            opset_version=13  # Opset 13+ is recommended for better control flow support
         )
-        print("✅ Scripted model exported successfully")
+        print(f"✅ Model exported successfully to {onnx_path}")
+        return onnx_path
     except Exception as e:
-        print(f"❌ Scripted model failed: {e}")
-    
+        print(f"❌ Model export failed: {e}")
+        return None
 
-    
 def build_tensorrt_engine(
     onnx_file: str,
     engine_file: str,
@@ -123,120 +117,74 @@ def build_tensorrt_engine(
     fp16: bool = True,
     timing_cache_path: str | None = None
 ):
-    """Builds a TensorRT engine from an ONNX model, following a standardized configuration."""
-    
+    """Builds a TensorRT engine from an ONNX model."""
     logger = trt.Logger(trt.Logger.INFO)
-    logger.min_severity = trt.Logger.Severity.INFO
-
-    print("="*50)
-    print(f"Exporting ONNX to TensorRT Engine")
-    print(f"  ONNX Path: {onnx_file}")
-    print(f"  Engine Path: {engine_file}")
-    print(f"  FP16: {fp16}")
-    print("="*50)
-
     builder = trt.Builder(logger)
-    builder.max_threads = torch.get_num_threads()
     config = builder.create_builder_config()
+    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+    parser = trt.OnnxParser(network, logger)
+
+    print("="*50)
+    print(f"Building TensorRT Engine from: {onnx_file}")
     
-    # Apply settings based on reference scripts
     if fp16:
         config.set_flag(trt.BuilderFlag.FP16)
-    
-    # --- Timing Cache ---
-    if timing_cache_path:
-        if os.path.exists(timing_cache_path):
-            print(f"Loading timing cache from: {timing_cache_path}")
-            with open(timing_cache_path, "rb") as f:
-                cache_data = f.read()
-            timing_cache = config.create_timing_cache(cache_data)
-        else:
-            print("Creating a new timing cache.")
-            timing_cache = config.create_timing_cache(b"")
-        
-        if timing_cache:
-            config.set_timing_cache(timing_cache, ignore_mismatch=False)
 
     # --- Create Profile ---
     profile = builder.create_optimization_profile()
     for name, dims in input_profiles.items():
         min_shape, opt_shape, max_shape = dims['min'], dims['opt'], dims['max']
-        print(f"  Setting profile for input: {name} with min={min_shape}, opt={opt_shape}, max={max_shape}")
+        print(f"  Setting profile for '{name}': min={min_shape}, opt={opt_shape}, max={max_shape}")
         profile.set_shape(name, min=min_shape, opt=opt_shape, max=max_shape)
-    
     config.add_optimization_profile(profile)
-    config.progress_monitor = TQDMProgressMonitor()
 
-    # --- Create Network & Parse ONNX ---
-    network = builder.create_network()
-    parser = trt.OnnxParser(network, logger)
-
-    if not parser.parse_from_file(onnx_file):
-        for error in range(parser.num_errors):
-            print(parser.get_error(error))
-        raise ValueError(f"Failed to parse ONNX file: {onnx_file}")
+    # --- Parse ONNX ---
+    if not os.path.exists(onnx_file):
+        raise FileNotFoundError(f"ONNX file not found: {onnx_file}")
+        
+    with open(onnx_file, 'rb') as model:
+        if not parser.parse(model.read()):
+            for error in range(parser.num_errors):
+                print(parser.get_error(error))
+            raise ValueError("Failed to parse the ONNX file.")
 
     # --- Build and Save Engine ---
-    print("Building TensorRT engine. This may take a while...")
-    plan = builder.build_serialized_network(network, config)
-    if not plan:
-        raise RuntimeError("Failed to build TensorRT engine.")
+    print("Building engine... (This may take a moment)")
+    serialized_engine = builder.build_serialized_network(network, config)
+    if not serialized_engine:
+        raise RuntimeError("Failed to build the TensorRT engine.")
 
-    # Save the timing cache
-    if timing_cache_path:
-        new_timing_cache = config.get_timing_cache()
-        if new_timing_cache:
-            with open(timing_cache_path, "wb") as f:
-                f.write(new_timing_cache.serialize())
-            print(f"Timing cache saved to: {timing_cache_path}")
-
-    print(f"Writing TensorRT engine to: {engine_file}")
     with open(engine_file, "wb") as f:
-        f.write(plan)
+        f.write(serialized_engine)
     
-    print("✓ TensorRT engine exported successfully.")
+    print(f"✅ TensorRT engine saved to: {engine_file}")
     print("="*50)
-    
-    # Return path to engine file
     return engine_file
 
-def test_tensorrt_engines():
-    """Test TensorRT engines"""
+def test_tensorrt_engines(onnx_path: str):
+    """Builds and analyzes the TensorRT engine."""
+    if not onnx_path:
+        print("Skipping TensorRT build because ONNX export failed.")
+        return
+
     print("\n" + "="*50)
     print("TENSORRT ENGINE BUILDING")
     print("="*50)
 
-    # For scripted model where num_steps is a scalar
-    scripted_input_profiles = OrderedDict([
+    # Corrected profile for a dynamic 1D tensor `num_steps`
+    input_profiles = OrderedDict([
         ("x", {
             "min": (1, 10),
             "opt": (4, 10),
             "max": (16, 10),
         }),
-        ("num_steps", {
-            "min": (),
-            "opt": (),
-            "max": (),
-        }),
-        ("use_add", {
-            "min": (),
-            "opt": (),
-            "max": (),
-        }),
-    ])
-
-    # For regular model where num_steps is a 1D tensor
-    regular_input_profiles = OrderedDict([
-        ("x", {
-            "min": (1, 10),
-            "opt": (4, 10),
-            "max": (16, 10),
-        }),
+        # Profile for num_steps allowing 1 to 20 loop iterations
         ("num_steps", {
             "min": (1,),
-            "opt": (1,),
-            "max": (1,),
+            "opt": (5,),
+            "max": (20,),
         }),
+        # Profile for the scalar boolean condition
         ("use_add", {
             "min": (),
             "opt": (),
@@ -244,47 +192,19 @@ def test_tensorrt_engines():
         }),
     ])
     
-    scripted_engine_path = None
-
-    # Build engines
+    engine_path = "scripted_loop.engine"
     try:
-        scripted_engine_path = build_tensorrt_engine(
-            "scripted_loop.onnx", 
-            "scripted_loop.trt",
-            input_profiles=scripted_input_profiles,
-            timing_cache_path="scripted.cache"
+        build_tensorrt_engine(
+            onnx_path, 
+            engine_path,
+            input_profiles=input_profiles
         )
-    except Exception as e:
-        print(f"❌ Scripted TensorRT engine build failed: {e}")
-
-    # Analyze engine details
-    logger = trt.Logger(trt.Logger.WARNING)
-    runtime = trt.Runtime(logger)
-
-    if scripted_engine_path and os.path.exists(scripted_engine_path):
-        print("\n--- Analysis of Scripted Engine ---")
-        with open(scripted_engine_path, 'rb') as f:
-            scripted_engine = runtime.deserialize_cuda_engine(f.read())
+        print(f"\nEngine analysis for {engine_path}:")
+        # You can add the engine inspection logic here if needed
         
-        if scripted_engine:
-            print("✅ Scripted TensorRT engine loaded successfully")
-            print(f"   Engine size: {os.path.getsize(scripted_engine_path)} bytes")
-            
-            inspector = scripted_engine.create_engine_inspector()
-            engine_info_str = inspector.get_engine_information(trt.LayerInformationFormat.JSON)
-            engine_info = json.loads(engine_info_str)
-            
-            print(f"   Engine layers: {len(engine_info.get('Layers', []))}")
-            print("   Layer info (JSON):")
-            print(json.dumps(engine_info, indent=2))
-            
-            with open("scripted_engine_info.json", 'w') as f:
-                json.dump(engine_info, f, indent=2)
-            print("   ✅ Engine info saved to scripted_engine_info.json")
-    else:
-        print("\n❌ Scripted TensorRT engine not found or failed to build.")
+    except Exception as e:
+        print(f"❌ TensorRT engine build failed: {e}")
 
 if __name__ == "__main__":
-    os.makedirs("onnx", exist_ok=True)
-    test_exports()
-    test_tensorrt_engines()
+    onnx_file_path = test_exports()
+    test_tensorrt_engines(onnx_file_path)

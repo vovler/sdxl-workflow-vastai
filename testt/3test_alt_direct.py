@@ -240,6 +240,12 @@ def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict
             print("Creating a new timing cache.")
             timing_cache = config.create_timing_cache(b"")
         config.set_timing_cache(timing_cache, ignore_mismatch=False)
+    
+    config.set_flag(trt.BuilderFlag.FP16) # Ensure FP16 is enabled by default
+    config.builder_optimization_level = 4
+    config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
+    config.tiling_optimization_level = trt.TilingOptimizationLevel.NONE
+    
     profile = builder.create_optimization_profile()
     for name, dims in input_profiles.items():
         min_shape, opt_shape, max_shape = dims['min'], dims['opt'], dims['max']

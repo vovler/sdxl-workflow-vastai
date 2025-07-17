@@ -1,5 +1,6 @@
 import onnx
 from onnx import helper, shape_inference
+import traceback
 
 def topologically_sort_nodes(nodes):
     """
@@ -137,6 +138,7 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         print(f"Successfully saved patched model to {output_onnx_path}")
     except Exception as e:
         print(f"An error occurred during final model validation or saving: {e}")
+        traceback.print_exc()
         print(f"Attempting to save the model without shape inference for manual inspection to: {output_onnx_path.replace('.onnx', '_failed_inference.onnx')}")
         onnx.save(model, output_onnx_path.replace('.onnx', '_failed_inference.onnx'))
 

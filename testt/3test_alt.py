@@ -76,8 +76,8 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
                 input_names=['latent_sample'],
                 output_names=['sample'],
                 dynamic_axes={
-                    'latent_sample': {0: 'batch_size', 2: 'height', 3: 'width'},
-                    'sample': {0: 'batch_size', 2: 'height', 3: 'width'}
+                    'latent_sample': {0: 'batch_size'},
+                    'sample': {0: 'batch_size'}
                 },
                 opset_version=16
             )

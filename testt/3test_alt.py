@@ -328,8 +328,8 @@ if __name__ == "__main__":
             input_profiles = OrderedDict([
                 ("latent_sample", {
                     "min": (1, 4, 64, 64),
-                    "opt": (2, 4, 64, 64),
-                    "max": (4, 4, 64, 64),
+                    "opt": (1, 4, 64, 64),
+                    "max": (1, 4, 64, 64),
                 }),
             ])
 

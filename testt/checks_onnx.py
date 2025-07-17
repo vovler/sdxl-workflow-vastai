@@ -5,9 +5,7 @@ import urllib.request
 import os
 
 # --- Configuration ---
-MODEL_DIR = "onnx"
-MODEL_FILENAME = "simple_vae_decoder_direct_optimized_scan.onnx"
-MODEL_PATH = "simple_vae_decoder_direct_optimized_scan.onnx"
+MODEL_PATH = "onnx/simple_vae_decoder_direct_optimized_scan.onnx"
 
 def run_checks():
     """Runs a series of strict checks on the specified ONNX model."""

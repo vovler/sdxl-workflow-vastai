@@ -260,7 +260,7 @@ def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict
     if not parser.parse_from_file(onnx_file):
         for error in range(parser.num_errors): print(parser.get_error(error))
         raise ValueError(f"Failed to parse ONNX file: {onnx_file}")
-    exit()
+    #exit()
     
     print("Building TensorRT engine. This may take a while...")
     plan = builder.build_serialized_network(network, config)

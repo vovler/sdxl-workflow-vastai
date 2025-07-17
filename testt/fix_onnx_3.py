@@ -21,14 +21,12 @@ def find_value_info(graph, name):
         if vi.name == name: return vi
     for vi in graph.output:
         if vi.name == name: return vi
-    # Also check inside subgraphs, as ValueInfo can be local
     for node in graph.node:
         if node.op_type in ['Loop', 'Scan', 'If']:
             for attr in node.attribute:
-                if attr.name == "body" or attr.name == "then_branch" or attr.name == "else_branch":
+                if attr.name in ["body", "then_branch", "else_branch"]:
                     result = find_value_info(attr.g, name)
-                    if result:
-                        return result
+                    if result: return result
     return None
 
 # --- Step 1: Detection Function ---
@@ -38,23 +36,20 @@ def detect_loop_for_scan_conversion(model):
     Detects a Loop that follows a batch-processing pattern, making it a candidate
     for conversion to a more robust Scan operator.
     """
-    graph = model.graph
     loops_to_transform = []
-    
-    # The pattern is a Loop that contains an inner Gather and a Concat for accumulation
-    for node in graph.node:
+    for node in model.graph.node:
         if node.op_type != "Loop":
             continue
-            
         body_graph = next((attr.g for attr in node.attribute if attr.name == "body"), None)
         if not body_graph:
             continue
-            
-        # Check for the key components that define our pattern
+        
+        # Pattern: A Loop with an inner Gather and a final Concat for state accumulation.
         inner_gather = next((n for n in body_graph.node if n.op_type == 'Gather'), None)
-        final_concat = next((n for n in body_graph.node if n.op_type == 'Concat' and body_graph.output[1].name in n.output), None)
+        # The second output of the loop body is the accumulated state.
+        final_concat = find_node_by_output(body_graph, body_graph.output[1].name)
 
-        if inner_gather and final_concat:
+        if inner_gather and final_concat and final_concat.op_type == 'Concat':
             details = {
                 "loop_node": node,
                 "inner_gather_node": inner_gather,
@@ -75,13 +70,11 @@ def process_loop_to_scan(model, loops_to_transform):
         return model
 
     graph = model.graph
-    
-    # We assume one loop per graph for this specific script, but it can be extended.
-    details = loops_to_transform[0]
+    details = loops_to_transform[0] # Assuming one loop for this specific model
     loop_node = details["loop_node"]
     body_graph = next(attr.g for attr in loop_node.attribute if attr.name == "body")
 
-    # 1. Identify key tensors from the original Loop structure
+    # 1. Identify key tensors
     inner_gather_node = details["inner_gather_node"]
     main_scan_tensor_name = inner_gather_node.input[0]
     per_item_tensor_name = inner_gather_node.output[0]
@@ -89,8 +82,8 @@ def process_loop_to_scan(model, loops_to_transform):
     final_concat_node = details["final_concat_node"]
     state_input_name = body_graph.input[2].name
     final_scan_output_name = next(inp for inp in final_concat_node.input if inp != state_input_name)
-
-    # 2. Create the new, simplified body graph for the Scan operator
+    
+    # 2. Create the new body graph for the Scan operator
     scan_slice_input = onnx.ValueInfoProto()
     scan_slice_input.name = main_scan_tensor_name + "_slice"
     original_tensor_info = find_value_info(graph, main_scan_tensor_name)
@@ -116,7 +109,8 @@ def process_loop_to_scan(model, loops_to_transform):
     new_body_graph = helper.make_graph(
         nodes=new_body_nodes, name=body_graph.name + "_scan_body",
         inputs=new_body_inputs, outputs=new_body_outputs,
-        initializer=body_graph.initializer
+        initializer=body_graph.initializer,
+        value_info=body_graph.value_info  # ### THIS IS THE CRITICAL FIX ###
     )
     
     # 3. Create the new Scan node
@@ -146,7 +140,7 @@ def process_loop_to_scan(model, loops_to_transform):
     new_graph = helper.make_graph(
         nodes=final_nodes, name=graph.name + "_scanned",
         inputs=graph.input, outputs=graph.output,
-        initializer=graph.initializer
+        initializer=graph.initializer, value_info=graph.value_info
     )
     
     new_model = helper.make_model(new_graph, producer_name='onnx-loop-to-scan-transformer')
@@ -157,43 +151,32 @@ def process_loop_to_scan(model, loops_to_transform):
 # --- Main Orchestration and Saving Logic ---
 
 def patch_loop_to_scan(input_onnx_path, output_onnx_path):
-    """
-    Main function to orchestrate the detection, processing, and saving of the model.
-    """
+    """Main function to orchestrate the detection, processing, and saving of the model."""
     print(f"Loading model from: {input_onnx_path}")
     try:
         model = onnx.load(input_onnx_path)
-        # Run initial shape inference to populate metadata needed for transformation
+        print("INFO: Performing initial shape inference to gather metadata...")
         model = shape_inference.infer_shapes(model)
     except Exception as e:
         print(f"ERROR: Failed to load or run initial shape inference on ONNX model. {e}", file=sys.stderr)
         return
 
-    # 1. Detect loops that need transformation
     transform_list = detect_loop_for_scan_conversion(model)
-
     if not transform_list:
         print("INFO: No candidate loops for Scan conversion were found. Model is unchanged.")
         return
 
-    # 2. Print what was found
     print("\nFound the following loop to transform to a Scan operator:")
-    details = transform_list[0]
-    print(f"  - Loop Node: '{details['loop_node'].name}'")
-    print(f"    - Inner Gather Node: '{details['inner_gather_node'].name}'")
-    print(f"    - Final Concat Node: '{details['final_concat_node'].name}'\n")
+    print(f"  - Loop Node: '{transform_list[0]['loop_node'].name}'\n")
 
-    # 3. Process the model
     print("Processing model to convert Loop to Scan...")
     transformed_model = process_loop_to_scan(model, transform_list)
     if not transformed_model:
         print("ERROR: Transformation to Scan operator failed during processing.", file=sys.stderr)
         return
 
-    # 4. Perform health check and save
     print("Performing final health check and saving...")
     try:
-        # It's crucial to run shape inference again on the new graph
         model_for_saving = shape_inference.infer_shapes(transformed_model)
         checker.check_model(model_for_saving)
         print("  Model check passed.")
@@ -204,7 +187,6 @@ def patch_loop_to_scan(input_onnx_path, output_onnx_path):
         output_failed_path = output_onnx_path.replace('.onnx', '_failed_scan.onnx')
         print(f"Attempting to save the model without shape inference for manual inspection to: {output_failed_path}")
         onnx.save(transformed_model, output_failed_path)
-
 
 def main():
     parser = argparse.ArgumentParser(

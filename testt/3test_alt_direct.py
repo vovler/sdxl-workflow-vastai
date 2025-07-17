@@ -11,7 +11,7 @@ from diffusers import AutoencoderKL
 from tqdm import tqdm
 from collections import OrderedDict
 import numpy as np
-from torch.export.dynamic_shapes import Dim
+
 # Only import tensorrt if it's available and needed
 try:
     import tensorrt as trt
@@ -27,15 +27,19 @@ class SimpleVaeDecoder(nn.Module):
         self.out_height = out_height
         self.out_width = out_width
 
-    def forward(self, latent_sample: torch.Tensor) -> torch.Tensor:
-        batch_size = latent_sample.shape[0]
-        output_tensor = torch.zeros(batch_size, self.out_channels, self.out_height, self.out_width, dtype=latent_sample.dtype, device=latent_sample.device)
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
 
-        for i, latent_slice in enumerate(latent_sample):
+        #batch_size = latent.shape[0]
+        
+        output_tensor = torch.empty(0, 3, 512, 512)
+
+        for i, latent_slice in enumerate(latent):
             latent_slice_batched = latent_slice.unsqueeze(0)
             decoded_slice = self.vae_decoder(latent_slice_batched)
             
-            output_tensor[i:i+1] = decoded_slice
+            #output_tensor[i:i+1] = decoded_slice
+            #output_tensor[i] = decoded_slice.squeeze(0)
+            output_tensor = torch.cat([output_tensor, decoded_slice], dim=0)
 
         return output_tensor
 
@@ -61,7 +65,7 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
     simple_vae_decoder_instance = SimpleVaeDecoder(
         traced_vae_decoder, out_channels, out_height, out_width
     )
-    scripted_decoder = (simple_vae_decoder_instance)
+    scripted_decoder = torch.jit.script(simple_vae_decoder_instance)
 
     latent_sample = torch.randn(1, 4, 64, 64, device="cuda", dtype=torch.float16)
 
@@ -74,15 +78,11 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
                 onnx_path,
                 input_names=['latent_sample'],
                 output_names=['sample'],
-                dynamic_shapes={
-                    "latent_sample": {
-                        0: Dim("batch_size", min=1, max=4),
-                        2: Dim("height", min=64, max=65),
-                        3: Dim("width", min=64, max=65),
-                    },
+                dynamic_axes={
+                    'latent_sample': {0: 'batch_size'},
+                    'sample': {0: 'batch_size'}
                 },
-                dynamo=True,
-                opset_version=19,
+                opset_version=16
             )
             print(f"✅ Simplified VAE Decoder exported successfully to {onnx_path}")
             return True
@@ -248,9 +248,12 @@ def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
     parser = trt.OnnxParser(network, logger)
     parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
+    
     if not parser.parse_from_file(onnx_file):
         for error in range(parser.num_errors): print(parser.get_error(error))
         raise ValueError(f"Failed to parse ONNX file: {onnx_file}")
+    exit()
+    
     print("Building TensorRT engine. This may take a while...")
     plan = builder.build_serialized_network(network, config)
     if not plan: raise RuntimeError("Failed to build TensorRT engine.")
@@ -275,7 +278,7 @@ if __name__ == "__main__":
     parser.add_argument("--optimize", action='store_true', help="Optimize the ONNX model using onnx-slim.\nRuns after --onnx if present.")
     parser.add_argument("--json", action='store_true', help="Export ONNX graph info to a JSON file.\nRuns after any export or optimization step.")
     parser.add_argument("--tensorrt", action='store_true', help="Build a TensorRT engine from the final ONNX model.")
-    parser.add_argument("--onnx_path", type=str, default="onnx/simple_vae_decoder.onnx", help="Path for the base ONNX file.")
+    parser.add_argument("--onnx_path", type=str, default="onnx/simple_vae_decoder_direct.onnx", help="Path for the base ONNX file.")
     
     args = parser.parse_args()
 
@@ -331,7 +334,7 @@ if __name__ == "__main__":
             input_profiles = OrderedDict([
                 ("latent_sample", {
                     "min": (1, 4, 64, 64),
-                    "opt": (2, 4, 64, 64),
+                    "opt": (1, 4, 64, 64),
                     "max": (4, 4, 64, 64),
                 }),
             ])

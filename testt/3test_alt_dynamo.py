@@ -86,6 +86,7 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
                         3: Dim("width_out", min=512, max=520),
                     },
                 },
+                dynamo=True,
                 opset_version=19,
             )
             print(f"✅ Simplified VAE Decoder exported successfully to {onnx_path}")

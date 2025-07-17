@@ -31,7 +31,7 @@ def find_value_info(graph, name):
     for vi in graph.output:
         if vi.name == name:
             return vi
-    # In some models, the required value_info might be in the body graph's value_info
+    # ### CHANGE ###: Search inside loop body graphs as well, as tensors can be local.
     for node in graph.node:
         if node.op_type == "Loop":
             for attr in node.attribute:
@@ -39,6 +39,10 @@ def find_value_info(graph, name):
                     for bvi in attr.g.value_info:
                         if bvi.name == name:
                             return bvi
+                    # Also check body inputs
+                    for binp in attr.g.input:
+                        if binp.name == name:
+                            return binp
     return None
 
 
@@ -48,14 +52,6 @@ def detect_loops_concat_scan_to_native_scan(model):
     """
     Detects loops that use a Concat-based scan pattern. This pattern is
     common but not efficiently handled by the TensorRT ONNX parser.
-
-    Args:
-        model (onnx.ModelProto): The ONNX model to inspect.
-
-    Returns:
-        list: A list of dictionaries, where each dictionary contains the
-              details needed to transform one loop. Returns an empty list
-              if no such loops are found.
     """
     graph = model.graph
     loops_to_transform = []
@@ -70,7 +66,7 @@ def detect_loops_concat_scan_to_native_scan(model):
         body_graph = body_graph_attr[0].g
 
         for body_output_idx, body_output in enumerate(body_graph.output):
-            if body_output_idx == 0:  # Skip the condition output
+            if body_output_idx == 0:
                 continue
 
             producer_node = find_node_by_output(body_graph, body_output.name)
@@ -87,6 +83,7 @@ def detect_loops_concat_scan_to_native_scan(model):
                     ][0]
 
                     transformation_details = {
+                        "loop_node": node,
                         "loop_node_name": node.name,
                         "concat_node": producer_node,
                         "state_body_input_name": body_input_name,
@@ -98,7 +95,7 @@ def detect_loops_concat_scan_to_native_scan(model):
                     loops_to_transform.append(transformation_details)
                     found_pattern_for_this_output = True
                     break
-
+            
             if found_pattern_for_this_output:
                 break
 
@@ -111,14 +108,6 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
     """
     Processes the model to transform the detected loops into a native
     scan-output pattern.
-
-    Args:
-        model (onnx.ModelProto): The ONNX model to transform.
-        loops_to_transform (list): The list of transformation details from the
-                                   detection function.
-
-    Returns:
-        onnx.ModelProto: A new, transformed ONNX model.
     """
     if not loops_to_transform:
         return model
@@ -129,42 +118,55 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
     initializers_to_remove = set()
 
     for details in loops_to_transform:
-        loop_node = next((n for n in graph.node if n.name == details['loop_node_name']), None)
-        if not loop_node: continue
-
+        loop_node = details["loop_node"]
         nodes_to_remove.add(loop_node.name)
         body_graph = next(attr.g for attr in loop_node.attribute if attr.name == "body")
 
-        # A. Modify the body graph
-        new_body_nodes = [n for n in body_graph.node if n.name != details["concat_node"].name]
-        new_body_inputs = [inp for i, inp in enumerate(body_graph.input) if i != details["state_body_input_idx"]]
+        # --- A. Modify the body graph ---
+
+        # ### CHANGE ###: Instead of just removing the Concat node, we replace it
+        # with an Identity node to correctly rename the per-iteration tensor.
         
-        # We need the full ValueInfo of the per-iteration tensor. Search the entire model.
-        per_iter_tensor_vi = find_value_info(model.graph, details["per_iteration_tensor_name"])
-        if not per_iter_tensor_vi:
-            print(f"ERROR: Could not find ValueInfo for tensor '{details['per_iteration_tensor_name']}'. Aborting.", file=sys.stderr)
-            return None
-
-        new_body_outputs = []
-        original_state_output_name = body_graph.output[details["state_body_output_idx"]].name
-        for i, out in enumerate(body_graph.output):
-            if i == 0:
-                new_body_outputs.append(out)
-            elif i == details["state_body_output_idx"]:
-                new_scan_output = onnx.ValueInfoProto()
-                new_scan_output.CopyFrom(per_iter_tensor_vi)
-                new_scan_output.name = original_state_output_name
-                new_body_outputs.append(new_scan_output)
-
+        # Create a new Identity node to act as a renamer.
+        # It takes the real result and gives it the output name the graph expects.
+        renamer_identity_node = helper.make_node(
+            'Identity',
+            inputs=[details['per_iteration_tensor_name']],
+            outputs=[details['state_body_output_name']],
+            name=details['concat_node'].name + "_renamer"
+        )
+        
+        # Build the new list of nodes for the body graph
+        new_body_nodes = []
+        for n in body_graph.node:
+            if n.name == details["concat_node"].name:
+                # Replace the old Concat node with our new Identity node
+                new_body_nodes.append(renamer_identity_node)
+            else:
+                new_body_nodes.append(n)
+        
+        # Remove the state variable from body inputs
+        new_body_inputs = [
+            inp for i, inp in enumerate(body_graph.input) 
+            if i != details["state_body_input_idx"]
+        ]
+        
+        # The body's output list itself doesn't need to change, because the
+        # renamer_identity_node now correctly produces the tensor name it expects.
+        new_body_outputs = body_graph.output
+        
         new_body_graph = helper.make_graph(
             nodes=new_body_nodes, name=body_graph.name + "_transformed",
             inputs=new_body_inputs, outputs=new_body_outputs,
             initializer=body_graph.initializer, value_info=body_graph.value_info
         )
 
-        # B. Modify the main Loop node
+        # --- B. Modify the main Loop node ---
         main_loop_state_input_name = loop_node.input[details["state_body_input_idx"]]
-        new_loop_inputs = [inp for i, inp in enumerate(loop_node.input) if i != details["state_body_input_idx"]]
+        new_loop_inputs = [
+            inp for i, inp in enumerate(loop_node.input) 
+            if i != details["state_body_input_idx"]
+        ]
         
         main_loop_output_idx = details["state_body_output_idx"] - 1
         new_loop_outputs = [loop_node.output[main_loop_output_idx]]
@@ -173,7 +175,7 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
         new_loop_node.attribute.append(helper.make_attribute("body", new_body_graph))
         nodes_to_add.append(new_loop_node)
 
-        # C. Mark the initial state provider for removal
+        # --- C. Mark the initial state provider for removal ---
         initial_state_producer = find_node_by_output(graph, main_loop_state_input_name)
         if initial_state_producer:
             nodes_to_remove.add(initial_state_producer.name)
@@ -197,11 +199,8 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
 
 
 # --- Main Orchestration and Saving Logic ---
-
 def patch_loops_output(input_onnx_path, output_onnx_path):
-    """
-    Main function to detect, process, and save an ONNX model with transformed loops.
-    """
+    # (This function remains unchanged)
     print(f"Loading model from: {input_onnx_path}")
     try:
         model = onnx.load(input_onnx_path)
@@ -209,28 +208,24 @@ def patch_loops_output(input_onnx_path, output_onnx_path):
         print(f"ERROR: Failed to load ONNX model. {e}", file=sys.stderr)
         return
 
-    # 1. Detect loops that need transformation
     transform_list = detect_loops_concat_scan_to_native_scan(model)
 
     if not transform_list:
         print("INFO: No loops with the target Concat-scan pattern were found. Model is unchanged.")
         return
 
-    # 2. Print what was found
     print("\nFound the following loops to transform:")
     for details in transform_list:
         print(f"  - Loop Node: '{details['loop_node_name']}'")
         print(f"    - Inner Concat Node: '{details['concat_node'].name}'")
         print(f"    - Per-iteration tensor: '{details['per_iteration_tensor_name']}'\n")
 
-    # 3. Process the model
     print("Processing model...")
     transformed_model = process_loops_concat_scan_to_native_scan(model, transform_list)
     if not transformed_model:
         print("ERROR: Transformation failed during processing.", file=sys.stderr)
         return
 
-    # 4. Perform health check and save
     print("Performing final health check and saving...")
     try:
         model_for_saving = shape_inference.infer_shapes(transformed_model)
@@ -246,10 +241,7 @@ def patch_loops_output(input_onnx_path, output_onnx_path):
 
 
 def main():
-    """
-    Main entry point for the script. Parses command-line arguments and
-    orchestrates the transformation.
-    """
+    # (This function remains unchanged)
     parser = argparse.ArgumentParser(
         description="Transforms ONNX loops from a Concat-based scan to a native scan-output pattern for TensorRT compatibility.",
         formatter_class=argparse.RawTextHelpFormatter
@@ -269,7 +261,6 @@ def main():
         print("Please provide a valid path to an ONNX model.", file=sys.stderr)
         sys.exit(1)
     
-    # Generate the output path by adding '_patched' before the extension
     base, ext = os.path.splitext(input_path)
     output_path = f"{base}_patched{ext}"
     

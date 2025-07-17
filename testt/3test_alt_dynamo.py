@@ -82,8 +82,8 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
                     },
                     "sample": {
                         0: Dim("batch_size", min=1, max=4),
-                        2: Dim("height_out", min=512, max=513),
-                        3: Dim("width_out", min=512, max=513),
+                        2: Dim("height_out", min=512, max=520),
+                        3: Dim("width_out", min=512, max=520),
                     },
                 },
                 opset_version=19,

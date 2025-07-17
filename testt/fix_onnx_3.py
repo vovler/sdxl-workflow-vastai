@@ -6,7 +6,7 @@ import os
 import numpy as np
 import onnxruntime
 
-# --- Helper Functions ---
+# --- Helper Functions --- (Unchanged)
 
 def find_node_by_output(graph, output_name):
     """Finds a node in a graph by its output name."""
@@ -28,7 +28,7 @@ def find_value_info(graph, name):
                     if result: return result
     return None
 
-# --- Detection Function ---
+# --- Detection Function --- (Unchanged)
 
 def detect_loop_for_scan_conversion(model):
     """Detects a Loop that is a candidate for conversion to a Scan operator."""
@@ -49,7 +49,7 @@ def detect_loop_for_scan_conversion(model):
             print(f"INFO: Detected Loop '{node.name}' as a candidate for Scan conversion.")
     return loops_to_transform
 
-# --- Processing Function ---
+# --- Processing Function --- (Updated with Cleanup)
 
 def process_loop_to_scan(model, loops_to_transform, opset_version, ir_version):
     """Transforms the detected Loop operators into Scan operators and adds a Reshape."""
@@ -94,7 +94,6 @@ def process_loop_to_scan(model, loops_to_transform, opset_version, ir_version):
         initializer=body_graph.initializer, value_info=new_body_value_info
     )
     
-    # ### CHANGE: Add a Reshape node after the Scan ###
     scan_output_raw_name = loop_node.name + "_scan_output_raw"
     
     scan_node = helper.make_node(
@@ -103,9 +102,8 @@ def process_loop_to_scan(model, loops_to_transform, opset_version, ir_version):
         scan_input_axes=[0], scan_output_axes=[0]
     )
 
-    # Get the target shape from the original graph's output, e.g., (3, 512, 512)
     original_output_dims = [d.dim_value for d in graph.output[0].type.tensor_type.shape.dim]
-    target_shape_dims = [-1] + original_output_dims[1:] # e.g., [-1, 3, 512, 512]
+    target_shape_dims = [-1] + original_output_dims[1:]
     
     shape_const_name = "final_reshape_shape"
     shape_const_node = helper.make_node(
@@ -120,19 +118,40 @@ def process_loop_to_scan(model, loops_to_transform, opset_version, ir_version):
     )
     
     nodes_to_remove_from_main = {loop_node.name}
+    # ### CHANGE: Prepare to collect unused initializers ###
+    initializers_to_remove = set()
+    
+    # Trace back from the loop to find all machinery to remove
     trip_count_producer = find_node_by_output(graph, loop_node.input[0])
     if trip_count_producer:
         nodes_to_remove_from_main.add(trip_count_producer.name)
-        shape_producer = find_node_by_output(graph, trip_count_producer.input[0])
-        if shape_producer: nodes_to_remove_from_main.add(shape_producer.name)
+        # Mark the Gather op's index initializer for removal
+        if len(trip_count_producer.input) > 1:
+            initializers_to_remove.add(trip_count_producer.input[1])
             
+        shape_producer = find_node_by_output(graph, trip_count_producer.input[0])
+        if shape_producer:
+            nodes_to_remove_from_main.add(shape_producer.name)
+            
+    # ### CHANGE: Mark the loop's own direct initializer inputs for removal ###
+    # Index 1 is the condition, Index 2 is the initial state tensor
+    if len(loop_node.input) > 1:
+        initializers_to_remove.add(loop_node.input[1])
+    if len(loop_node.input) > 2:
+        initializers_to_remove.add(loop_node.input[2])
+
     final_nodes = [n for n in graph.node if n.name not in nodes_to_remove_from_main]
     final_nodes.extend([scan_node, shape_const_node, reshape_node])
+    
+    # ### CHANGE: Create a new, clean list of initializers ###
+    final_initializers = [init for init in graph.initializer if init.name not in initializers_to_remove]
+    print(f"INFO: Purged {len(graph.initializer) - len(final_initializers)} unused initializers from the graph.")
     
     new_graph = helper.make_graph(
         nodes=final_nodes, name=graph.name + "_scanned",
         inputs=graph.input, outputs=graph.output,
-        initializer=graph.initializer, value_info=graph.value_info
+        initializer=final_initializers, # Use the clean list
+        value_info=graph.value_info
     )
     
     new_model = helper.make_model(
@@ -143,7 +162,7 @@ def process_loop_to_scan(model, loops_to_transform, opset_version, ir_version):
     
     return new_model
 
-# --- Inference Test & Main Orchestration --- (Unchanged from previous version)
+# --- Inference Test & Main Orchestration --- (Unchanged)
 
 def run_inference_test(onnx_path):
     print("\n" + "-" * 20)
@@ -222,8 +241,8 @@ def main():
         default="onnx/simple_vae_decoder_direct_optimized.onnx",
         help="Path to the original ONNX file with the Loop.\n(default: onnx/simple_vae_decoder_direct_optimized.onnx)"
     )
-    parser.add_argument("--opset", type=int, default=20, help="The ONNX opset version to set. (default: 20)")
-    parser.add_argument("--ir", type=int, default=9, help="The ONNX IR version to set. (default: 9)")
+    parser.add_argument("--opset", type=int, default=13, help="The ONNX opset version to target. (default: 13)")
+    parser.add_argument("--ir", type=int, default=8, help="The ONNX IR version to set. (default: 8)")
     parser.add_argument("--test-inference", action="store_true", help="Run a test inference on the exported model using ONNXRuntime.")
     args = parser.parse_args()
     input_path = args.input_onnx_path

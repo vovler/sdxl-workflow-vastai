@@ -5,24 +5,9 @@ import urllib.request
 import os
 
 # --- Configuration ---
-MODEL_DIR = "./"
+MODEL_DIR = "onnx"
 MODEL_FILENAME = "simple_vae_decoder_direct_optimized_scan.onnx"
-MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
-MODEL_URL = "https://raw.githubusercontent.com/microsoft/onnxruntime/main/onnxruntime/test/testdata/simple_vae_decoder_direct_optimized_scan.onnx"
-
-def download_model():
-    """Downloads the ONNX model if it doesn't exist locally."""
-    if not os.path.exists(MODEL_PATH):
-        print(f"Model not found. Downloading from {MODEL_URL}...")
-        os.makedirs(MODEL_DIR, exist_ok=True)
-        try:
-            urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-            print("Download complete.")
-        except Exception as e:
-            print(f"Error downloading model: {e}")
-            exit()
-    else:
-        print(f"Model found at {MODEL_PATH}")
+MODEL_PATH = "simple_vae_decoder_direct_optimized_scan.onnx"
 
 def run_checks():
     """Runs a series of strict checks on the specified ONNX model."""
@@ -97,5 +82,4 @@ if __name__ == "__main__":
         print("Please install required libraries: pip install onnx onnxruntime numpy")
         exit()
 
-    download_model()
     run_checks()

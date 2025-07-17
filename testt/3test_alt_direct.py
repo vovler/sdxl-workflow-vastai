@@ -226,7 +226,7 @@ class TQDMProgressMonitor(trt.IProgressMonitor if trt else object):
 
 def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict, fp16: bool = True, timing_cache_path: str | None = None):
     if not trt: raise ImportError("TensorRT library is not installed.")
-    logger = trt.Logger(trt.Logger.VERBOSE)
+    logger = trt.Logger(trt.Logger.INFO)
     print(f"{'='*50}\nExporting ONNX to TensorRT Engine\n  ONNX Path: {onnx_file}\n  Engine Path: {engine_file}\n  FP16: {fp16}\n{'='*50}")
     builder = trt.Builder(logger)
     builder.max_threads = torch.get_num_threads()

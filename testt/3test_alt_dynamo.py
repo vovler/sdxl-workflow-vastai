@@ -27,11 +27,11 @@ class SimpleVaeDecoder(nn.Module):
         self.out_height = out_height
         self.out_width = out_width
 
-    def forward(self, latent: torch.Tensor) -> torch.Tensor:
-        batch_size = latent.shape[0]
+    def forward(self, latent_sample: torch.Tensor) -> torch.Tensor:
+        batch_size = latent_sample.shape[0]
         output_tensor = torch.zeros(batch_size, self.out_channels, self.out_height, self.out_width, dtype=latent.dtype, device=latent.device)
 
-        for i, latent_slice in enumerate(latent):
+        for i, latent_slice in enumerate(latent_sample):
             latent_slice_batched = latent_slice.unsqueeze(0)
             decoded_slice = self.vae_decoder(latent_slice_batched)
             

@@ -245,10 +245,12 @@ def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
     parser = trt.OnnxParser(network, logger)
     parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
-    exit()
+    
     if not parser.parse_from_file(onnx_file):
         for error in range(parser.num_errors): print(parser.get_error(error))
         raise ValueError(f"Failed to parse ONNX file: {onnx_file}")
+    exit()
+    
     print("Building TensorRT engine. This may take a while...")
     plan = builder.build_serialized_network(network, config)
     if not plan: raise RuntimeError("Failed to build TensorRT engine.")

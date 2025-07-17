@@ -15,7 +15,7 @@ class ComplexLoop(nn.Module):
         self.linear_add = nn.Linear(10, 10)
         self.linear_sub = nn.Linear(10, 10)
 
-    def forward(self, x: torch.Tensor, num_steps: torch.Tensor, use_add: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, num_steps: torch.Tensor) -> torch.Tensor:
         # Loop from 0 to the number of elements in the num_steps tensor.
         # This pattern is convertible to an ONNX Loop operator.
         for i in range(num_steps.size(0)):
@@ -90,9 +90,9 @@ def test_exports():
     try:
         torch.onnx.export(
             scripted_model,
-            (x, num_steps, use_add),
+            (x, num_steps),
             onnx_path,
-            input_names=['x', 'num_steps', 'use_add'],
+            input_names=['x', 'num_steps'],
             output_names=['output'],
             dynamic_axes={
                 'x': {0: 'batch_size'},
@@ -180,12 +180,6 @@ def test_tensorrt_engines(onnx_path: str):
             "min": (1,),
             "opt": (5,),
             "max": (20,),
-        }),
-        # Profile for the scalar boolean condition
-        ("use_add", {
-            "min": (),
-            "opt": (),
-            "max": (),
         }),
     ])
     

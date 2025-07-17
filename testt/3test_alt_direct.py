@@ -31,7 +31,7 @@ class SimpleVaeDecoder(nn.Module):
 
         #batch_size = latent.shape[0]
         
-        output_tensor = torch.empty(0, 3, 512, 512)
+        output_tensor = torch.empty(0, 3, 512, 512, dtype=latent.dtype, device=latent.device)
 
         for i, latent_slice in enumerate(latent):
             latent_slice_batched = latent_slice.unsqueeze(0)

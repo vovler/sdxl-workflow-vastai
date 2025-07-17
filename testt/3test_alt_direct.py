@@ -241,10 +241,10 @@ def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict
             timing_cache = config.create_timing_cache(b"")
         config.set_timing_cache(timing_cache, ignore_mismatch=False)
     
-    config.set_flag(trt.BuilderFlag.FP16) # Ensure FP16 is enabled by default
-    config.builder_optimization_level = 4
-    config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
-    config.tiling_optimization_level = trt.TilingOptimizationLevel.NONE
+    #config.set_flag(trt.BuilderFlag.FP16) # Ensure FP16 is enabled by default
+    #config.builder_optimization_level = 4
+    #config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.SAME_COMPUTE_CAPABILITY
+    #config.tiling_optimization_level = trt.TilingOptimizationLevel.NONE
     
     profile = builder.create_optimization_profile()
     for name, dims in input_profiles.items():
@@ -255,7 +255,7 @@ def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict
     config.progress_monitor = TQDMProgressMonitor()
     network = builder.create_network()
     parser = trt.OnnxParser(network, logger)
-    #parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
+    parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
     
     if not parser.parse_from_file(onnx_file):
         for error in range(parser.num_errors): print(parser.get_error(error))

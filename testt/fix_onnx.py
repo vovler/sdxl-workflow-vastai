@@ -1,54 +1,50 @@
 import onnx
-from onnx import helper, shape_inference
-import traceback
+from onnx import helper, shape_inference, numpy_helper
+import numpy as np
 
-def topologically_sort_nodes(nodes):
+def topologically_sort_nodes(nodes: list) -> list:
     """
     Performs a topological sort on a list of ONNX nodes.
     This is crucial after manual graph modifications.
     """
-    node_map = {node.output[0]: node for node in nodes if node.output}
-    
-    # Build a map from tensor name to the node that produces it
+    # Create a map from tensor name to the node that produces it
     tensor_producer = {}
     for node in nodes:
         for output_name in node.output:
-            tensor_producer[output_name] = node
+            tensor_producer[output_name] = node.name
 
-    # Build dependency graph
+    # Build dependency graph and in-degree count for each node
     in_degree = {node.name: 0 for node in nodes}
+    # Adjacency list: for a given node, which nodes depend on it?
     dependencies = {node.name: [] for node in nodes}
 
     for node in nodes:
         for input_name in node.input:
             if input_name in tensor_producer:
-                producer_node = tensor_producer[input_name]
-                if producer_node.name in dependencies:
-                    dependencies[producer_node.name].append(node)
+                producer_node_name = tensor_producer[input_name]
+                if producer_node_name in dependencies:
+                    dependencies[producer_node_name].append(node.name)
                     in_degree[node.name] += 1
 
-    # Kahn's algorithm
-    queue = [node for node in nodes if in_degree[node.name] == 0]
-    sorted_nodes = []
+    # Kahn's algorithm for topological sorting
+    node_map = {node.name: node for node in nodes}
+    queue = [name for name, degree in in_degree.items() if degree == 0]
+    sorted_node_names = []
     
     while queue:
-        node = queue.pop(0)
-        sorted_nodes.append(node)
+        node_name = queue.pop(0)
+        sorted_node_names.append(node_name)
         
-        if node.name in dependencies:
-            for dependent_node in dependencies[node.name]:
-                in_degree[dependent_node.name] -= 1
-                if in_degree[dependent_node.name] == 0:
-                    queue.append(dependent_node)
+        if node_name in dependencies:
+            for dependent_node_name in dependencies[node_name]:
+                in_degree[dependent_node_name] -= 1
+                if in_degree[dependent_node_name] == 0:
+                    queue.append(dependent_node_name)
 
-    if len(sorted_nodes) != len(nodes):
-        # A simple sort might not be enough for complex graphs, but is often sufficient.
-        # This error indicates a cycle or a more complex dependency issue.
-        print("[Warning] Topological sort resulted in a different number of nodes. The graph might have cycles.")
-        return nodes # Return original order as a fallback
-
-    return sorted_nodes
-
+    if len(sorted_node_names) != len(nodes):
+        raise RuntimeError("Cycle detected in the graph or disconnected components, topological sort failed.")
+        
+    return [node_map[name] for name in sorted_node_names]
 
 def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: str):
     """
@@ -83,7 +79,7 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         scatter_output_name = scatter_node.output[0]
         producer_of_updates = next(n for n in body_graph.node if scatter_updates_name in n.output)
         new_scan_output_name = producer_of_updates.input[0]
-        
+
         # --- Step 2: Remove the redundant boolean condition ---
         cond_main_input_name = loop_node.input[1]
         cond_body_input_name = body_graph.input[1].name
@@ -91,18 +87,23 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         cond_producer_node = next(n for n in body_graph.node if cond_body_output_name in n.output)
 
         print(f"  Removing redundant boolean condition '{cond_main_input_name}'.")
-        loop_node.input.remove(cond_main_input_name)
+        loop_node.input[1] = "" # Blank the optional condition input
         del body_graph.input[1]
         del body_graph.output[0]
 
         # --- Step 3: Reroute metadata dependencies and remove state variable ---
         print(f"  Rerouting metadata dependencies from '{state_var_internal_name}' to '{new_scan_output_name}'.")
         for body_node in body_graph.node:
+            if body_node.name == scatter_node.name: continue
             for i, input_name in enumerate(body_node.input):
                 if input_name == state_var_internal_name:
+                    print(f"    Rerouting input for node '{body_node.name}': '{input_name}' -> '{new_scan_output_name}'")
                     body_node.input[i] = new_scan_output_name
 
-        state_var_body_index = next(i for i, inp in enumerate(body_graph.input) if inp.name == state_var_internal_name)
+        state_var_body_index = next((i for i, inp in enumerate(body_graph.input) if inp.name == state_var_internal_name), -1)
+        
+        if state_var_body_index == -1: continue
+            
         main_loop_input_to_remove = loop_node.input[state_var_body_index]
         loop_node.input.remove(main_loop_input_to_remove)
         print(f"  Removed state variable input '{main_loop_input_to_remove}' from the main Loop.")
@@ -138,7 +139,6 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         print(f"Successfully saved patched model to {output_onnx_path}")
     except Exception as e:
         print(f"An error occurred during final model validation or saving: {e}")
-        traceback.print_exc()
         print(f"Attempting to save the model without shape inference for manual inspection to: {output_onnx_path.replace('.onnx', '_failed_inference.onnx')}")
         onnx.save(model, output_onnx_path.replace('.onnx', '_failed_inference.onnx'))
 

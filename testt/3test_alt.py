@@ -28,36 +28,15 @@ class SimpleVaeDecoder(nn.Module):
         self.out_width = out_width
 
     def forward(self, latent: torch.Tensor) -> torch.Tensor:
-        """
-        Processes the latent tensor by decoding each item in the batch
-        and concatenating the results. This avoids in-place updates and
-        is highly compatible with TensorRT's loop optimizations.
+        batch_size = latent.shape[0]
+        output_tensor = torch.zeros(batch_size, self.out_channels, self.out_height, self.out_width, dtype=latent.dtype, device=latent.device)
 
-        Args:
-            latent: A tensor of shape [batch_size, C_latent, H_latent, W_latent].
-
-        Returns:
-            A tensor of shape [batch_size, C_out, H_out, W_out].
-        """
-        # 1. Create a list to collect the output of each loop iteration.
-        all_decoded_slices = []
-
-        # 2. Iterate through the batch dimension of the input latent tensor.
-        for i in range(latent.shape[0]):
-            # Get the i-th slice and add a batch dimension of 1 for the decoder.
-            # Shape goes from [C, H, W] to [1, C, H, W].
-            latent_slice_batched = latent[i].unsqueeze(0)
-            
-            # 3. Decode the single slice. The output will have shape [1, 3, 512, 512].
+        for i, latent_slice in enumerate(latent):
+            latent_slice_batched = latent_slice.unsqueeze(0)
             decoded_slice = self.vae_decoder(latent_slice_batched)
             
-            # 4. Append the resulting [1, 3, 512, 512] tensor to our list.
-            all_decoded_slices.append(decoded_slice)
-
-        # 5. After the loop, concatenate all collected slices along the batch dimension (dim=0).
-        # This is a highly optimized operation that translates well to ONNX's "scan output".
-        # The result is the final tensor of shape [batch_size, 3, 512, 512].
-        output_tensor = torch.cat(all_decoded_slices, dim=0)
+            #output_tensor[i:i+1] = decoded_slice
+            output_tensor[i] = decoded_slice.squeeze(0)
 
         return output_tensor
 

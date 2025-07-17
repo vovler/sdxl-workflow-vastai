@@ -247,9 +247,9 @@ def build_tensorrt_engine(onnx_file: str, engine_file: str, input_profiles: dict
         profile.set_shape(name, min=min_shape, opt=opt_shape, max=max_shape)
     config.add_optimization_profile(profile)
     config.progress_monitor = TQDMProgressMonitor()
-    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED))
+    network = builder.create_network()
     parser = trt.OnnxParser(network, logger)
-    parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
+    #parser.set_flag(trt.OnnxParserFlag.NATIVE_INSTANCENORM)
     
     if not parser.parse_from_file(onnx_file):
         for error in range(parser.num_errors): print(parser.get_error(error))

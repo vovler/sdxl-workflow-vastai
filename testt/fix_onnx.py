@@ -34,9 +34,8 @@ def find_value_info(graph, name):
                         if binp.name == name: return binp
     return None
 
-# --- Step 1: Detection Function (unchanged) ---
+# --- Detection Function (unchanged) ---
 def detect_loops_concat_scan_to_native_scan(model):
-    # This function is still correct as it identifies the right pattern
     graph = model.graph
     loops_to_transform = []
     for node in graph.node:
@@ -66,7 +65,7 @@ def detect_loops_concat_scan_to_native_scan(model):
     return loops_to_transform
 
 
-# --- Step 2: Processing Function (Updated) ---
+# --- Processing Function (Corrected) ---
 def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
     if not loops_to_transform:
         return model
@@ -82,14 +81,22 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
         body_graph = next(attr.g for attr in loop_node.attribute if attr.name == "body")
 
         # --- A. Modify the body graph ---
-
-        # ### NEW CHANGE ###: Identify and remove the condition-related nodes/IOs.
-        # The condition output is always the first output of the body.
+        
+        # ### CHANGE ###: The body MUST have a dummy first output for the importer to discard.
+        # We will keep the node that produces the condition, but make it source from a new internal constant.
+        
         condition_body_output_name = body_graph.output[0].name
         condition_producer_node = find_node_by_output(body_graph, condition_body_output_name)
-        
-        # The condition input is always the second input of the body.
         condition_body_input_name = body_graph.input[1].name
+
+        # Create a new Constant(true) node to live inside the body graph
+        dummy_cond_const_node = helper.make_node(
+            'Constant',
+            inputs=[],
+            outputs=[condition_body_input_name], # Use the old input name to avoid breaking things
+            name=condition_body_input_name + "_const",
+            value=helper.make_tensor(name='value', data_type=onnx.TensorProto.BOOL, dims=(), vals=[True])
+        )
 
         # Replace the Concat node with an Identity node to rename the scan tensor.
         renamer_identity_node = helper.make_node(
@@ -100,27 +107,22 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
         )
         
         # Build the new list of nodes for the body graph
-        new_body_nodes = []
+        new_body_nodes = [dummy_cond_const_node] # Start with our new constant
         for n in body_graph.node:
             if n.name == details["concat_node"].name:
                 new_body_nodes.append(renamer_identity_node)
-            # Remove the node that produces the loop condition (e.g., an Identity node)
-            elif condition_producer_node and n.name == condition_producer_node.name:
-                continue
             else:
                 new_body_nodes.append(n)
         
-        # Build new body inputs, removing state and condition inputs
+        # Remove the state and external condition inputs from the body
         new_body_inputs = [
             inp for inp in body_graph.input 
             if inp.name not in [details["state_body_input_name"], condition_body_input_name]
         ]
         
-        # Build new body outputs, removing the condition output
-        new_body_outputs = [
-            out for out in body_graph.output 
-            if out.name != condition_body_output_name
-        ]
+        # The body output list itself is now correct, as it contains the dummy
+        # condition output and the scan output.
+        new_body_outputs = body_graph.output
         
         new_body_graph = helper.make_graph(
             nodes=new_body_nodes, name=body_graph.name + "_transformed",
@@ -130,21 +132,13 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
 
         # --- B. Modify the main Loop node ---
         
-        # ### NEW CHANGE ###: Remove both the condition and the state inputs from the loop.
-        # The loop inputs are: M, cond, loop-carried-states...
-        # We need to remove input 1 (cond) and the state input.
         main_loop_state_input_name = loop_node.input[details["state_body_input_idx"]]
         main_loop_cond_input_name = loop_node.input[1]
         
-        new_loop_inputs = [loop_node.input[0]] # Start with trip count (M)
-        new_loop_inputs.append("") # Add an empty string for the optional 'cond' input
-        # Add the remaining inputs, skipping the one we are removing
-        for i in range(2, len(loop_node.input)):
-            if loop_node.input[i] != main_loop_state_input_name:
-                new_loop_inputs.append(loop_node.input[i])
+        new_loop_inputs = list(loop_node.input)
+        new_loop_inputs[1] = "" # Set condition to empty to signal a pure counted loop
+        new_loop_inputs = [inp for inp in new_loop_inputs if inp != main_loop_state_input_name]
         
-        # The loop now only has one output: the scan output.
-        # The index in the original output list is (state_body_output_idx - 1)
         main_loop_output_idx = details["state_body_output_idx"] - 1
         new_loop_outputs = [loop_node.output[main_loop_output_idx]]
         
@@ -154,6 +148,7 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
 
         # --- C. Mark initial state and condition providers for removal ---
         for input_name_to_remove in [main_loop_state_input_name, main_loop_cond_input_name]:
+            if not input_name_to_remove: continue
             producer = find_node_by_output(graph, input_name_to_remove)
             if producer:
                 nodes_to_remove.add(producer.name)
@@ -165,8 +160,7 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
     final_nodes.extend(nodes_to_add)
     final_initializers = [init for init in graph.initializer if init.name not in initializers_to_remove]
     
-    # Remove unused inputs from the graph if they are no longer needed
-    all_used_inputs = {inp for n in final_nodes for inp in n.input}
+    all_used_inputs = {inp for n in final_nodes for inp in n.input if inp}
     final_graph_inputs = [inp for inp in graph.input if inp.name in all_used_inputs]
 
     new_graph = helper.make_graph(
@@ -179,9 +173,9 @@ def process_loops_concat_scan_to_native_scan(model, loops_to_transform):
     new_model.opset_import.extend(model.opset_import)
     return new_model
 
+
 # --- Main Orchestration and Saving Logic (unchanged) ---
 def patch_loops_output(input_onnx_path, output_onnx_path):
-    # (This function remains unchanged)
     print(f"Loading model from: {input_onnx_path}")
     try:
         model = onnx.load(input_onnx_path)
@@ -222,7 +216,6 @@ def patch_loops_output(input_onnx_path, output_onnx_path):
 
 
 def main():
-    # (This function remains unchanged)
     parser = argparse.ArgumentParser(
         description="Transforms ONNX loops from a Concat-based scan to a native scan-output pattern for TensorRT compatibility.",
         formatter_class=argparse.RawTextHelpFormatter
@@ -234,12 +227,9 @@ def main():
         help="Path to the input ONNX file.\n(default: onnx/simple_vae_decoder_direct_optimized.onnx)"
     )
     args = parser.parse_args()
-
     input_path = args.input_onnx_path
-
     if not os.path.exists(input_path):
         print(f"ERROR: Input file not found at '{input_path}'", file=sys.stderr)
-        print("Please provide a valid path to an ONNX model.", file=sys.stderr)
         sys.exit(1)
     
     base, ext = os.path.splitext(input_path)

@@ -118,7 +118,7 @@ def build_tensorrt_engine(
     timing_cache_path: str | None = None
 ):
     """Builds a TensorRT engine from an ONNX model."""
-    logger = trt.Logger(trt.Logger.INFO)
+    logger = trt.Logger(trt.Logger.VERBOSE)
     builder = trt.Builder(logger)
     config = builder.create_builder_config()
     network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))

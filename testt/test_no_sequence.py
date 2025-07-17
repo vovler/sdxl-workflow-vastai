@@ -21,10 +21,7 @@ class ComplexLoop(nn.Module):
         for i in range(num_steps.size(0)):
             # Get the step value for the current iteration
             step_val = num_steps[i]
-            if use_add:
-                x = self.linear_add(x) + step_val
-            else:
-                x = self.linear_sub(x) - step_val
+            x = self.linear_add(x) + step_val
         return x
 
 # Progress bar for TensorRT engine building (unchanged)

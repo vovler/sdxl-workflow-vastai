@@ -10,11 +10,14 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
     pattern is inefficient and often unsupported in TensorRT.
 
     The script transforms the loop by:
-    1. Finding all nodes that use the large state variable for metadata (like Shape ops).
-    2. Rerouting those nodes to use the smaller 'updates' tensor instead.
-    3. Removing the large state variable from the loop's inputs/outputs.
-    4. Making the 'updates' tensor a proper 'scan_output'.
-    5. Removing the now-redundant ScatterND node from the loop's body.
+    1. Identifying the 'updates' tensor for the ScatterND.
+    2. Tracing back to find the node producing these updates (e.g., an Expand op)
+       and identifying its input as the TRUE scan output.
+    3. Rerouting any metadata nodes (like Shape ops) that depended on the old 
+       state variable to depend on this new true scan output tensor instead.
+    4. Removing the large state variable from the loop's inputs/outputs.
+    5. Making the true 'updates' tensor a proper 'scan_output'.
+    6. Removing the now-redundant ScatterND and its producer node from the loop's body.
 
     This results in a much more efficient and compliant model for TensorRT.
 
@@ -32,7 +35,6 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
     graph = model.graph
     loops_to_process = []
 
-    # --- Step 1: Find all Loop nodes that match the problematic pattern ---
     print("Searching for Loop nodes with the ScatterND state-update pattern...")
     for node in graph.node:
         if node.op_type == "Loop":
@@ -53,36 +55,41 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         print("No loops matching the ScatterND pattern were found. No patching is needed.")
         return
 
-    # --- Step 2: Process each identified loop ---
     for loop_node, scatter_node in loops_to_process:
         print(f"\n--- Patching Loop '{loop_node.name}' ---")
         body_graph = next(attr.g for attr in loop_node.attribute if attr.name == "body")
 
         state_var_internal_name = scatter_node.input[0]
-        slice_update_tensor_name = scatter_node.input[2] # The 'updates' tensor IS the new scan output
+        scatter_updates_name = scatter_node.input[2]
         scatter_output_name = scatter_node.output[0]
 
-        print(f"  State variable to remove: '{state_var_internal_name}'")
-        print(f"  New scan output tensor will be: '{slice_update_tensor_name}'")
+        # Find the node that produces the 'updates' tensor for the ScatterND
+        producer_of_updates = next((n for n in body_graph.node if scatter_updates_name in n.output), None)
+        if not producer_of_updates:
+            print(f"  [!] ERROR: Could not find the producer of the ScatterND updates tensor '{scatter_updates_name}'. Aborting patch.")
+            continue
+        
+        # The TRUE scan output is the input to this producer node.
+        new_scan_output_name = producer_of_updates.input[0]
 
-        # --- Step 3: Reroute metadata dependencies ---
-        # Find any node (like a Shape op) that depends on the state variable and isn't the ScatterND itself.
-        # Reroute it to depend on the slice update tensor instead.
+        print(f"  State variable to remove: '{state_var_internal_name}'")
+        print(f"  Identified producer of updates: '{producer_of_updates.name}' (Op: {producer_of_updates.op_type})")
+        print(f"  New scan output tensor will be: '{new_scan_output_name}'")
+
         print("  Checking for other nodes that depend on the state variable...")
         for body_node in body_graph.node:
             if body_node.name == scatter_node.name:
                 continue
-            
             for i, input_name in enumerate(body_node.input):
                 if input_name == state_var_internal_name:
-                    print(f"    Rerouting input for node '{body_node.name}': '{input_name}' -> '{slice_update_tensor_name}'")
-                    body_node.input[i] = slice_update_tensor_name
+                    # Reroute this dependency to the *true* scan output tensor
+                    print(f"    Rerouting input for node '{body_node.name}': '{input_name}' -> '{new_scan_output_name}'")
+                    body_node.input[i] = new_scan_output_name
 
-        # --- Step 4: Rewire the loop's main inputs and the body's inputs ---
         state_var_body_index = next((i for i, inp in enumerate(body_graph.input) if inp.name == state_var_internal_name), -1)
         
         if state_var_body_index == -1:
-            print(f"  [!] Warning: Could not find state variable '{state_var_internal_name}' in body inputs. Skipping this loop.")
+            print(f"  [!] Warning: Could not find state variable '{state_var_internal_name}' in body inputs. Skipping.")
             continue
             
         main_loop_input_to_remove = loop_node.input[state_var_body_index]
@@ -92,27 +99,25 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         del body_graph.input[state_var_body_index]
         print(f"  Removed '{state_var_internal_name}' from the loop body's inputs.")
 
-        # --- Step 5: Rewire the loop body's outputs ---
         found_output = False
         for out in body_graph.output:
             if out.name == scatter_output_name:
-                print(f"  Changing body output '{out.name}' to become a scan output pointing to '{slice_update_tensor_name}'.")
-                out.name = slice_update_tensor_name
+                print(f"  Changing body output '{out.name}' to become a scan output pointing to '{new_scan_output_name}'.")
+                out.name = new_scan_output_name
                 out.ClearField("type")
                 found_output = True
                 break
         
         if not found_output:
-            print(f"  [!] Warning: Could not find the corresponding state output '{scatter_output_name}'. Skipping this loop.")
+            print(f"  [!] Warning: Could not find the corresponding state output '{scatter_output_name}'. Skipping.")
             continue
 
-        # --- Step 6: Remove the now-redundant ScatterND node ---
-        new_nodes = [n for n in body_graph.node if n.name != scatter_node.name]
+        nodes_to_remove = {scatter_node.name, producer_of_updates.name}
+        new_nodes = [n for n in body_graph.node if n.name not in nodes_to_remove]
         body_graph.ClearField("node")
         body_graph.node.extend(new_nodes)
-        print(f"  Removed ScatterND node '{scatter_node.name}' from the loop body.")
+        print(f"  Removed the following redundant nodes from the loop body: {nodes_to_remove}")
 
-    # --- Step 7: Clean, check, and save the final model ---
     print("\nFinalizing model...")
     try:
         model = shape_inference.infer_shapes(model)
@@ -123,7 +128,7 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
     except Exception as e:
         print(f"An error occurred during final model validation or saving: {e}")
         print(f"Attempting to save the model without shape inference for manual inspection to: {output_onnx_path.replace('.onnx', '_failed_inference.onnx')}")
-        onnx.save(model, output_onnx_path.replace(".onnx", "_failed_inference.onnx"))
+        onnx.save(model, output_onnx_path.replace('.onnx', '_failed_inference.onnx'))
 
 if __name__ == "__main__":
     INPUT_MODEL_PATH = "onnx/simple_vae_decoder_optimized.onnx"

@@ -11,7 +11,7 @@ from diffusers import AutoencoderKL
 from tqdm import tqdm
 from collections import OrderedDict
 import numpy as np
-
+from torch.export.dynamic_shapes import Dim
 # Only import tensorrt if it's available and needed
 try:
     import tensorrt as trt
@@ -74,7 +74,18 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
                 onnx_path,
                 input_names=['latent_sample'],
                 output_names=['sample'],
-                dynamic_shapes=True,
+                dynamic_shapes={
+                    "latent_sample": {
+                        0: Dim("batch_size", min=1, max=4),
+                        2: Dim("height", min=64, max=64),
+                        3: Dim("width", min=64, max=64),
+                    },
+                    "sample": {
+                        0: Dim("batch_size", min=1, max=4),
+                        2: Dim("height_out", min=512, max=512),
+                        3: Dim("width_out", min=512, max=512),
+                    },
+                },
                 opset_version=19,
             )
             print(f"✅ Simplified VAE Decoder exported successfully to {onnx_path}")

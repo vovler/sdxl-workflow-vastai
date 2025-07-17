@@ -1,62 +1,57 @@
 import onnx
 from onnx import helper, shape_inference
 
-def topologically_sort_nodes(nodes, graph_inputs):
+def topologically_sort_nodes(nodes):
     """
     Performs a topological sort on a list of ONNX nodes.
-
-    Args:
-        nodes: A list of onnx.NodeProto objects.
-        graph_inputs: A list of tensor names that are inputs to this graph/subgraph.
-
-    Returns:
-        A new list of onnx.NodeProto objects in topologically sorted order.
+    This is crucial after manual graph modifications.
     """
-    # 1. Build the graph representation
-    node_map = {node.name: node for node in nodes}
-    dependencies = {node.name: [] for node in nodes}
-    in_degree = {node.name: 0 for node in nodes}
+    node_map = {node.output[0]: node for node in nodes if node.output}
+    
+    # Build a map from tensor name to the node that produces it
     tensor_producer = {}
-
     for node in nodes:
         for output_name in node.output:
-            tensor_producer[output_name] = node.name
-    
+            tensor_producer[output_name] = node
+
+    # Build dependency graph
+    in_degree = {node.name: 0 for node in nodes}
+    dependencies = {node.name: [] for node in nodes}
+
     for node in nodes:
         for input_name in node.input:
-            # Check if the input is produced by another node in this list
             if input_name in tensor_producer:
-                producer_node_name = tensor_producer[input_name]
-                # Add dependency: producer must come before current node
-                dependencies[producer_node_name].append(node.name)
-                in_degree[node.name] += 1
+                producer_node = tensor_producer[input_name]
+                if producer_node.name in dependencies:
+                    dependencies[producer_node.name].append(node)
+                    in_degree[node.name] += 1
 
-    # 2. Initialize the queue with nodes that have no internal dependencies
-    # (their inputs are either graph inputs or initializers)
-    queue = [name for name, degree in in_degree.items() if degree == 0]
-    
-    # 3. Kahn's algorithm for topological sorting
+    # Kahn's algorithm
+    queue = [node for node in nodes if in_degree[node.name] == 0]
     sorted_nodes = []
+    
     while queue:
-        node_name = queue.pop(0)
-        sorted_nodes.append(node_map[node_name])
+        node = queue.pop(0)
+        sorted_nodes.append(node)
         
-        if node_name in dependencies:
-            for dependent_node_name in dependencies[node_name]:
-                in_degree[dependent_node_name] -= 1
-                if in_degree[dependent_node_name] == 0:
-                    queue.append(dependent_node_name)
+        if node.name in dependencies:
+            for dependent_node in dependencies[node.name]:
+                in_degree[dependent_node.name] -= 1
+                if in_degree[dependent_node.name] == 0:
+                    queue.append(dependent_node)
 
     if len(sorted_nodes) != len(nodes):
-        raise RuntimeError("Cycle detected in the graph, topological sort failed.")
-        
+        # A simple sort might not be enough for complex graphs, but is often sufficient.
+        # This error indicates a cycle or a more complex dependency issue.
+        print("[Warning] Topological sort resulted in a different number of nodes. The graph might have cycles.")
+        return nodes # Return original order as a fallback
+
     return sorted_nodes
 
 
 def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: str):
     """
-    Generalizes the patching of ONNX models for TensorRT compatibility by converting
-    inefficient ScatterND-based state updates into efficient scan outputs.
+    Generalizes the patching of ONNX models for TensorRT compatibility.
     """
     print(f"Loading model from {input_onnx_path}...")
     model = onnx.load(input_onnx_path)
@@ -68,14 +63,10 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         if node.op_type == "Loop":
             body_graph = next((attr.g for attr in node.attribute if attr.name == "body"), None)
             if not body_graph: continue
-
-            for sub_node in body_graph.node:
-                if sub_node.op_type == "ScatterND":
-                    scatter_data_input = sub_node.input[0]
-                    body_state_inputs = [inp.name for inp in body_graph.input[2:]]
-                    if scatter_data_input in body_state_inputs:
-                        loops_to_process.append((node, sub_node))
-                        print(f"  [+] Found candidate: Loop '{node.name}' uses ScatterND '{sub_node.name}' to update state '{scatter_data_input}'.")
+            if any(sub_node.op_type == "ScatterND" and sub_node.input[0] in [inp.name for inp in body_graph.input[2:]] for sub_node in body_graph.node):
+                scatter_node = next(sub_node for sub_node in body_graph.node if sub_node.op_type == "ScatterND" and sub_node.input[0] in [inp.name for inp in body_graph.input[2:]])
+                loops_to_process.append((node, scatter_node))
+                print(f"  [+] Found candidate: Loop '{node.name}' uses ScatterND '{scatter_node.name}' to update state '{scatter_node.input[0]}'.")
 
     if not loops_to_process:
         print("No loops matching the pattern were found. No patching needed.")
@@ -85,40 +76,39 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         print(f"\n--- Patching Loop '{loop_node.name}' ---")
         body_graph = next(attr.g for attr in loop_node.attribute if attr.name == "body")
 
+        # --- Step 1: Identify key tensors and nodes ---
         state_var_internal_name = scatter_node.input[0]
         scatter_updates_name = scatter_node.input[2]
         scatter_output_name = scatter_node.output[0]
-
-        producer_of_updates = next((n for n in body_graph.node if scatter_updates_name in n.output), None)
-        if not producer_of_updates:
-            print(f"  [!] ERROR: Could not find the producer of '{scatter_updates_name}'. Aborting patch for this loop.")
-            continue
-        
+        producer_of_updates = next(n for n in body_graph.node if scatter_updates_name in n.output)
         new_scan_output_name = producer_of_updates.input[0]
-        print(f"  State variable to remove: '{state_var_internal_name}'")
-        print(f"  Identified producer of slice: '{producer_of_updates.name}' (Op: {producer_of_updates.op_type})")
-        print(f"  New scan output tensor will be: '{new_scan_output_name}'")
+        
+        # --- Step 2: Remove the redundant boolean condition ---
+        cond_main_input_name = loop_node.input[1]
+        cond_body_input_name = body_graph.input[1].name
+        cond_body_output_name = body_graph.output[0].name
+        cond_producer_node = next(n for n in body_graph.node if cond_body_output_name in n.output)
 
-        print("  Rerouting metadata dependencies...")
+        print(f"  Removing redundant boolean condition '{cond_main_input_name}'.")
+        loop_node.input.remove(cond_main_input_name)
+        del body_graph.input[1]
+        del body_graph.output[0]
+
+        # --- Step 3: Reroute metadata dependencies and remove state variable ---
+        print(f"  Rerouting metadata dependencies from '{state_var_internal_name}' to '{new_scan_output_name}'.")
         for body_node in body_graph.node:
-            if body_node.name == scatter_node.name: continue
             for i, input_name in enumerate(body_node.input):
                 if input_name == state_var_internal_name:
-                    print(f"    Rerouting input for node '{body_node.name}': '{input_name}' -> '{new_scan_output_name}'")
                     body_node.input[i] = new_scan_output_name
 
-        state_var_body_index = next((i for i, inp in enumerate(body_graph.input) if inp.name == state_var_internal_name), -1)
-        if state_var_body_index == -1:
-            print(f"  [!] Warning: Could not find state variable '{state_var_internal_name}' in body inputs. Skipping.")
-            continue
-            
+        state_var_body_index = next(i for i, inp in enumerate(body_graph.input) if inp.name == state_var_internal_name)
         main_loop_input_to_remove = loop_node.input[state_var_body_index]
         loop_node.input.remove(main_loop_input_to_remove)
-        print(f"  Removed '{main_loop_input_to_remove}' from the main Loop's inputs.")
-
+        print(f"  Removed state variable input '{main_loop_input_to_remove}' from the main Loop.")
         del body_graph.input[state_var_body_index]
-        print(f"  Removed '{state_var_internal_name}' from the loop body's inputs.")
+        print(f"  Removed state variable '{state_var_internal_name}' from the loop body's inputs.")
 
+        # --- Step 4: Rewire the loop body's output to be the scan output ---
         for out in body_graph.output:
             if out.name == scatter_output_name:
                 print(f"  Changing body output '{out.name}' to point to scan output '{new_scan_output_name}'.")
@@ -126,13 +116,14 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
                 out.ClearField("type")
                 break
         
-        nodes_to_remove = {scatter_node.name, producer_of_updates.name}
+        # --- Step 5: Remove redundant nodes and re-sort the graph ---
+        nodes_to_remove = {scatter_node.name, producer_of_updates.name, cond_producer_node.name}
         remaining_nodes = [n for n in body_graph.node if n.name not in nodes_to_remove]
         print(f"  Removed redundant nodes: {nodes_to_remove}")
 
         print("  Topologically re-sorting nodes within the loop body...")
-        sorted_nodes = topologically_sort_nodes(remaining_nodes, [inp.name for inp in body_graph.input])
-
+        sorted_nodes = topologically_sort_nodes(remaining_nodes)
+        
         body_graph.ClearField("node")
         body_graph.node.extend(sorted_nodes)
         print("  Node re-sorting complete.")

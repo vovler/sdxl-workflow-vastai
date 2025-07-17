@@ -1,37 +1,65 @@
 import onnx
 from onnx import helper, shape_inference
 
-def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: str):
+def topologically_sort_nodes(nodes, graph_inputs):
     """
-    Generalizes the patching of ONNX models for TensorRT compatibility.
-
-    This script finds any ONNX Loop operator that uses a state variable 
-    (a loop-carried dependency) as the target for a ScatterND update. This
-    pattern is inefficient and often unsupported in TensorRT.
-
-    The script transforms the loop by:
-    1. Identifying the 'updates' tensor for the ScatterND.
-    2. Tracing back to find the node producing these updates (e.g., an Expand op)
-       and identifying its input as the TRUE scan output.
-    3. Rerouting any metadata nodes (like Shape ops) that depended on the old 
-       state variable to depend on this new true scan output tensor instead.
-    4. Removing the large state variable from the loop's inputs/outputs.
-    5. Making the true 'updates' tensor a proper 'scan_output'.
-    6. Removing the now-redundant ScatterND and its producer node from the loop's body.
-
-    This results in a much more efficient and compliant model for TensorRT.
+    Performs a topological sort on a list of ONNX nodes.
 
     Args:
-        input_onnx_path: Path to the original ONNX file.
-        output_onnx_path: Path where the patched ONNX file will be saved.
+        nodes: A list of onnx.NodeProto objects.
+        graph_inputs: A list of tensor names that are inputs to this graph/subgraph.
+
+    Returns:
+        A new list of onnx.NodeProto objects in topologically sorted order.
+    """
+    # 1. Build the graph representation
+    node_map = {node.name: node for node in nodes}
+    dependencies = {node.name: [] for node in nodes}
+    in_degree = {node.name: 0 for node in nodes}
+    tensor_producer = {}
+
+    for node in nodes:
+        for output_name in node.output:
+            tensor_producer[output_name] = node.name
+    
+    for node in nodes:
+        for input_name in node.input:
+            # Check if the input is produced by another node in this list
+            if input_name in tensor_producer:
+                producer_node_name = tensor_producer[input_name]
+                # Add dependency: producer must come before current node
+                dependencies[producer_node_name].append(node.name)
+                in_degree[node.name] += 1
+
+    # 2. Initialize the queue with nodes that have no internal dependencies
+    # (their inputs are either graph inputs or initializers)
+    queue = [name for name, degree in in_degree.items() if degree == 0]
+    
+    # 3. Kahn's algorithm for topological sorting
+    sorted_nodes = []
+    while queue:
+        node_name = queue.pop(0)
+        sorted_nodes.append(node_map[node_name])
+        
+        if node_name in dependencies:
+            for dependent_node_name in dependencies[node_name]:
+                in_degree[dependent_node_name] -= 1
+                if in_degree[dependent_node_name] == 0:
+                    queue.append(dependent_node_name)
+
+    if len(sorted_nodes) != len(nodes):
+        raise RuntimeError("Cycle detected in the graph, topological sort failed.")
+        
+    return sorted_nodes
+
+
+def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: str):
+    """
+    Generalizes the patching of ONNX models for TensorRT compatibility by converting
+    inefficient ScatterND-based state updates into efficient scan outputs.
     """
     print(f"Loading model from {input_onnx_path}...")
-    try:
-        model = onnx.load(input_onnx_path)
-    except Exception as e:
-        print(f"Error loading ONNX model: {e}")
-        return
-
+    model = onnx.load(input_onnx_path)
     graph = model.graph
     loops_to_process = []
 
@@ -39,20 +67,18 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
     for node in graph.node:
         if node.op_type == "Loop":
             body_graph = next((attr.g for attr in node.attribute if attr.name == "body"), None)
-            if not body_graph:
-                continue
+            if not body_graph: continue
 
             for sub_node in body_graph.node:
                 if sub_node.op_type == "ScatterND":
                     scatter_data_input = sub_node.input[0]
                     body_state_inputs = [inp.name for inp in body_graph.input[2:]]
-                    
                     if scatter_data_input in body_state_inputs:
                         loops_to_process.append((node, sub_node))
-                        print(f"  [+] Found candidate for patching: Loop '{node.name}' contains ScatterND '{sub_node.name}' updating state variable '{scatter_data_input}'.")
+                        print(f"  [+] Found candidate: Loop '{node.name}' uses ScatterND '{sub_node.name}' to update state '{scatter_data_input}'.")
 
     if not loops_to_process:
-        print("No loops matching the ScatterND pattern were found. No patching is needed.")
+        print("No loops matching the pattern were found. No patching needed.")
         return
 
     for loop_node, scatter_node in loops_to_process:
@@ -63,31 +89,25 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         scatter_updates_name = scatter_node.input[2]
         scatter_output_name = scatter_node.output[0]
 
-        # Find the node that produces the 'updates' tensor for the ScatterND
         producer_of_updates = next((n for n in body_graph.node if scatter_updates_name in n.output), None)
         if not producer_of_updates:
-            print(f"  [!] ERROR: Could not find the producer of the ScatterND updates tensor '{scatter_updates_name}'. Aborting patch.")
+            print(f"  [!] ERROR: Could not find the producer of '{scatter_updates_name}'. Aborting patch for this loop.")
             continue
         
-        # The TRUE scan output is the input to this producer node.
         new_scan_output_name = producer_of_updates.input[0]
-
         print(f"  State variable to remove: '{state_var_internal_name}'")
-        print(f"  Identified producer of updates: '{producer_of_updates.name}' (Op: {producer_of_updates.op_type})")
+        print(f"  Identified producer of slice: '{producer_of_updates.name}' (Op: {producer_of_updates.op_type})")
         print(f"  New scan output tensor will be: '{new_scan_output_name}'")
 
-        print("  Checking for other nodes that depend on the state variable...")
+        print("  Rerouting metadata dependencies...")
         for body_node in body_graph.node:
-            if body_node.name == scatter_node.name:
-                continue
+            if body_node.name == scatter_node.name: continue
             for i, input_name in enumerate(body_node.input):
                 if input_name == state_var_internal_name:
-                    # Reroute this dependency to the *true* scan output tensor
                     print(f"    Rerouting input for node '{body_node.name}': '{input_name}' -> '{new_scan_output_name}'")
                     body_node.input[i] = new_scan_output_name
 
         state_var_body_index = next((i for i, inp in enumerate(body_graph.input) if inp.name == state_var_internal_name), -1)
-        
         if state_var_body_index == -1:
             print(f"  [!] Warning: Could not find state variable '{state_var_internal_name}' in body inputs. Skipping.")
             continue
@@ -99,24 +119,23 @@ def patch_loop_scatter_to_scan_output(input_onnx_path: str, output_onnx_path: st
         del body_graph.input[state_var_body_index]
         print(f"  Removed '{state_var_internal_name}' from the loop body's inputs.")
 
-        found_output = False
         for out in body_graph.output:
             if out.name == scatter_output_name:
-                print(f"  Changing body output '{out.name}' to become a scan output pointing to '{new_scan_output_name}'.")
+                print(f"  Changing body output '{out.name}' to point to scan output '{new_scan_output_name}'.")
                 out.name = new_scan_output_name
                 out.ClearField("type")
-                found_output = True
                 break
         
-        if not found_output:
-            print(f"  [!] Warning: Could not find the corresponding state output '{scatter_output_name}'. Skipping.")
-            continue
-
         nodes_to_remove = {scatter_node.name, producer_of_updates.name}
-        new_nodes = [n for n in body_graph.node if n.name not in nodes_to_remove]
+        remaining_nodes = [n for n in body_graph.node if n.name not in nodes_to_remove]
+        print(f"  Removed redundant nodes: {nodes_to_remove}")
+
+        print("  Topologically re-sorting nodes within the loop body...")
+        sorted_nodes = topologically_sort_nodes(remaining_nodes, [inp.name for inp in body_graph.input])
+
         body_graph.ClearField("node")
-        body_graph.node.extend(new_nodes)
-        print(f"  Removed the following redundant nodes from the loop body: {nodes_to_remove}")
+        body_graph.node.extend(sorted_nodes)
+        print("  Node re-sorting complete.")
 
     print("\nFinalizing model...")
     try:

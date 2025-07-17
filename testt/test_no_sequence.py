@@ -20,8 +20,8 @@ class ComplexLoop(nn.Module):
         # This pattern is convertible to an ONNX Loop operator.
         for i in range(num_steps.size(0)):
             # Get the step value for the current iteration
-            step_val = num_steps[i]
-            x = self.linear_add(x) + step_val
+            #step_val = num_steps[i]
+            x = self.linear_add(x) + i
         return x
 
 # Progress bar for TensorRT engine building (unchanged)

@@ -9,12 +9,14 @@ import onnxruntime
 # --- Helper Functions ---
 
 def find_node_by_output(graph, output_name):
+    """Finds a node in a graph by its output name."""
     for node in graph.node:
         if output_name in node.output:
             return node
     return None
 
 def find_value_info(graph, name):
+    """Finds a value_info entry in a graph by its name, searching all relevant lists."""
     for vi in graph.value_info:
         if vi.name == name: return vi
     for vi in graph.input:
@@ -29,7 +31,7 @@ def find_value_info(graph, name):
                     if result: return result
     return None
 
-# --- Detection Function ---
+# --- Step 1: Detection Function ---
 
 def detect_loop_for_scan_conversion(model):
     """Detects a Loop that is a candidate for conversion to a Scan operator."""
@@ -50,9 +52,9 @@ def detect_loop_for_scan_conversion(model):
             print(f"INFO: Detected Loop '{node.name}' as a candidate for Scan conversion.")
     return loops_to_transform
 
-# --- Processing Function ---
+# --- Step 2: Processing Function ---
 
-def process_loop_to_scan(model, loops_to_transform):
+def process_loop_to_scan(model, loops_to_transform, opset_version, ir_version):
     """Transforms the detected Loop operators into Scan operators."""
     if not loops_to_transform: return model
 
@@ -60,13 +62,11 @@ def process_loop_to_scan(model, loops_to_transform):
     details = loops_to_transform[0]
     loop_node, body_graph = details["loop_node"], next(attr.g for attr in details["loop_node"].attribute if attr.name == "body")
 
-    # 1. Identify key tensors
     inner_gather_node, final_concat_node = details["inner_gather_node"], details["final_concat_node"]
     main_scan_tensor_name, per_item_tensor_name = inner_gather_node.input[0], inner_gather_node.output[0]
     state_input_name = body_graph.input[2].name
     final_scan_output_name = next(inp for inp in final_concat_node.input if inp != state_input_name)
     
-    # 2. Create the new body graph for the Scan operator
     scan_slice_input = onnx.ValueInfoProto(name=main_scan_tensor_name + "_slice")
     original_tensor_info = find_value_info(graph, main_scan_tensor_name)
     scan_slice_input.type.CopyFrom(original_tensor_info.type)
@@ -88,8 +88,7 @@ def process_loop_to_scan(model, loops_to_transform):
             if inp == per_item_tensor_name:
                 node.input[i] = scan_slice_input.name
     
-    # ### ROBUSTNESS FIX ###: Meticulously rebuild the value_info for the subgraph
-    body_tensors = set()
+    body_tensors = set(inp.name for inp in new_body_inputs)
     for node in new_body_nodes:
         body_tensors.update(node.input)
         body_tensors.update(node.output)
@@ -101,14 +100,12 @@ def process_loop_to_scan(model, loops_to_transform):
         initializer=body_graph.initializer, value_info=new_body_value_info
     )
     
-    # 3. Create the new Scan node
     scan_node = helper.make_node(
         op_type='Scan', inputs=[main_scan_tensor_name], outputs=[graph.output[0].name],
         name=loop_node.name + "_as_scan", num_scan_inputs=1, body=new_body_graph,
         scan_input_axes=[0], scan_output_axes=[0]
     )
     
-    # 4. Build the new main graph
     nodes_to_remove_from_main = {loop_node.name}
     trip_count_producer = find_node_by_output(graph, loop_node.input[0])
     if trip_count_producer:
@@ -125,8 +122,13 @@ def process_loop_to_scan(model, loops_to_transform):
         initializer=graph.initializer, value_info=graph.value_info
     )
     
-    new_model = helper.make_model(new_graph, producer_name='onnx-loop-to-scan-transformer')
-    new_model.opset_import.extend(model.opset_import)
+    # ### CHANGE: Set Opset and IR Version ###
+    new_model = helper.make_model(
+        new_graph,
+        producer_name='onnx-loop-to-scan-transformer',
+        opset_imports=[helper.make_opsetid("", opset_version)]
+    )
+    new_model.ir_version = ir_version
     
     return new_model
 
@@ -138,36 +140,27 @@ def run_inference_test(onnx_path):
     print("-" * 20)
     try:
         session = onnxruntime.InferenceSession(onnx_path, providers=['CPUExecutionProvider'])
-        input_meta = session.get_inputs()[0]
-        output_meta = session.get_outputs()[0]
+        input_meta, output_meta = session.get_inputs()[0], session.get_outputs()[0]
 
-        print(f"Input Name: {input_meta.name}")
-        print(f"Input Shape: {input_meta.shape}")
-
-        # Create dummy data. Handle dynamic batch size by using 1.
+        print(f"Input Name: {input_meta.name}, Shape: {input_meta.shape}, Type: {input_meta.type}")
         input_shape = [1 if isinstance(dim, str) else dim for dim in input_meta.shape]
         dtype_map = {'tensor(float16)': np.float16, 'tensor(float)': np.float32}
         input_dtype = dtype_map.get(input_meta.type, np.float32)
         dummy_input = np.random.rand(*input_shape).astype(input_dtype)
 
         print(f"Created dummy input with shape: {dummy_input.shape}, dtype: {dummy_input.dtype}")
-
-        # Run inference
         result = session.run([output_meta.name], {input_meta.name: dummy_input})
         
         print(f"Inference successful!")
-        print(f"Output Name: {output_meta.name}")
-        print(f"Output Shape: {result[0].shape}")
+        print(f"Output Name: {output_meta.name}, Shape: {result[0].shape}, Dtype: {result[0].dtype}")
         print("-" * 20)
-
     except Exception as e:
         print(f"\nERROR: ONNXRuntime inference test failed: {e}", file=sys.stderr)
         print("-" * 20)
 
-
 # --- Main Orchestration Logic ---
 
-def patch_model_main(input_onnx_path, output_onnx_path, test_inference):
+def patch_model_main(input_onnx_path, output_onnx_path, opset_version, ir_version, test_inference):
     """Main function to orchestrate the detection, processing, saving, and testing."""
     print(f"Loading model from: {input_onnx_path}")
     try:
@@ -184,9 +177,8 @@ def patch_model_main(input_onnx_path, output_onnx_path, test_inference):
         return
 
     print(f"\nFound Loop '{transform_list[0]['loop_node'].name}' to transform to a Scan operator.\n")
-
     print("Processing model...")
-    transformed_model = process_loop_to_scan(model, transform_list)
+    transformed_model = process_loop_to_scan(model, transform_list, opset_version, ir_version)
     if not transformed_model:
         print("ERROR: Transformation failed during processing.", file=sys.stderr)
         return
@@ -203,14 +195,12 @@ def patch_model_main(input_onnx_path, output_onnx_path, test_inference):
         output_failed_path = output_onnx_path.replace('.onnx', '_failed_scan.onnx')
         print(f"Attempting to save the model without shape inference for manual inspection to: {output_failed_path}")
         onnx.save(transformed_model, output_failed_path)
-        # Even if saving works, we should still run the test on the failed-inference file
         if test_inference:
             run_inference_test(output_failed_path)
         return
 
     if test_inference:
         run_inference_test(output_onnx_path)
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -224,8 +214,15 @@ def main():
         help="Path to the original ONNX file with the Loop.\n(default: onnx/simple_vae_decoder_direct_optimized.onnx)"
     )
     parser.add_argument(
-        "--test-inference",
-        action="store_true",
+        "--opset", type=int, default=20,
+        help="The ONNX opset version to set in the exported model. (default: 20)"
+    )
+    parser.add_argument(
+        "--ir", type=int, default=9,
+        help="The ONNX IR version to set in the exported model. (default: 9)"
+    )
+    parser.add_argument(
+        "--test-inference", action="store_true",
         help="If present, run a test inference on the exported ONNX model using ONNXRuntime."
     )
     args = parser.parse_args()
@@ -239,12 +236,14 @@ def main():
     output_path = f"{base}_scan{ext}"
     
     print("-" * 50)
-    print(f"Input model:  {input_path}")
-    print(f"Output model: {output_path}")
+    print(f"Input model:    {input_path}")
+    print(f"Output model:   {output_path}")
+    print(f"Target Opset:   {args.opset}")
+    print(f"Target IR Ver:  {args.ir}")
     print(f"Test Inference: {'Yes' if args.test_inference else 'No'}")
     print("-" * 50)
 
-    patch_model_main(input_path, output_path, args.test_inference)
+    patch_model_main(input_path, output_path, args.opset, args.ir, args.test_inference)
 
 if __name__ == "__main__":
     main()

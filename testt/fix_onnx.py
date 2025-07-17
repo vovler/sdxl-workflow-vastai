@@ -109,6 +109,6 @@ if __name__ == "__main__":
     # Replace with the path to your ONNX file
     INPUT_MODEL_PATH = "onnx/simple_vae_decoder_optimized.onnx" 
     # The patched model will be saved here
-    OUTPUT_MODEL_PATH = "onnx/simple_vae_decoder_patched_patched.onnx" 
+    OUTPUT_MODEL_PATH = "onnx/simple_vae_decoder_optimized_patched.onnx" 
 
     patch_vae_decoder_loop(INPUT_MODEL_PATH, OUTPUT_MODEL_PATH)

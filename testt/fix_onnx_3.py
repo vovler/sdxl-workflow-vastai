@@ -154,7 +154,7 @@ def run_inference_test(onnx_path):
         input_meta, output_meta = session.get_inputs()[0], session.get_outputs()[0]
 
         print(f"Input Name: {input_meta.name}, Shape: {input_meta.shape}, Type: {input_meta.type}")
-        input_shape = [1 if isinstance(dim, str) else dim for dim in input_meta.shape]
+        input_shape = [2 if isinstance(dim, str) else dim for dim in input_meta.shape]
         dtype_map = {'tensor(float16)': np.float16, 'tensor(float)': np.float32}
         input_dtype = dtype_map.get(input_meta.type, np.float32)
         dummy_input = np.random.rand(*input_shape).astype(input_dtype)

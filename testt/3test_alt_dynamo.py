@@ -61,7 +61,7 @@ def export_onnx_model(vae: AutoencoderKL, onnx_path: str):
     simple_vae_decoder_instance = SimpleVaeDecoder(
         traced_vae_decoder, out_channels, out_height, out_width
     )
-    scripted_decoder = torch.jit.script(simple_vae_decoder_instance)
+    scripted_decoder = (simple_vae_decoder_instance)
 
     latent_sample = torch.randn(1, 4, 64, 64, device="cuda", dtype=torch.float16)
 
